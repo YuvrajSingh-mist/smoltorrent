@@ -267,12 +267,13 @@ def run_server():
             f"Received gradients from {curr_workers_len}/{WORLD_SIZE} participants."
         )
         if curr_workers_len < NUM_WORKERS:
-            logger.info(f"Waiting for more gradients...")
+            logger.info(f"Waiting for more rest of the workers to complete...")
             step_event.wait()
             step_event.clear()
         else:
             break
-        
+    
+    logger.info("All workers have been sent their shards!") 
 
 if __name__ == "__main__":
-    main()
+    run_server()

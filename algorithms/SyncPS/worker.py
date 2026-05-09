@@ -4,6 +4,7 @@ import socket
 from typing import Dict, List, Optional, Union
 import mlx.core as mx
 import logging
+import sys
 import yaml
 import subprocess
 from time import time
@@ -11,6 +12,7 @@ from time import time
 
 from networking.send_receive import receive_message, send_message
 from utils.common_utils import chunk_data, save_received_data_shard
+from utils.log_utils import setup_cluster_logging
 
 # Setup logging (will be replaced by setup_cluster_logging in run_syncps_server)
 logging.basicConfig(
@@ -237,7 +239,7 @@ def run_worker(worker_rank: int):
     send_message(sock, ("parameter_server_reduce", worker_rank, data_received[worker_rank]))
 
     # Receive updated weights from server
-    logger.info(f"[Step {step}] Waiting for model weights from server")
+    logger.info("Waiting for model weights from server")
     data_recv = receive_message(sock)
     command, recv_step, shard = data_recv
     logger.info(
@@ -256,5 +258,13 @@ def run_worker(worker_rank: int):
         },
         output_dir=f"{SHARD_SAVE_ROOT}/worker-{worker_rank}",
     )
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        raise SystemExit("Usage: python algorithms/SyncPS/worker.py <worker_rank>")
+    run_worker(int(sys.argv[1]))
+
+
 if __name__ == "__main__":
     main()
