@@ -52,11 +52,40 @@ def _collect_latest_node_shards(shard_root: Path) -> list[Path]:
     return shard_paths
 
 
+def _load_shard(path: Path) -> dict:
+    """Load a safetensors shard, returning mlx.core.array or torch.Tensor values
+    depending on what is actually saved in the file.
+
+    mlx.load on a safetensors file returns mlx.core.array values.
+    safetensors.torch.load_file returns torch.Tensor values.
+    We use mx.load here because the shards were created by mx.save_safetensors.
+    """
+    return mx.load(str(path))
+
+
+def _save_merged(weights: dict, path: Path) -> None:
+    """Save merged weights, picking the writer by inspecting the actual value type."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    first = next(iter(weights.values()), None)
+    if isinstance(first, mx.array):
+        mx.save_safetensors(str(path), weights)
+    else:
+        import torch
+        if isinstance(first, torch.Tensor):
+            from safetensors.torch import save_file
+            save_file(weights, str(path))
+        else:
+            raise TypeError(
+                f"Unsupported tensor type in merged weights: {type(first)}. "
+                "Expected mlx.core.array or torch.Tensor."
+            )
+
+
 def _gather_shards_to_master(shard_paths: list[Path], merged_weights_path: Path) -> Path:
     merged_weights = {}
 
     for shard_path in shard_paths:
-        shard = mx.load(str(shard_path))
+        shard = _load_shard(shard_path)
         overlapping_keys = set(merged_weights.keys()) & set(shard.keys())
         if overlapping_keys:
             overlap_preview = sorted(list(overlapping_keys))[:5]
@@ -65,8 +94,7 @@ def _gather_shards_to_master(shard_paths: list[Path], merged_weights_path: Path)
             )
         merged_weights.update(shard)
 
-    merged_weights_path.parent.mkdir(parents=True, exist_ok=True)
-    mx.save(str(merged_weights_path), merged_weights)
+    _save_merged(merged_weights, merged_weights_path)
     return merged_weights_path
 
 
@@ -112,7 +140,7 @@ def test_gather_all_node_shards_to_master_and_generate_text() -> None:
     if n_nodes <= 0:
         pytest.skip("num_workers must be > 0 to create node shards")
 
-    shard_root = ROOT / "test" / "received_shards"
+    shard_root = ROOT / "test" / "fixtures" / "received_shards"
     if shard_root.exists():
         shutil.rmtree(shard_root)
     shard_root.mkdir(parents=True, exist_ok=True)
@@ -127,10 +155,10 @@ def test_gather_all_node_shards_to_master_and_generate_text() -> None:
     gathered_shard_paths = _collect_latest_node_shards(shard_root)
     assert len(gathered_shard_paths) == n_nodes
 
-    merged_weights_path = ROOT / "test" / "master_gathered_artifacts" / "model.safetensors"
+    merged_weights_path = ROOT / "test" / "fixtures" / "master_gathered_artifacts" / "model.safetensors"
     _gather_shards_to_master(gathered_shard_paths, merged_weights_path)
 
-    master_model_dir = ROOT / "test" / "master_gathered_model"
+    master_model_dir = ROOT / "test" / "fixtures" / "master_gathered_model"
     _prepare_master_model_dir(source_model_dir, merged_weights_path, master_model_dir)
 
     model, tokenizer = load(str(master_model_dir))
@@ -146,3 +174,4 @@ def test_gather_all_node_shards_to_master_and_generate_text() -> None:
 
     assert isinstance(response, str)
     assert response.strip()
+    print(f"\n--- Generated response ---\n{response.strip()}\n--------------------------")

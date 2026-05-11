@@ -1,14 +1,15 @@
 from collections import defaultdict
 import threading
 import socket
-from typing import Dict, List, Optional, Union
-import mlx.core as mx
-import logging
 import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+import logging
 import yaml
 import subprocess
-from time import time
-
+import time
+# Ensure the parent directory is in the path for imports
+sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from networking.send_receive import receive_message, send_message
 from utils.common_utils import chunk_data, save_received_data_shard
@@ -18,8 +19,6 @@ from utils.log_utils import setup_cluster_logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("[SERVER]")
-
 
 with open("configs/config.yaml", "r") as f:
     config = yaml. safe_load(f)
@@ -27,64 +26,10 @@ with open("configs/config.yaml", "r") as f:
 
 NUM_WORKERS = config["num_workers"]
 WORLD_SIZE = NUM_WORKERS + 1  # Total participants including server
-HOST_IP = config["devices_config"]["master"]["ip"]
-PORT = config["devices_config"]["master"]["port"]
+HOST_IP = config["devices_config"]["master"][0]["ip"]
+PORT = config["devices_config"]["master"][0]["port"]
 SHARD_SAVE_ROOT = config.get("received_shards_dir", "shards/incoming_shards")
 
-def load_data(file_path: str) -> dict:
-    """Load data from a file."""
-    data = mx.load(file_path)
-    return data
-
-
-def handle_worker(
-    conn: socket.socket,
-    addr: tuple[str, int],
-    data_received: Optional[Union[Dict, List]],
-    step_event: threading.Event,
-    lock: threading.Lock,
-) -> None:
-    """Handle individual worker connections and gradient reception."""
-    logger.info(f"Handling worker at {addr}")
-
-    while True:
-        try:
-            message = receive_message(conn)
-
-            # Handle connection closed or empty message
-            if message is None:
-                # logger.info(f"Worker {addr} closed connection")
-                logger.warning(f"Received empty message from worker {addr}")
-                break
-
-            logger.debug(len(message))
-
-            command, recv_step, rank, grads = message
-
-            if command == "all_gather":
-                logger.info(
-                    f"Received message '{command}' from worker {addr} (rank {rank}) for step {recv_step}"
-                )
-                logger.info(f"[Step {recv_step}] Storing gradients from worker {rank}")
-
-                with lock:
-                    data_received[recv_step][rank] = grads
-                    logger.info(
-                        f"[Step {recv_step}] Now have {len(data_received[recv_step])} gradient sets"
-                    )
-
-                # reduced_grads = reduce(data_received[recv_step], len(data_received[recv_step]))
-                step_event.set()
-
-            elif command == "down":
-                logger.info(f"Worker {addr} requested shutdown")
-                break
-
-        except Exception as e:
-            logger.error(f"Error handling worker {addr}: {e}")
-            break
-    logger.info(f"Worker {addr} disconnected")
-    conn.close()
 
 
 def connect_to_server(
@@ -138,85 +83,115 @@ def connect_to_server(
 
 
 
-def accept_workers(
-    sock: socket.socket,
-    NUM_WORKERS: int,
-    workers: dict,
-    step_event: threading.Event,
-    lock: threading.Lock,
-    data_received: Optional[Union[Dict, List]] = None
+def _label_caller(addr: tuple) -> str:
+    caller_ip = addr[0]
+    master_ip = config["devices_config"]["master"][0]["ip"]
+    if caller_ip == master_ip:
+        return f"server/master ({caller_ip})"
+    worker_hosts = {w["ip"]: w.get("host") or w.get("device", "unknown") for w in config["devices_config"]["workers"]}
+    if caller_ip in worker_hosts:
+        return f"worker '{worker_hosts[caller_ip]}' ({caller_ip})"
+    return f"unknown caller ({caller_ip}:{addr[1]})"
+
+
+def _handle_shard_client(
+    conn: socket.socket,
+    addr: tuple,
+    shard_container: list,
+    shard_ready: threading.Event,
 ) -> None:
-    # Accept connections and wait for registration
-    expected_peers = max(NUM_WORKERS - 1, 0)
-    registered_workers = {}  # rank -> socket
-    while len(registered_workers) < expected_peers:
-        client_socket, client_address = sock.accept()
-        logger.info(f"Accepted connection from {client_address}")
+    caller = _label_caller(addr)
+    try:
+        shard_ready.wait(timeout=120)
+        msg = receive_message(conn)
+        if msg is None:
+            logger.warning(f"Empty message from {caller}")
+            return
+        command, _rank = msg
+        if command == "send_shard":
+            send_message(conn, shard_container[0])
+            logger.info(f"Served shard to {caller}")
+            
+        elif command == 'store_shard':
+            logger.info(f"Storing received shard for rank {worker_rank}")
+            save_received_data_shard(
+                shard=shard,
+                metadata={
+                    "role": "worker_received",
+                    "rank": worker_rank,
+                    "command": command,
+                    "source_host": HOST_IP,
+                    "source_port": PORT,
+                },
+                output_dir=f"{SHARD_SAVE_ROOT}/worker-{worker_rank}",
+            )
+        else:
+            logger.warning(f"Unknown command '{command}' from {caller}")
+    except Exception as e:
+        logger.error(f"Error serving shard to {caller}: {e}")
+    finally:
+        conn.close()
 
-        # Wait for registration message
+
+def _shard_listener(
+    port: int,
+    shard_container: list,
+    shard_ready: threading.Event,
+) -> None:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("0.0.0.0", port))
+    sock.listen()
+    logger.info(f"Shard listener ready on port {port}")
+    while True:
         try:
-            message = receive_message(client_socket)
-            if message is None:
-                logger.warning(
-                    f"Connection from {client_address} closed before registration"
-                )
-                client_socket.close()
-                break
-
-            command, worker_rank = message
-            if command == "register":
-                logger.info(f"Worker {worker_rank} registered from {client_address}")
-                registered_workers[worker_rank] = client_socket
-                workers[client_address] = client_socket
-                threading.Thread(
-                    target=handle_worker,
-                    args=(
-                        client_socket,
-                        client_address,
-                        workers,
-                        data_received,
-                        step_event,
-                        lock,
-                    
-                    ),
-                    daemon=True,
-                ).start()
-            else:
-                logger.warning(f"Unexpected message from {client_address}: {command}")
-                client_socket.close()
-                break
-
+            conn, addr = sock.accept()
+            logger.info(f"Incoming connection from {_label_caller(addr)}")
+            threading.Thread(
+                target=_handle_shard_client,
+                args=(conn, addr, shard_container, shard_ready),
+                daemon=True,
+            ).start()
         except Exception as e:
-            logger.error(f"Error during registration from {client_address}: {e}")
-            client_socket.close()
+            logger.error(f"Shard listener error: {e}")
             break
 
-    logger.info("All workers connected. Starting training...")
 
+def run_worker(worker_rank: int, hostname: str):
 
-
-def run_worker(worker_rank: int):
-     
-    global logger
+    logger = logging.getLogger(f"[WORKER-{worker_rank}]")
 
     # Configure centralized logging
     setup_cluster_logging(
         logger=logger,
-        component="server",
-        rank=None,
-        hostname=config["devices_config"]["master"]["ip"],
+        component="worker",
+        rank=worker_rank,
+        hostname=hostname,
         log_dir=config.get("log_dir", "/tmp/smolcluster-logs"),
         algorithm="syncps",
     )
     logger.info("Starting SmolTorrent...")
-    
+
      # Thread-safe data structures
     step_event = threading.Event()
     lock = threading.Lock()
     workers = {}
     outbound_worker_sockets = {}
     data_received = defaultdict(dict)
- 
+
+    # Start shard listener so the API can pull shards from this worker
+    my_config = next(
+        w for w in config["devices_config"]["workers"] if w["rank"] == worker_rank
+    )
+    my_port = my_config["port"]
+    shard_container: list = []
+    shard_ready = threading.Event()
+    threading.Thread(
+        target=_shard_listener,
+        args=(my_port, shard_container, shard_ready),
+        daemon=True,
+    ).start()
+
      # Connect to server
     sock = connect_to_server(HOST_IP, PORT)
 
@@ -229,41 +204,46 @@ def run_worker(worker_rank: int):
     )
 
     # Wait for start signal
-    logger.info("Waiting for start_training signal from server...")
+    logger.info("Waiting for start signal from server...")
     while True:
         recv_command = receive_message(sock)
-        if recv_command == "start_training":
-            logger.info("Received start_training command from server.")
+        if recv_command == "start":
+            logger.info("Received start command from server.")
             break
-    
-    send_message(sock, ("parameter_server_reduce", worker_rank, data_received[worker_rank]))
 
-    # Receive updated weights from server
-    logger.info("Waiting for model weights from server")
-    data_recv = receive_message(sock)
-    command, recv_step, shard = data_recv
-    logger.info(
-        f"Received '{command}' from server for step {recv_step}"
-    )
+    # Receive our assigned shard from the server
+    logger.info("Waiting for shard assignment from server...")
+    command, rank, shard = receive_message(sock)
+    logger.info(f"Received '{command}' for rank {rank} from server")
 
-    save_received_data_shard(
-        shard=shard,
-        metadata={
-            "role": "worker_received",
-            "rank": worker_rank,
-            "step": recv_step,
-            "command": command,
-            "source_host": HOST_IP,
-            "source_port": PORT,
-        },
-        output_dir=f"{SHARD_SAVE_ROOT}/worker-{worker_rank}",
-    )
+    # Make the shard available to the listener thread
+    shard_container.append(shard)
+    shard_ready.set()
 
+    while True:
+        if command == 'store_shard':
+            logger.info(f"Storing received shard for rank {worker_rank}")
+            save_received_data_shard(
+                shard=shard,
+                metadata={
+                    "role": "worker_received",
+                    "rank": worker_rank,
+                    "command": command,
+                    "source_host": HOST_IP,
+                    "source_port": PORT,
+                },
+                output_dir=f"{SHARD_SAVE_ROOT}/worker-{worker_rank}",
+            )
+        elif command == 'send_shard':
+            logger.info(f"Received shard to send back to server for rank {worker_rank}")
+            send_message(sock, ("send_shard", worker_rank, shard))
 
+        command = receive_message(sock)
+         
 def main() -> None:
-    if len(sys.argv) < 2:
-        raise SystemExit("Usage: python algorithms/SyncPS/worker.py <worker_rank>")
-    run_worker(int(sys.argv[1]))
+    if len(sys.argv) < 3:
+        raise SystemExit("Usage: python algorithms/SyncPS/worker.py <worker_rank> <hostname>")
+    run_worker(int(sys.argv[1]), sys.argv[2])
 
 
 if __name__ == "__main__":

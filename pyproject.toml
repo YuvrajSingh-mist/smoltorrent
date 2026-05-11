@@ -5,14 +5,24 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "mlx-lm>=0.31.3",
+    "fastapi>=0.115.0",
+    "python-multipart>=0.0.20",
+    "httpx>=0.28.0",
+    "mlx-lm>=0.31.3; sys_platform == 'darwin'",
+    "numpy>=2.4.4",
     "pyaml>=26.2.1",
     "pyyaml>=6.0.3",
     "safetensors>=0.7.0",
-    "torch>=2.11.0",
+    "torch[cpu]>=2.11.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: end-to-end tests that require model weights and a full cluster environment",
 ]

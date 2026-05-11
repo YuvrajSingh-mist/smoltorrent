@@ -1,21 +1,28 @@
 from collections import defaultdict
+import httpx
+from io import BytesIO
 import threading
 import socket
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional, Union
-import mlx.core as mx
 import logging
 import yaml
-from time import time
+import time
+from safetensors.torch import load_file as safetensors_load_file
+from safetensors.torch import save as st_save
+
+# Ensure the parent directory is in the path for imports
+sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import chunk_data, save_received_data_shard
+from utils.common_utils import chunk_data
 from utils.log_utils import setup_cluster_logging
 
 # Setup logging (will be replaced by setup_cluster_logging in run_syncps_server)
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("[SERVER]")
 
 with open("configs/config.yaml", "r") as f:
     config = yaml. safe_load(f)
@@ -27,9 +34,8 @@ SHARD_SAVE_ROOT = config.get("received_shards_dir", "shards/incoming_shards")
 
 
 def load_data(file_path: str) -> dict:
-    """Load data from a file."""
-    data = mx.load(file_path)
-    return data
+    """Load data from a safetensors file."""
+    return safetensors_load_file(file_path)
 
 
 def handle_worker(
@@ -56,24 +62,31 @@ def handle_worker(
 
             command, rank, data = message
 
-            if command == "parameter_server_reduce":
-                logger.info(f"Storing gradients from worker {rank}")
+            if command == "store_shard":
+                logger.info(f"Storing shard from worker {rank}")
                 with lock:
                     data_received[rank] = data
 
-                    save_received_data_shard(
-                        shard=data,
-                        metadata={
-                            "role": "server_received",
+                    buf = BytesIO()
+                    st_save(buf, data)
+                    buf.seek(0)
+                    resp = httpx.post(
+                        "http://localhost:8000/store-shard",
+                        data={
                             "rank": rank,
-                            "command": command,
+                            "role": "server_received",
+                            "host": str(addr[0]),
+                            "output_dir": f"{SHARD_SAVE_ROOT}/server/from-rank-{rank}",
                         },
-                        output_dir=f"{SHARD_SAVE_ROOT}/server/from-rank-{rank}",
+                        files={"file": ("shard.safetensors", buf, "application/octet-stream")},
+                        timeout=60.0,
                     )
-                    
-                    logger.info(
-                        f"Now have {len(data_received)} gradient sets"
-                    )
+                    if resp.is_success:
+                        logger.info("Stored shard from worker %d → %s", rank, resp.json()["shard_path"])
+                    else:
+                        logger.error("store-shard API failed for rank %d: %s", rank, resp.text)
+
+                    logger.info("Now have %d shard sets", len(data_received))
                 step_event.set()
 
             elif command == "down":
@@ -96,7 +109,7 @@ def accept_workers(
     data_received: Optional[Union[Dict, List]] = None
 ) -> None:
     # Accept connections and wait for registration
-    expected_peers = max(NUM_WORKERS - 1, 0)
+    expected_peers = max(NUM_WORKERS, 0)
     registered_workers = {}  # rank -> socket
     while len(registered_workers) < expected_peers:
         client_socket, client_address = sock.accept()
@@ -122,11 +135,9 @@ def accept_workers(
                     args=(
                         client_socket,
                         client_address,
-                        workers,
                         data_received,
                         step_event,
                         lock,
-                    
                     ),
                     daemon=True,
                 ).start()
@@ -140,20 +151,18 @@ def accept_workers(
             client_socket.close()
             break
 
-    logger.info("All workers connected. Starting training...")
-
+    logger.info("All workers connected.")
+    return registered_workers
 
 
 def run_server():
     
-    global logger
-
     # Configure centralized logging
     setup_cluster_logging(
         logger=logger,
         component="server",
         rank=None,
-        hostname=config["devices_config"]["master"]["ip"],
+        hostname=config["devices_config"]["master"][0]["host"],
         log_dir=config.get("log_dir", "/tmp/smolcluster-logs"),
         algorithm="syncps",
     )
@@ -171,12 +180,11 @@ def run_server():
     step_event = threading.Event()
     lock = threading.Lock()
     workers = {}
-    outbound_worker_sockets = {}
     data_received = defaultdict(dict)
 
     # Get my worker configuration from allToAllTopology
     workers_list = config["devices_config"]["workers"]
-    my_worker_config = config["devices_config"]["master"]
+    my_worker_config = config["devices_config"]["master"][0]
     my_port = my_worker_config["port"]
     worker_rank = my_worker_config["rank"]
     
@@ -188,52 +196,8 @@ def run_server():
     sock.listen()  # Allow multiple connections for worker registration
     logger.info(f"Worker {worker_rank} listening on port {my_port}")
 
-    # Step 2: Connect to next worker in linear topology (if not last worker)
-    max_retries = 30
-    retry_delay = 2
-
-    for _ in range(NUM_WORKERS - 1):
-        # Connect to next worker in the chain
-        next_worker = next(w for w in workers_list if w["rank"] != worker_rank)
-        next_ip = next_worker["ip"]
-        next_port = next_worker["port"]
-        del workers_list[
-            workers_list.index(next_worker)
-        ]  # Remove the next worker from the list to avoid duplicate connections
-
-        logger.info(
-            f"Worker {worker_rank} will connect to worker {worker_rank + 1} at {next_ip}:{next_port}"
-        )
-        time.sleep(worker_rank * 0.5)  # Stagger connections
-
-        for attempt in range(max_retries):
-            try:
-                next_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                next_sock.connect((next_ip, next_port))
-                send_message(next_sock, ("register", worker_rank))
-
-                logger.info(
-                    f"Worker {worker_rank} connected to worker {worker_rank + 1} at {next_ip}:{next_port}"
-                )
-                outbound_worker_sockets[next_worker["rank"]] = (
-                    next_sock  # This is important because this has the IP + PORT to which the nodes connected to it listen to which is what we have defined and not send stuff to the port we received through sock.accept()!
-                )
-                break
-            except ConnectionRefusedError:
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"Connection to worker {worker_rank + 1} refused (attempt {attempt + 1}/{max_retries} at IP: {next_ip}:{next_port}). "
-                        f"Retrying in {retry_delay}s..."
-                    )
-                    time.sleep(retry_delay)
-                else:
-                    logger.error(
-                        f"Failed to connect to worker {worker_rank + 1} after {max_retries} attempts"
-                    )
-                    raise
-
     # Step 3: Accept connection from all workers
-    accept_workers(
+    registered_workers = accept_workers(
         sock,
         NUM_WORKERS,
         workers=workers,
@@ -242,38 +206,31 @@ def run_server():
         lock=lock
     )
 
-    
+    logger.info(f"Registered workers: {list(registered_workers.keys())}")
+    logger.info("Sending start signal to all workers...")
     # Send start signal to all workers
-    for worker_socket in outbound_worker_sockets.values():
-        send_message(worker_socket, "start_training")
-
-    data_received[worker_rank] = chunked_data[worker_rank]  # Add my own data chunk to the received data for training loop
-    save_received_data_shard(
-        shard=chunked_data[worker_rank],
-        metadata={
-            "role": "server_local_rank",
-            "rank": worker_rank,
-            "source": "local_chunk",
-        },
-        output_dir=f"{SHARD_SAVE_ROOT}/server/from-rank-{worker_rank}",
-    )
+    for worker_socket in registered_workers.values():
+        send_message(worker_socket, "start")
+    logger.info("Start signal sent to all workers.")
     
-    # Wait for all workers
-    while True:
-        with lock:
-            curr_workers_len = len(data_received)
-
-        logger.info(
-            f"Received gradients from {curr_workers_len}/{WORLD_SIZE} participants."
-        )
-        if curr_workers_len < NUM_WORKERS:
-            logger.info(f"Waiting for more rest of the workers to complete...")
-            step_event.wait()
-            step_event.clear()
-        else:
-            break
+    # logger.info("Storing local shard for server's own rank")
+    # data_received[worker_rank] = chunked_data[worker_rank]  # Add my own data chunk to the received data for training loop
+    # save_received_data_shard(
+    #     shard=chunked_data[worker_rank],
+    #     metadata={
+    #         "role": "server_local_rank",
+    #         "rank": worker_rank,
+    #         "source": "local_chunk",
+    #     },
+    #     output_dir=f"{SHARD_SAVE_ROOT}/server/from-rank-{worker_rank}",
+    # )
     
-    logger.info("All workers have been sent their shards!") 
+    logger.info("Sending data shards to workers...")
+    for rank, worker_socket in registered_workers.items():
+        send_message(worker_socket, ("store_shard", rank, chunked_data[rank - 1])) # -1 for 0-indexing of chunked_data because of rank 0 being assigned to master which has no role to play here
+
+    logger.info("Data shards sent to all workers.")
+
 
 if __name__ == "__main__":
     run_server()

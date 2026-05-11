@@ -1,33 +1,36 @@
 # Configuration file for the data processing script
-data_path: test/mlx-community--SmolLM2-135M-Instruct/model.safetensors
-save_path: ~/Desktop/test/mlx-community--SmolLM2-135M-Instruct/model.safetensors
+data_path: test/fixtures/mlx-community--SmolLM2-135M-Instruct/model.safetensors
+save_path: ~/Desktop/received_model/mlx-community--SmolLM2-135M-Instruct/model.safetensors
 
 # Number of chunks to split the data into
 n_chunks: 10
 
 # Number of worker nodes in the distributed setup
-num_workers: 3
+num_workers: 4
 
 # Configuration for the devices in the distributed setup
 devices_config:
   master:
-    - host: pi4-1
-      ip: 100.68.124.90
+   -  host: localhost
+      ip: 100.78.120.114
       rank: 0
       port: 5000
-
   workers:
-    - device: pi4-2
-      ip: 100.79.150.107
+    - host: pi4-1
+      ip: 100.68.124.90
       rank: 1
       port: 5001
-    - device: pi4-3
-      ip: 100.105.164.35
+    - device: pi4-2
+      ip: 100.79.150.107
       rank: 2
       port: 5002
-    - device: pi4-4
-      ip: 100.77.162.23
+    - device: pi4-3
+      ip: 100.105.164.35
       rank: 3
       port: 5003
+    - device: pi4-4
+      ip: 100.77.162.23
+      rank: 4
+      port: 8004
 
 

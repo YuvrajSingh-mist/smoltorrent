@@ -5,7 +5,7 @@ and run a quick inference test using mlx-lm.
 
 from mlx_lm import load, generate
 
-MODEL_ID = "test/mlx-community--SmolLM2-135M-Instruct"
+MODEL_ID = "test/fixtures/mlx-community--SmolLM2-135M-Instruct"
 
 print(f"Loading model: {MODEL_ID}")
 model, tokenizer = load(MODEL_ID)
