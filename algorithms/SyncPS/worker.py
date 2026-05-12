@@ -29,7 +29,9 @@ NUM_WORKERS = config["num_workers"]
 WORLD_SIZE = NUM_WORKERS + 1  # Total participants including server
 HOST_IP = config["devices_config"]["master"][0]["ip"]
 PORT = config["devices_config"]["master"][0]["port"]
-SHARD_SAVE_ROOT = config.get("received_shards_dir", "shards/incoming_shards")
+_PROJECT_ROOT = Path(__file__).parents[2]
+SHARDS_ROOT = _PROJECT_ROOT / "shards" / "incoming_shards"
+_MODEL_NAME = Path(config.get("data_path", "model")).parent.name
 
 
 
@@ -62,9 +64,9 @@ def _handle_shard_client(
             return
         command, *_ = msg if isinstance(msg, tuple) else (msg,)
         if command == "heartbeat":
+            send_message(conn, "alive")
             logger.info(f"Heartbeat ack → {caller}")
         elif command == "send_shard":
-            shard_ready.wait(timeout=120)
             send_message(conn, shard_container[0])
             log_metrics(_network_metrics.get_metrics(), logger, "serve-shard-to-api")
             logger.info(f"Served shard to {caller}")
@@ -82,7 +84,7 @@ def _handle_shard_client(
                     "command": command,
                     "source_host": caller,
                 },
-                output_dir=f"{SHARD_SAVE_ROOT}/worker-received",
+                output_dir=SHARDS_ROOT / _MODEL_NAME / "worker-received",
             )
             logger.info(f"Stored shard received from {caller}")
             
@@ -248,7 +250,7 @@ def run_worker(worker_rank: int, hostname: str):
                     "source_host": HOST_IP,
                     "source_port": PORT,
                 },
-                output_dir=f"{SHARD_SAVE_ROOT}/worker-{worker_rank}",
+                output_dir=SHARDS_ROOT / _MODEL_NAME / f"worker-{worker_rank}",
             )
         elif command == 'send_shard':
             logger.info(f"Received shard to send back to server for rank {worker_rank}")

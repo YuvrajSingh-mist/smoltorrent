@@ -7,13 +7,13 @@ from pathlib import Path
 
 import uvicorn
 import yaml
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from safetensors.torch import load as st_load
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import merge_shards, save_merged_model, save_received_data_shard
+from utils.common_utils import merge_shards, model_id_to_dir_name, save_merged_model, save_received_data_shard
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +46,13 @@ def _connect_with_retry(ip: str, port: int, rank: int, retries: int = 3, delay: 
 
 
 @app.post("/gather-shards")
-def gather_shards():
+def gather_shards(model_id: str = Query(None, description="HuggingFace model ID, e.g. mlx-community/Qwen2.5-0.5B-Instruct-bf16")):
     config = _load_config()
     workers = config["devices_config"]["workers"]
-    model_name = Path(config.get("data_path", "model")).parent.name
+    if model_id:
+        model_name = model_id_to_dir_name(model_id)
+    else:
+        model_name = Path(config.get("data_path", "model")).parent.name
 
     gathered = []
     errors = []

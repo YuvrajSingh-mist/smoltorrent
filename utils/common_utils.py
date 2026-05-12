@@ -39,6 +39,15 @@ def _save_shard(shard: dict, path: str) -> None:
         )
 
 
+def model_id_to_dir_name(model_id: str) -> str:
+    """Convert a HuggingFace model ID to a safe directory name.
+
+    ``mlx-community/Qwen2.5-0.5B-Instruct-bf16``
+    →  ``mlx-community--Qwen2.5-0.5B-Instruct-bf16``
+    """
+    return model_id.replace("/", "--")
+
+
 def chunk_data(data, n_chunks: int = 10) -> dict:
     """Split data into chunks using torch."""
     data_chunks = {}

@@ -31,7 +31,7 @@ Master (macOS)
 | [uv](https://github.com/astral-sh/uv) | All nodes (auto-installed by launcher) |
 | tmux ≥ 3.0 | All nodes (auto-installed by launcher) |
 | [yq](https://github.com/mikefarah/yq) | Master only (config parsing) |
-| SSH key-based auth | Master → all workers |
+| SSH key-based auth | Master -> all workers |
 
 Platform notes:
 - `torch[cpu]` is used everywhere — no CUDA required
@@ -121,9 +121,16 @@ bash scripts/launch.sh --dry-run
 
 ### Trigger shard gather manually
 
+`main.py` runs three checks before calling the API:
+1. **Heartbeat** — TCP ping every worker; aborts if any are unreachable
+2. **Shard count** — SSHes to each worker and counts `.safetensors` files on disk
+3. **Gather** — only proceeds if all shards are present
+
 ```bash
-uv run main.py
-# → Gathered 4 shards → ~/Desktop/received_model/...
+uv run main.py --model-id mlx-community/SmolLM2-135M-Instruct
+# Checking heartbeats... all alive
+# Checking shards... 4/4 present
+# Gathered 4 shards -> ~/Desktop/smoltorrent/received_model/model.safetensors
 ```
 
 ### Monitor sessions
@@ -148,24 +155,28 @@ smoltorrent/
 ├── algorithms/
 │   └── SyncPS/
 │       ├── server.py           # Parameter server: loads model, shards it, accepts workers
-│       └── worker.py           # Worker: registers, receives shard, stores locally
+│       └── worker.py           # Worker: registers, receives shard, stores locally; handles heartbeat
 ├── backend/
-│   └── api.py                  # FastAPI REST API (port 8000) — gather-shards, store-shard
+│   ├── api.py                  # FastAPI REST API (port 8000) — /gather-shards, /store-shard
+│   └── README.md               # API endpoint reference
 ├── networking/
 │   └── send_receive.py         # Length-prefixed TCP messaging with bandwidth metrics
 ├── utils/
-│   ├── common_utils.py         # chunk_data(), save_received_data_shard(), _save_shard()
+│   ├── check_workers.py        # TCP heartbeat check against all configured workers
+│   ├── common_utils.py         # chunk_data(), save_received_data_shard(), model_id_to_dir_name()
 │   ├── log_utils.py            # Coloured per-component cluster logging
 │   └── network_metrics.py      # Send/recv bandwidth and latency tracking
 ├── scripts/
-│   └── launch.sh               # Full cluster orchestrator (rsync → deps → cleanup → launch)
+│   └── launch.sh               # Full cluster orchestrator (rsync -> deps -> cleanup -> launch)
 ├── test/
-│   ├── test_gather_shards_to_master.py   # Integration: gather shards → merge → infer
-│   ├── test_chunk_data.py
-│   └── test_smollm2.py
+│   ├── README.md               # Test marker reference and run commands
+│   ├── test_gather_cli.py      # Unit + SSH + API tests for main.py
+│   ├── test_gather_shards_to_master.py   # Integration: gather shards -> merge -> infer
+│   ├── test_chunk_data.py      # Unit tests for tensor sharding logic
+│   └── test_smollm2.py         # Smoke test: load fixture model and run inference
 ├── configs/
 │   └── config.yaml             # Cluster topology, model paths, worker count
-├── main.py                     # CLI: POST /gather-shards → print results
+├── main.py                     # CLI: heartbeat -> shard count -> POST /gather-shards
 └── pyproject.toml
 ```
 
@@ -191,12 +202,14 @@ smoltorrent/
 Each received shard is saved as:
 
 ```
-{received_shards_dir}/server/from-rank-{N}/
-  {model}__rank-{N}__{role}.safetensors
-  {model}__rank-{N}__{role}.safetensors.metadata.json
+shards/incoming_shards/
+  {model_name}/
+    worker-{rank}/
+      {model_name}_shard_{rank}.safetensors
+      {model_name}_shard_{rank}.safetensors.metadata.json
 ```
 
-The sidecar `.metadata.json` contains: `hostname`, `platform_machine`, `pid`, `saved_at_utc`, `rank`, `role`, and `config_path`. The filename stays short; metadata bloat goes in the JSON.
+`model_name` is the HF model ID with `/` replaced by `--` (e.g. `mlx-community--SmolLM2-135M-Instruct`). The sidecar `.metadata.json` contains: `hostname`, `platform_machine`, `pid`, `saved_at_utc`, `rank`, `role`, and `config_path`.
 
 ---
 

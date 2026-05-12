@@ -20,15 +20,15 @@ devices_config:
       ip: 100.68.124.90
       rank: 1
       port: 5001
-    - device: pi4-2
+    - host: pi4-2
       ip: 100.79.150.107
       rank: 2
       port: 5002
-    - device: pi4-3
+    - host: pi4-3
       ip: 100.105.164.35
       rank: 3
       port: 5003
-    - device: pi4-4
+    - host: pi4-4
       ip: 100.77.162.23
       rank: 4
       port: 8004

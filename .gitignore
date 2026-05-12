@@ -5,6 +5,9 @@ build/
 dist/
 wheels/
 *.egg-info
+shards/
+received_model/
+logging/
 
 # Virtual environments
 .venv

@@ -14,7 +14,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "safetensors>=0.7.0",
     "torch[cpu]>=2.11.0",
-    "uvicorn[standard]>=0.34.0",
+    "uvicorn[standard]>=0.34.0"
 ]
 
 [dependency-groups]
@@ -24,6 +24,9 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+addopts = "-m 'not ssh and not api'"
 markers = [
     "integration: end-to-end tests that require model weights and a full cluster environment",
+    "ssh: tests that SSH into live Pi workers via Fabric (requires cluster reachable)",
+    "api: tests that hit the real FastAPI server at API_BASE (requires server running)",
 ]

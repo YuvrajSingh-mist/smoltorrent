@@ -248,11 +248,11 @@ for host in "${UNIQUE_HOSTS[@]}"; do
     rsync -az \
         --exclude '.git' \
         --exclude '.venv' \
-        --exclude '../received_model' \
+        --exclude 'received_model' \
         --exclude '__pycache__' \
         --exclude '*.pyc' \
         --exclude 'test/fixtures' \
-        --exclude '../shards' \
+        --exclude 'shards' \
         --exclude 'logging/cluster-logs' \
         "$PROJECT_DIR/" "$host:$REMOTE_PROJECT_DIR/"
 done

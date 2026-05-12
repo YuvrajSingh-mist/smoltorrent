@@ -145,7 +145,7 @@ def cluster_shards():
     if n_nodes <= 0:
         pytest.skip("num_workers must be > 0 to create node shards")
 
-    shard_root = ROOT / "test" / "fixtures" / "received_shards"
+    shard_root = ROOT / "shards" / "incoming_shards"
     if shard_root.exists():
         shutil.rmtree(shard_root)
     shard_root.mkdir(parents=True, exist_ok=True)
@@ -213,12 +213,10 @@ def test_gather_all_node_shards_to_master_and_generate_text(cluster_shards) -> N
 
     assert len(gathered_shard_paths) == n_nodes
 
-    merged_weights_path = (
-        ROOT / "test" / "fixtures" / "master_gathered_artifacts" / "model.safetensors"
-    )
+    merged_weights_path = ROOT / "shards" / "merged.safetensors"
     _gather_shards_to_master(gathered_shard_paths, merged_weights_path)
 
-    master_model_dir = ROOT / "test" / "fixtures" / "master_gathered_model"
+    master_model_dir = ROOT / "received_model"
     _prepare_master_model_dir(source_model_dir, merged_weights_path, master_model_dir)
 
     model, tokenizer = load(str(master_model_dir))
