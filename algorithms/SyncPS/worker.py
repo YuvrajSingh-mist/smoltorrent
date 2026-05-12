@@ -62,7 +62,6 @@ def _handle_shard_client(
             return
         command, *_ = msg if isinstance(msg, tuple) else (msg,)
         if command == "heartbeat":
-            send_message(conn, "alive")
             logger.info(f"Heartbeat ack → {caller}")
         elif command == "send_shard":
             shard_ready.wait(timeout=120)

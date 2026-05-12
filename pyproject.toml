@@ -23,6 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 markers = [
     "integration: end-to-end tests that require model weights and a full cluster environment",
 ]

@@ -2,7 +2,6 @@ import logging
 import json
 import os
 import platform
-import shutil
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,7 +64,7 @@ def chunk_data(data, n_chunks: int = 10) -> dict:
 def save_received_data_shard(
     shard: Any,
     metadata: Optional[Mapping[str, Any]] = None,
-    output_dir: Optional[str] = None,
+    output_dir: Optional[str | Path] = None,
     config_path: Optional[str] = None,
 ) -> tuple[str, str]:
     """Save a received shard using config ``save_path`` + metadata.
@@ -99,11 +98,12 @@ def save_received_data_shard(
     extension = "".join(base_path.suffixes)
     base_name = base_path.name[: -len(extension)] if extension else base_path.name
 
-    # Filename: <model>__rank-<n>__<role>.safetensors
-    role = metadata.get("role", "shard") if metadata else "shard"
+    # Filename: {model_name}_shard_{rank}.safetensors
     rank = metadata.get("rank", "") if metadata else ""
-    rank_part = f"rank-{rank}__" if rank != "" else ""
-    shard_filename = f"{base_name}__{rank_part}{role}{extension}"
+    data_path_str = config.get("data_path", "")
+    model_name = Path(data_path_str).parent.name if data_path_str else base_name
+    rank_suffix = f"_shard_{rank}" if rank != "" else ""
+    shard_filename = f"{model_name}{rank_suffix}{extension}"
     shard_path = destination_dir / shard_filename
 
     # Full metadata only goes into the sidecar JSON, not the filename.
@@ -135,41 +135,19 @@ def save_received_data_shard(
 
 
 def merge_shards(shards: list[dict]) -> dict:
-    """Merge a list of weight-shard dicts into a single weights dict."""
+    """Merge a list of weight-shard dicts into one."""
     merged = {}
     for shard in shards:
         merged.update(shard)
     return merged
 
 
-def save_full_model(
-    merged_weights: dict,
-    source_model_dir: str | Path,
-    save_path: str | Path,
-) -> Path:
-    """Save merged weights + companion files (config, tokenizer, etc.) to save_path.
-
-    Writes model.safetensors (pytorch or mlx depending on tensor type) and copies
-    every non-weight file from source_model_dir alongside it.
-    """
-    source = Path(source_model_dir).expanduser()
+def save_merged_model(merged_weights: dict, save_path: str | Path) -> Path:
+    """Save merged weights as a single safetensors file."""
     dest = Path(save_path).expanduser()
-    dest.mkdir(parents=True, exist_ok=True)
-
-    # Copy companion files — skip weight files, we're writing those ourselves
-    _WEIGHT_SUFFIXES = {".safetensors"}
-    for src_file in source.iterdir():
-        if src_file.suffix in _WEIGHT_SUFFIXES or src_file.name.endswith(".index.json"):
-            continue
-        dst_file = dest / src_file.name
-        shutil.copy2(src_file, dst_file)
-        logger.info("Copied %s → %s", src_file.name, dst_file)
-
-    # Save merged weights
-    weights_path = dest / "model.safetensors"
-    _save_shard(merged_weights, str(weights_path))
-    logger.info("Saved merged model weights → %s", weights_path)
-
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _save_shard(merged_weights, str(dest))
+    logger.info("Saved merged model → %s", dest)
     return dest
 
 

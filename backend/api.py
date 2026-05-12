@@ -13,13 +13,14 @@ from safetensors.torch import load as st_load
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import merge_shards, save_full_model, save_received_data_shard
+from utils.common_utils import merge_shards, save_merged_model, save_received_data_shard
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SmolTorrent Shard API")
 
 CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
+SHARDS_ROOT = Path(__file__).parents[1] / "shards" / "incoming_shards"
 
 
 def _load_config() -> dict:
@@ -48,7 +49,7 @@ def _connect_with_retry(ip: str, port: int, rank: int, retries: int = 3, delay: 
 def gather_shards():
     config = _load_config()
     workers = config["devices_config"]["workers"]
-    shard_save_root = config.get("received_shards_dir", "shards/incoming_shards")
+    model_name = Path(config.get("data_path", "model")).parent.name
 
     gathered = []
     errors = []
@@ -68,7 +69,7 @@ def gather_shards():
             shard_path, _ = save_received_data_shard(
                 shard=shard,
                 metadata={"rank": rank, "role": "gathered", "host": host},
-                output_dir=f"{shard_save_root}/gathered/from-rank-{rank}",
+                output_dir=SHARDS_ROOT / model_name / f"worker-{rank}",
             )
             gathered.append({"rank": rank, "host": host, "shard_path": shard_path, "_shard": shard})
 
@@ -81,15 +82,11 @@ def gather_shards():
             detail={"gathered": gathered, "errors": errors},
         )
 
-    # Merge all shards and save the full model to save_path
     save_path = config.get("save_path")
-    source_model_dir = Path(config["data_path"]).expanduser().parent
-    all_shards = [entry["_shard"] for entry in gathered]
-    merged = merge_shards(all_shards)
-    save_full_model(merged, source_model_dir, save_path)
-    logger.info("Full model saved → %s", save_path)
+    merged = merge_shards([entry["_shard"] for entry in gathered])
+    save_merged_model(merged, save_path)
+    logger.info("Merged model saved → %s", save_path)
 
-    # Strip internal _shard key before returning
     for entry in gathered:
         entry.pop("_shard", None)
 
@@ -105,8 +102,8 @@ async def store_shard(
     file: UploadFile = File(...),
 ):
     config = _load_config()
-    shard_save_root = config.get("received_shards_dir", "shards/incoming_shards")
-    dest = output_dir or f"{shard_save_root}/api/from-rank-{rank}"
+    model_name = Path(config.get("data_path", "model")).parent.name
+    dest: Path = Path(output_dir) if output_dir else SHARDS_ROOT / model_name / f"worker-{rank}"
 
     data = await file.read()
     shard = st_load(BytesIO(data))

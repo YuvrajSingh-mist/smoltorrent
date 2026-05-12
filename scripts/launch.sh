@@ -248,10 +248,11 @@ for host in "${UNIQUE_HOSTS[@]}"; do
     rsync -az \
         --exclude '.git' \
         --exclude '.venv' \
+        --exclude '../received_model' \
         --exclude '__pycache__' \
         --exclude '*.pyc' \
         --exclude 'test/fixtures' \
-        --exclude 'shards' \
+        --exclude '../shards' \
         --exclude 'logging/cluster-logs' \
         "$PROJECT_DIR/" "$host:$REMOTE_PROJECT_DIR/"
 done
@@ -310,7 +311,7 @@ if [[ "$API_ONLY" == "true" ]]; then
     if [[ -x "$PROJECT_DIR/.venv/bin/python" ]]; then
         PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
     fi
-    if ! "$PYTHON_BIN" "$SCRIPT_DIR/check_workers.py"; then
+    if ! "$PYTHON_BIN" "$PROJECT_DIR/utils/check_workers.py"; then
         err "Worker heartbeat check failed. Not launching API."
         exit 1
     fi

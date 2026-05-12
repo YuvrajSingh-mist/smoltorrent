@@ -23,6 +23,7 @@ from utils.log_utils import setup_cluster_logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+logger = logging.getLogger("[SERVER]")
 
 with open("configs/config.yaml", "r") as f:
     config = yaml. safe_load(f)
@@ -213,18 +214,7 @@ def run_server():
         send_message(worker_socket, "start")
     logger.info("Start signal sent to all workers.")
     
-    # logger.info("Storing local shard for server's own rank")
-    # data_received[worker_rank] = chunked_data[worker_rank]  # Add my own data chunk to the received data for training loop
-    # save_received_data_shard(
-    #     shard=chunked_data[worker_rank],
-    #     metadata={
-    #         "role": "server_local_rank",
-    #         "rank": worker_rank,
-    #         "source": "local_chunk",
-    #     },
-    #     output_dir=f"{SHARD_SAVE_ROOT}/server/from-rank-{worker_rank}",
-    # )
-    
+  
     logger.info("Sending data shards to workers...")
     for rank, worker_socket in registered_workers.items():
         send_message(worker_socket, ("store_shard", rank, chunked_data[rank - 1])) # -1 for 0-indexing of chunked_data because of rank 0 being assigned to master which has no role to play here
