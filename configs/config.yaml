@@ -1,6 +1,6 @@
 # Configuration file for the data processing script
 data_path: test/fixtures/mlx-community--SmolLM2-135M-Instruct/model.safetensors
-save_path: ~/Desktop/received_model/mlx-community--SmolLM2-135M-Instruct/model.safetensors
+save_path: ~/Desktop/smoltorrent/received_model/mlx-community--SmolLM2-135M-Instruct/
 
 # Number of chunks to split the data into
 n_chunks: 10

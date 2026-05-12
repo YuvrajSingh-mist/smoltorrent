@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import platform
+import shutil
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -131,6 +132,45 @@ def save_received_data_shard(
 
     logger.info("Saved shard to %s with metadata %s", shard_path, metadata_path)
     return str(shard_path), str(metadata_path)
+
+
+def merge_shards(shards: list[dict]) -> dict:
+    """Merge a list of weight-shard dicts into a single weights dict."""
+    merged = {}
+    for shard in shards:
+        merged.update(shard)
+    return merged
+
+
+def save_full_model(
+    merged_weights: dict,
+    source_model_dir: str | Path,
+    save_path: str | Path,
+) -> Path:
+    """Save merged weights + companion files (config, tokenizer, etc.) to save_path.
+
+    Writes model.safetensors (pytorch or mlx depending on tensor type) and copies
+    every non-weight file from source_model_dir alongside it.
+    """
+    source = Path(source_model_dir).expanduser()
+    dest = Path(save_path).expanduser()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Copy companion files — skip weight files, we're writing those ourselves
+    _WEIGHT_SUFFIXES = {".safetensors"}
+    for src_file in source.iterdir():
+        if src_file.suffix in _WEIGHT_SUFFIXES or src_file.name.endswith(".index.json"):
+            continue
+        dst_file = dest / src_file.name
+        shutil.copy2(src_file, dst_file)
+        logger.info("Copied %s → %s", src_file.name, dst_file)
+
+    # Save merged weights
+    weights_path = dest / "model.safetensors"
+    _save_shard(merged_weights, str(weights_path))
+    logger.info("Saved merged model weights → %s", weights_path)
+
+    return dest
 
 
 def main():

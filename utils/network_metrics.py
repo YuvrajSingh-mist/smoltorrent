@@ -1,4 +1,29 @@
+import logging
 import time
+
+
+def log_metrics(metrics: dict, logger: logging.Logger, label: str) -> None:
+    if not metrics:
+        return
+    parts = []
+    if "total_send_mb" in metrics:
+        parts.append(
+            f"sent {metrics['total_send_mb']:.2f} MB"
+            f" @ {metrics['send_bandwidth_mbps']:.2f} Mbps"
+            f" (avg latency {metrics['avg_send_latency_ms']:.1f} ms)"
+        )
+    if "total_recv_mb" in metrics:
+        parts.append(
+            f"recv {metrics['total_recv_mb']:.2f} MB"
+            f" @ {metrics['recv_bandwidth_mbps']:.2f} Mbps"
+            f" (avg latency {metrics['avg_recv_latency_ms']:.1f} ms)"
+        )
+    if "avg_buffer_size_kb" in metrics:
+        parts.append(
+            f"avg buf {metrics['avg_buffer_size_kb']:.1f} KB"
+            f" / max {metrics['max_buffer_size_kb']:.1f} KB"
+        )
+    logger.info(f"[net/{label}] " + " | ".join(parts))
 
 
 class NetworkMetrics:

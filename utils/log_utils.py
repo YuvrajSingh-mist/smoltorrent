@@ -223,6 +223,15 @@ def setup_cluster_logging(
     )
 
 
+def log_shard_progress(logger: logging.Logger, gathered: list, errors: list) -> None:
+    total = len(gathered) + len(errors)
+    logger.info(f"Gathered {len(gathered)}/{total} shards")
+    for s in gathered:
+        logger.info(f"  ✓ rank {s['rank']} ({s['host']})  →  {s['shard_path']}")
+    for e in errors:
+        logger.error(f"  ✗ rank {e['rank']} ({e['host']}): {e['error']}")
+
+
 def log_step(logger: logging.Logger, step: int, message: str, level: int = logging.INFO) -> None:
     logger.log(level, "step:%d | %s", step, message)
 

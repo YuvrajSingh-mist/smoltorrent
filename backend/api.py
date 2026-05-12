@@ -13,7 +13,7 @@ from safetensors.torch import load as st_load
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import save_received_data_shard
+from utils.common_utils import merge_shards, save_full_model, save_received_data_shard
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def gather_shards():
                 metadata={"rank": rank, "role": "gathered", "host": host},
                 output_dir=f"{shard_save_root}/gathered/from-rank-{rank}",
             )
-            gathered.append({"rank": rank, "host": host, "shard_path": shard_path})
+            gathered.append({"rank": rank, "host": host, "shard_path": shard_path, "_shard": shard})
 
         except Exception as e:
             errors.append({"rank": rank, "host": host, "error": str(e)})
@@ -81,7 +81,19 @@ def gather_shards():
             detail={"gathered": gathered, "errors": errors},
         )
 
-    return {"gathered": gathered, "save_path": config.get("save_path")}
+    # Merge all shards and save the full model to save_path
+    save_path = config.get("save_path")
+    source_model_dir = Path(config["data_path"]).expanduser().parent
+    all_shards = [entry["_shard"] for entry in gathered]
+    merged = merge_shards(all_shards)
+    save_full_model(merged, source_model_dir, save_path)
+    logger.info("Full model saved → %s", save_path)
+
+    # Strip internal _shard key before returning
+    for entry in gathered:
+        entry.pop("_shard", None)
+
+    return {"gathered": gathered, "save_path": save_path}
 
 
 @app.post("/store-shard")

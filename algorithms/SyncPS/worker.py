@@ -11,9 +11,10 @@ import time
 # Ensure the parent directory is in the path for imports
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
-from networking.send_receive import receive_message, send_message
+from networking.send_receive import receive_message, send_message, _network_metrics
 from utils.common_utils import chunk_data, save_received_data_shard
 from utils.log_utils import setup_cluster_logging
+from utils.network_metrics import log_metrics
 
 # Setup logging (will be replaced by setup_cluster_logging in run_syncps_server)
 logging.basicConfig(
@@ -32,63 +33,15 @@ SHARD_SAVE_ROOT = config.get("received_shards_dir", "shards/incoming_shards")
 
 
 
-def connect_to_server(
-    host: str, port: int, max_retries: int = 60, retry_delay: float = 3.0
-) -> socket.socket:
-    """Connect to server with retry logic."""
-    # Ping to warm up ARP cache (especially important for WiFi networks)
-    logger.info(f"Warming up ARP cache by pinging {host}...")
-    try:
-        subprocess.run(
-            ["ping", "-c", "3", "-W", "1000", host], capture_output=True, timeout=10
-        )
-    except Exception as e:
-        logger.warning(f"ARP warmup ping failed: {e}")
-
-    for attempt in range(max_retries):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(10)  # 10 second timeout for connection
-        try:
-            sock.connect((host, port))
-            sock.settimeout(None)  # Remove timeout after connection
-            logger.info(
-                f"Connected to server at {host}:{port} on attempt {attempt + 1}"
-            )
-            return sock
-        except (OSError, ConnectionRefusedError, socket.timeout) as e:
-            sock.close()  # Close the failed socket
-            # Re-ping every 5 attempts to keep ARP fresh
-            if attempt > 0 and attempt % 5 == 0:
-                logger.info(f"Re-pinging {host} to refresh ARP cache...")
-                try:
-                    subprocess.run(
-                        ["ping", "-c", "2", "-W", "1000", host],
-                        capture_output=True,
-                        timeout=5,
-                    )
-                except Exception:
-                    pass
-            if attempt < max_retries - 1:
-                logger.warning(
-                    f"Connection attempt {attempt + 1}/{max_retries} failed: {e}. Retrying in {retry_delay}s..."
-                )
-                time.sleep(retry_delay)
-            else:
-                logger.error(
-                    f"Failed to connect to server after {max_retries} attempts"
-                )
-                raise
-    # This should never be reached, but just in case
-    raise RuntimeError("Failed to connect to server")
-
-
-
 def _label_caller(addr: tuple) -> str:
     caller_ip = addr[0]
     master_ip = config["devices_config"]["master"][0]["ip"]
     if caller_ip == master_ip:
         return f"server/master ({caller_ip})"
-    worker_hosts = {w["ip"]: w.get("host") or w.get("device", "unknown") for w in config["devices_config"]["workers"]}
+    worker_hosts = {
+        w["ip"]: w.get("host") or w.get("device", "unknown")
+        for w in config["devices_config"]["workers"]
+    }
     if caller_ip in worker_hosts:
         return f"worker '{worker_hosts[caller_ip]}' ({caller_ip})"
     return f"unknown caller ({caller_ip}:{addr[1]})"
@@ -99,32 +52,41 @@ def _handle_shard_client(
     addr: tuple,
     shard_container: list,
     shard_ready: threading.Event,
+    logger: logging.Logger,
 ) -> None:
     caller = _label_caller(addr)
     try:
-        shard_ready.wait(timeout=120)
         msg = receive_message(conn)
         if msg is None:
             logger.warning(f"Empty message from {caller}")
             return
-        command, _rank = msg
-        if command == "send_shard":
+        command, *_ = msg if isinstance(msg, tuple) else (msg,)
+        if command == "heartbeat":
+            send_message(conn, "alive")
+            logger.info(f"Heartbeat ack → {caller}")
+        elif command == "send_shard":
+            shard_ready.wait(timeout=120)
             send_message(conn, shard_container[0])
+            log_metrics(_network_metrics.get_metrics(), logger, "serve-shard-to-api")
             logger.info(f"Served shard to {caller}")
             
-        elif command == 'store_shard':
-            logger.info(f"Storing received shard for rank {worker_rank}")
+        elif command == "store_shard":
+            shard = msg[2] if len(msg) > 2 else None
+            if shard is None:
+                logger.warning(f"No shard data provided in store_shard command from {caller}")
+                return
             save_received_data_shard(
                 shard=shard,
                 metadata={
                     "role": "worker_received",
-                    "rank": worker_rank,
+                    "rank": None,
                     "command": command,
-                    "source_host": HOST_IP,
-                    "source_port": PORT,
+                    "source_host": caller,
                 },
-                output_dir=f"{SHARD_SAVE_ROOT}/worker-{worker_rank}",
+                output_dir=f"{SHARD_SAVE_ROOT}/worker-received",
             )
+            logger.info(f"Stored shard received from {caller}")
+            
         else:
             logger.warning(f"Unknown command '{command}' from {caller}")
     except Exception as e:
@@ -137,24 +99,77 @@ def _shard_listener(
     port: int,
     shard_container: list,
     shard_ready: threading.Event,
+    logger: logging.Logger,
 ) -> None:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("0.0.0.0", port))
-    sock.listen()
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", port))
+    srv.listen()
     logger.info(f"Shard listener ready on port {port}")
     while True:
         try:
-            conn, addr = sock.accept()
+            conn, addr = srv.accept()
             logger.info(f"Incoming connection from {_label_caller(addr)}")
             threading.Thread(
                 target=_handle_shard_client,
-                args=(conn, addr, shard_container, shard_ready),
+                args=(conn, addr, shard_container, shard_ready, logger),
                 daemon=True,
             ).start()
         except Exception as e:
             logger.error(f"Shard listener error: {e}")
             break
+
+
+def connect_to_server(
+    host: str, port: int, max_retries: int = 60, retry_delay: float = 3.0
+) -> socket.socket:
+    _log = logging.getLogger(__name__)
+    # Ping to warm up ARP cache (especially important for WiFi networks)
+    _log.info(f"Warming up ARP cache by pinging {host}...")
+    try:
+        subprocess.run(
+            ["ping", "-c", "3", "-W", "1000", host], capture_output=True, timeout=10
+        )
+    except Exception as e:
+        _log.warning(f"ARP warmup ping failed: {e}")
+
+    for attempt in range(max_retries):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10)  # 10 second timeout for connection
+        try:
+            sock.connect((host, port))
+            sock.settimeout(None)  # Remove timeout after connection
+            _log.info(
+                f"Connected to server at {host}:{port} on attempt {attempt + 1}"
+            )
+            return sock
+        except (OSError, ConnectionRefusedError, socket.timeout) as e:
+            sock.close()  # Close the failed socket
+            # Re-ping every 5 attempts to keep ARP fresh
+            if attempt > 0 and attempt % 5 == 0:
+                _log.info(f"Re-pinging {host} to refresh ARP cache...")
+                try:
+                    subprocess.run(
+                        ["ping", "-c", "2", "-W", "1000", host],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+            if attempt < max_retries - 1:
+                _log.warning(
+                    f"Connection attempt {attempt + 1}/{max_retries} failed: {e}. Retrying in {retry_delay}s..."
+                )
+                time.sleep(retry_delay)
+            else:
+                _log.error(
+                    f"Failed to connect to server after {max_retries} attempts"
+                )
+                raise
+    # This should never be reached, but just in case
+    raise RuntimeError("Failed to connect to server")
+
+
 
 
 def run_worker(worker_rank: int, hostname: str):
@@ -188,7 +203,7 @@ def run_worker(worker_rank: int, hostname: str):
     shard_ready = threading.Event()
     threading.Thread(
         target=_shard_listener,
-        args=(my_port, shard_container, shard_ready),
+        args=(my_port, shard_container, shard_ready, logger),
         daemon=True,
     ).start()
 
@@ -198,6 +213,7 @@ def run_worker(worker_rank: int, hostname: str):
     # Register with server
     logger.info(f"Registering as worker {worker_rank} with server...")
     send_message(sock, ("register", worker_rank))
+    log_metrics(_network_metrics.get_metrics(), logger, "register")
 
     logger.info(
         f"Worker {worker_rank} connected to server at {HOST_IP}:{PORT}"
@@ -215,6 +231,7 @@ def run_worker(worker_rank: int, hostname: str):
     logger.info("Waiting for shard assignment from server...")
     command, rank, shard = receive_message(sock)
     logger.info(f"Received '{command}' for rank {rank} from server")
+    log_metrics(_network_metrics.get_metrics(), logger, f"recv-shard-rank{rank}")
 
     # Make the shard available to the listener thread
     shard_container.append(shard)
