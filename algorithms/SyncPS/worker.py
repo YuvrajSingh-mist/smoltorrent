@@ -1,18 +1,14 @@
-from collections import defaultdict
 import threading
 import socket
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 import logging
 import yaml
-import subprocess
-import time
 # Ensure the parent directory is in the path for imports
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from networking.send_receive import receive_message, send_message, _network_metrics
-from utils.common_utils import chunk_data, save_received_data_shard
+from utils.common_utils import compute_checksum, load_tensors, save_received_data_shard, shard_from_bytes, shard_to_bytes
 from utils.log_utils import setup_cluster_logging
 from utils.network_metrics import log_metrics
 
@@ -22,7 +18,7 @@ logging.basicConfig(
 )
 
 with open("configs/config.yaml", "r") as f:
-    config = yaml. safe_load(f)
+    config = yaml.safe_load(f)
 
 
 NUM_WORKERS = config["num_workers"]
@@ -52,8 +48,6 @@ def _label_caller(addr: tuple) -> str:
 def _handle_shard_client(
     conn: socket.socket,
     addr: tuple,
-    shard_container: list,
-    shard_ready: threading.Event,
     logger: logging.Logger,
 ) -> None:
     caller = _label_caller(addr)
@@ -66,28 +60,44 @@ def _handle_shard_client(
         if command == "heartbeat":
             send_message(conn, "alive")
             logger.info(f"Heartbeat ack → {caller}")
+
         elif command == "send_shard":
-            send_message(conn, shard_container[0])
+            rank = msg[1] if len(msg) > 1 else None
+            shard_dir = SHARDS_ROOT / _MODEL_NAME / f"worker-{rank}"
+            existing = sorted(shard_dir.glob("*.safetensors")) if shard_dir.exists() else []
+            if not existing:
+                logger.warning(f"No shard on disk for rank {rank} at {shard_dir}, cannot serve to {caller}")
+                return
+            logger.info(f"Loading shard from disk for rank {rank}: {existing[0]}")
+            shard_bytes = shard_to_bytes(load_tensors(existing[0]))
+            send_message(conn, shard_bytes)
             log_metrics(_network_metrics.get_metrics(), logger, "serve-shard-to-api")
             logger.info(f"Served shard to {caller}")
-            
+
         elif command == "store_shard":
-            shard = msg[2] if len(msg) > 2 else None
-            if shard is None:
-                logger.warning(f"No shard data provided in store_shard command from {caller}")
+            _, rank, shard_bytes, received_checksum = msg
+            if shard_bytes is None:
+                logger.warning(f"No shard data in store_shard from {caller}")
+                send_message(conn, ("store_shard_failed", rank, "no shard data"))
                 return
-            save_received_data_shard(
+            if received_checksum is not None:
+                if compute_checksum(shard_bytes) != received_checksum:
+                    logger.error(f"Checksum mismatch for rank {rank} from {caller}")
+                    send_message(conn, ("store_shard_failed", rank, "checksum mismatch"))
+                    return
+            shard = shard_from_bytes(shard_bytes)
+            shard_path, metadata_path, ok, err = save_received_data_shard(
                 shard=shard,
-                metadata={
-                    "role": "worker_received",
-                    "rank": None,
-                    "command": command,
-                    "source_host": caller,
-                },
-                output_dir=SHARDS_ROOT / _MODEL_NAME / "worker-received",
+                metadata={"role": "worker_received", "rank": rank, "source_host": caller},
+                output_dir=SHARDS_ROOT / _MODEL_NAME / f"worker-{rank}",
             )
-            logger.info(f"Stored shard received from {caller}")
-            
+            if ok:
+                logger.info(f"Stored shard for rank {rank} from {caller} → {shard_path}")
+                send_message(conn, ("store_shard_done", rank, shard_path, metadata_path))
+            else:
+                logger.error(f"Failed to save shard for rank {rank}: {err}")
+                send_message(conn, ("store_shard_failed", rank, err))
+
         else:
             logger.warning(f"Unknown command '{command}' from {caller}")
     except Exception as e:
@@ -96,12 +106,7 @@ def _handle_shard_client(
         conn.close()
 
 
-def _shard_listener(
-    port: int,
-    shard_container: list,
-    shard_ready: threading.Event,
-    logger: logging.Logger,
-) -> None:
+def _shard_listener(port: int, logger: logging.Logger) -> None:
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
@@ -113,64 +118,12 @@ def _shard_listener(
             logger.info(f"Incoming connection from {_label_caller(addr)}")
             threading.Thread(
                 target=_handle_shard_client,
-                args=(conn, addr, shard_container, shard_ready, logger),
+                args=(conn, addr, logger),
                 daemon=True,
             ).start()
         except Exception as e:
             logger.error(f"Shard listener error: {e}")
             break
-
-
-def connect_to_server(
-    host: str, port: int, max_retries: int = 60, retry_delay: float = 3.0
-) -> socket.socket:
-    _log = logging.getLogger(__name__)
-    # Ping to warm up ARP cache (especially important for WiFi networks)
-    _log.info(f"Warming up ARP cache by pinging {host}...")
-    try:
-        subprocess.run(
-            ["ping", "-c", "3", "-W", "1000", host], capture_output=True, timeout=10
-        )
-    except Exception as e:
-        _log.warning(f"ARP warmup ping failed: {e}")
-
-    for attempt in range(max_retries):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(10)  # 10 second timeout for connection
-        try:
-            sock.connect((host, port))
-            sock.settimeout(None)  # Remove timeout after connection
-            _log.info(
-                f"Connected to server at {host}:{port} on attempt {attempt + 1}"
-            )
-            return sock
-        except (OSError, ConnectionRefusedError, socket.timeout) as e:
-            sock.close()  # Close the failed socket
-            # Re-ping every 5 attempts to keep ARP fresh
-            if attempt > 0 and attempt % 5 == 0:
-                _log.info(f"Re-pinging {host} to refresh ARP cache...")
-                try:
-                    subprocess.run(
-                        ["ping", "-c", "2", "-W", "1000", host],
-                        capture_output=True,
-                        timeout=5,
-                    )
-                except Exception:
-                    pass
-            if attempt < max_retries - 1:
-                _log.warning(
-                    f"Connection attempt {attempt + 1}/{max_retries} failed: {e}. Retrying in {retry_delay}s..."
-                )
-                time.sleep(retry_delay)
-            else:
-                _log.error(
-                    f"Failed to connect to server after {max_retries} attempts"
-                )
-                raise
-    # This should never be reached, but just in case
-    raise RuntimeError("Failed to connect to server")
-
-
 
 
 def run_worker(worker_rank: int, hostname: str):
@@ -188,76 +141,20 @@ def run_worker(worker_rank: int, hostname: str):
     )
     logger.info("Starting SmolTorrent...")
 
-     # Thread-safe data structures
-    step_event = threading.Event()
-    lock = threading.Lock()
-    workers = {}
-    outbound_worker_sockets = {}
-    data_received = defaultdict(dict)
-
-    # Start shard listener so the API can pull shards from this worker
     my_config = next(
         w for w in config["devices_config"]["workers"] if w["rank"] == worker_rank
     )
     my_port = my_config["port"]
-    shard_container: list = []
-    shard_ready = threading.Event()
+
     threading.Thread(
         target=_shard_listener,
-        args=(my_port, shard_container, shard_ready, logger),
+        args=(my_port, logger),
         daemon=True,
     ).start()
 
-     # Connect to server
-    sock = connect_to_server(HOST_IP, PORT)
+    logger.info(f"Worker {worker_rank} ready — listening on port {my_port}")
+    threading.Event().wait()  # block forever; shard listener runs as daemon threads
 
-    # Register with server
-    logger.info(f"Registering as worker {worker_rank} with server...")
-    send_message(sock, ("register", worker_rank))
-    log_metrics(_network_metrics.get_metrics(), logger, "register")
-
-    logger.info(
-        f"Worker {worker_rank} connected to server at {HOST_IP}:{PORT}"
-    )
-
-    # Wait for start signal
-    logger.info("Waiting for start signal from server...")
-    while True:
-        recv_command = receive_message(sock)
-        if recv_command == "start":
-            logger.info("Received start command from server.")
-            break
-
-    # Receive our assigned shard from the server
-    logger.info("Waiting for shard assignment from server...")
-    command, rank, shard = receive_message(sock)
-    logger.info(f"Received '{command}' for rank {rank} from server")
-    log_metrics(_network_metrics.get_metrics(), logger, f"recv-shard-rank{rank}")
-
-    # Make the shard available to the listener thread
-    shard_container.append(shard)
-    shard_ready.set()
-
-    while True:
-        if command == 'store_shard':
-            logger.info(f"Storing received shard for rank {worker_rank}")
-            save_received_data_shard(
-                shard=shard,
-                metadata={
-                    "role": "worker_received",
-                    "rank": worker_rank,
-                    "command": command,
-                    "source_host": HOST_IP,
-                    "source_port": PORT,
-                },
-                output_dir=SHARDS_ROOT / _MODEL_NAME / f"worker-{worker_rank}",
-            )
-        elif command == 'send_shard':
-            logger.info(f"Received shard to send back to server for rank {worker_rank}")
-            send_message(sock, ("send_shard", worker_rank, shard))
-
-        command = receive_message(sock)
-         
 def main() -> None:
     if len(sys.argv) < 3:
         raise SystemExit("Usage: python algorithms/SyncPS/worker.py <worker_rank> <hostname>")

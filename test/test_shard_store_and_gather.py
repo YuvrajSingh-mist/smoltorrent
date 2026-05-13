@@ -3,7 +3,10 @@
 Markers:
   (default)  — pure unit tests, no network, no SSH, always fast
   ssh        — real Fabric SSH to Pi workers from configs/config.yaml; requires cluster
+  api        — real HTTP to FastAPI server; requires server running
 """
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -94,11 +97,10 @@ class TestCountRemoteShardsSSH:
 
     def test_correct_remote_path_checked(self, workers, known_model):
         """The ssh command must target .../incoming_shards/{model}/worker-{rank}/."""
-        import subprocess as sp
         captured = []
         first_worker = workers[:1]
 
-        original_run = sp.run
+        original_run = subprocess.run
 
         def capturing_run(args, **kwargs):
             captured.append(args)
@@ -226,3 +228,90 @@ class TestMainCLI:
         )
         name_arg = mock_count.call_args[0][0]
         assert name_arg == "mlx-community--Qwen2.5-0.5B"
+
+
+# ---------------------------------------------------------------------------
+# store_shard  (real HTTP — requires server running at API_BASE)
+# ---------------------------------------------------------------------------
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SHARDS_ROOT = _PROJECT_ROOT / "shards" / "incoming_shards"
+# Ranks in the 90s are unused by real workers (config uses 1-4) so they
+# won't collide with live data and are easy to clean up after the suite.
+_TEST_RANKS = (96, 97, 98, 99)
+
+
+@pytest.mark.api
+class TestStoreShard:
+    """End-to-end tests for POST /store-shard against the real FastAPI server.
+
+    Requires: uvicorn backend.api:app running on localhost:8000.
+    Run with:  pytest -m api
+    """
+
+    @pytest.fixture(scope="class")
+    def config(self):
+        with _CONFIG_PATH.open() as f:
+            return yaml.safe_load(f)
+
+    @pytest.fixture(scope="class")
+    def model_dir_name(self, config) -> str:
+        """Directory name derived from config data_path, e.g. mlx-community--SmolLM2-135M-Instruct."""
+        return Path(config["data_path"]).parent.name
+
+    @pytest.fixture(scope="class")
+    def model_id(self, model_dir_name) -> str:
+        """HF model ID, e.g. mlx-community/SmolLM2-135M-Instruct."""
+        return model_dir_name.replace("--", "/", 1)
+
+    @pytest.fixture(scope="class")
+    def fixture_shard(self, config) -> bytes:
+        """Raw bytes of the real safetensors file pointed to by config data_path."""
+        return (_PROJECT_ROOT / config["data_path"]).read_bytes()
+
+    @pytest.fixture(autouse=True, scope="class")
+    def _cleanup(self, model_dir_name):
+        yield
+        for rank in _TEST_RANKS:
+            d = _SHARDS_ROOT / model_dir_name / f"worker-{rank}"
+            shutil.rmtree(d, ignore_errors=True)
+
+    def _post(self, rank: int, shard_bytes: bytes, **form_fields) -> httpx.Response:
+        with httpx.Client() as client:
+            return client.post(
+                f"{API_BASE}/store-shard",
+                data={"rank": rank, **form_fields},
+                files={"file": ("model.safetensors", shard_bytes, "application/octet-stream")},
+                timeout=60.0,
+            )
+
+    def test_with_model_id_writes_to_correct_path(self, fixture_shard, model_id, model_dir_name):
+        resp = self._post(99, fixture_shard, model_id=model_id)
+        resp.raise_for_status()
+        expected_dir = _SHARDS_ROOT / model_dir_name / "worker-99"
+        assert Path(resp.json()["shard_path"]).parent == expected_dir
+
+    def test_response_has_required_keys(self, fixture_shard, model_id):
+        resp = self._post(98, fixture_shard, model_id=model_id)
+        resp.raise_for_status()
+        assert {"shard_path", "metadata_path", "rank"} <= resp.json().keys()
+
+    def test_rank_in_response_matches_sent_rank(self, fixture_shard, model_id):
+        resp = self._post(97, fixture_shard, model_id=model_id)
+        resp.raise_for_status()
+        assert resp.json()["rank"] == 97
+
+    def test_without_model_id_falls_back_to_config_path(self, fixture_shard, model_dir_name):
+        resp = self._post(96, fixture_shard)  # no model_id — server reads config
+        resp.raise_for_status()
+        expected_dir = _SHARDS_ROOT / model_dir_name / "worker-96"
+        assert Path(resp.json()["shard_path"]).parent == expected_dir
+
+    def test_missing_rank_returns_422(self, fixture_shard):
+        with httpx.Client() as client:
+            resp = client.post(
+                f"{API_BASE}/store-shard",
+                files={"file": ("model.safetensors", fixture_shard, "application/octet-stream")},
+                timeout=30.0,
+            )
+        assert resp.status_code == 422

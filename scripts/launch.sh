@@ -284,12 +284,11 @@ done
 if [[ "$DRY_RUN" != "true" ]]; then
     info "Cleaning previous tmux sessions before launch..."
     if is_local_host "$MASTER_HOST"; then
-        info "Cleaning local tmux sessions: syncps_api, syncps_server (host: $MASTER_HOST)"
+        info "Cleaning local tmux sessions: syncps_api (host: $MASTER_HOST)"
         tmux kill-session -t syncps_api 2>/dev/null || true
-        tmux kill-session -t syncps_server 2>/dev/null || true
     else
-        info "Cleaning remote tmux sessions: syncps_api, syncps_server (host: $MASTER_HOST)"
-        ssh -o StrictHostKeyChecking=no "$MASTER_HOST" "tmux kill-session -t syncps_api 2>/dev/null || true; tmux kill-session -t syncps_server 2>/dev/null || true"
+        info "Cleaning remote tmux sessions: syncps_api (host: $MASTER_HOST)"
+        ssh -o StrictHostKeyChecking=no "$MASTER_HOST" "tmux kill-session -t syncps_api 2>/dev/null || true"
     fi
 
     for worker in "${WORKER_ENTRIES[@]}"; do
@@ -318,13 +317,10 @@ if [[ "$API_ONLY" == "true" ]]; then
     ok "All workers alive — launching API only."
     launch_on_node "$MASTER_HOST" "syncps_api" "if [[ -x .venv/bin/uvicorn ]]; then .venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000; else uvicorn backend.api:app --host 0.0.0.0 --port 8000; fi"
 else
-    # Launch the shard gather API on the master (must be up before the server calls it)
+    # Launch the shard API on the master
     launch_on_node "$MASTER_HOST" "syncps_api" "if [[ -x .venv/bin/uvicorn ]]; then .venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000; else uvicorn backend.api:app --host 0.0.0.0 --port 8000; fi"
 
-    # Launch server from algorithms/SyncPS
-    launch_on_node "$MASTER_HOST" "syncps_server" "if [[ -x .venv/bin/python ]]; then .venv/bin/python algorithms/SyncPS/server.py; else python3 algorithms/SyncPS/server.py; fi"
-
-    # Launch workers from algorithms/SyncPS
+    # Launch workers
     for worker in "${WORKER_ENTRIES[@]}"; do
         worker_host="${worker%%:*}"
         worker_rank="${worker##*:}"
@@ -333,6 +329,5 @@ else
 fi
 
 ok "Launch complete."
-info "Attach example: ssh $MASTER_HOST 'tmux attach -t syncps_server'"
 info "API logs:        ssh $MASTER_HOST 'tmux attach -t syncps_api'"
 info "Trigger gather:  python main.py  (or POST http://$MASTER_HOST:8000/gather-shards)"

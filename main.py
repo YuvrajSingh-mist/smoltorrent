@@ -1,89 +1,34 @@
 import argparse
 import logging
-import subprocess
-from pathlib import Path
 
-import httpx
-import yaml
-
-from utils.common_utils import model_id_to_dir_name
-from utils.check_workers import ping_worker
+from utils.check_workers import count_remote_shards, ping_worker
+from utils.common_utils import fetch_model_metadata, load_config, model_id_to_dir_name
 from utils.log_utils import log_shard_progress
+from utils.shard_ops import request_gather_shards, request_store_shards
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("smoltorrent")
 
-API_BASE = "http://localhost:8000"
-CONFIG_PATH = Path(__file__).parent / "configs" / "config.yaml"
-# Remote shard root on each worker node (~ expands to the SSH user's home)
-REMOTE_SHARDS_ROOT = "~/Desktop/smoltorrent/shards/incoming_shards"
-
-def _load_config() -> dict:
-    with CONFIG_PATH.open() as f:
-        return yaml.safe_load(f)
-
-
-def _count_remote_shards(model_name: str, workers: list[dict]) -> tuple[int, list[dict]]:
-    """SSH into each worker using the system ssh binary and count .safetensors shard files.
-
-    Returns (total_count, per_worker_results) where each entry has
-    keys: rank, host, ip, found.
-    """
-    results = []
-    total = 0
-    for worker in workers:
-        host_alias = worker.get("host")
-        ip = worker["ip"]
-        rank = worker["rank"]
-        remote_dir = f"{REMOTE_SHARDS_ROOT}/{model_name}/worker-{rank}"
-        cmd = f"find {remote_dir} -maxdepth 1 -name '*.safetensors' 2>/dev/null | wc -l"
-        try:
-            proc = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host_alias, cmd],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            count = int(proc.stdout.strip())
-        except Exception as e:
-            logger.warning("Could not SSH into %s (%s): %s", host_alias, ip, e)
-            count = 0
-        results.append({"rank": rank, "host": host_alias, "ip": ip, "found": count})
-        total += count
-    return total, results
-
-
-def gather_shards(model_id: str) -> dict:
-    resp = httpx.post(
-        f"{API_BASE}/gather-shards",
-        params={"model_id": model_id},
-        timeout=300.0,
-    )
-    try:
-        body = resp.json()
-    except Exception:
-        resp.raise_for_status()
-        raise
-    if resp.is_error:
-        detail = body.get("detail", {})
-        log_shard_progress(logger, detail.get("gathered", []), detail.get("errors", []))
-        resp.raise_for_status()
-    return body
-
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SmolTorrent — distributed shard gather")
+    parser = argparse.ArgumentParser(description="SmolTorrent — distributed shard store/gather")
     parser.add_argument(
         "--model-id",
         metavar="MODEL_ID",
         required=True,
-        help="HuggingFace model ID to gather, e.g. mlx-community/Qwen2.5-0.5B-Instruct-bf16",
+        help="HuggingFace model ID, e.g. mlx-community/Qwen2.5-0.5B-Instruct-bf16",
+    )
+    parser.add_argument(
+        "--action",
+        choices=["store", "gather"],
+        default="gather",
+        help="store: shard model and push to workers. gather: pull shards back and merge (default: gather)",
     )
     args = parser.parse_args()
 
-    config = _load_config()
+    config = load_config()
     workers = config["devices_config"]["workers"]
     num_workers = len(workers)
     model_name = model_id_to_dir_name(args.model_id)
@@ -105,8 +50,19 @@ def main() -> None:
         )
         return
 
+    if args.action == "store":
+        logger.info("All %d workers alive — storing shards for %s...", num_workers, model_name)
+        result = request_store_shards(model_id=args.model_id)
+        for entry in result.get("sent_to", []):
+            logger.info("  ✓ rank %d (%s)", entry["rank"], entry["host"])
+        logger.info(
+            "Stored %d/%d shards for %s",
+            len(result.get("sent_to", [])), result.get("num_shards", num_workers), model_name,
+        )
+        return
+
     logger.info("All %d workers alive — checking shards for %s...", num_workers, model_name)
-    found, per_worker = _count_remote_shards(model_name, workers)
+    found, per_worker = count_remote_shards(model_name, workers)
 
     for w in per_worker:
         logger.info("  rank %d (%s @ %s): %d shard(s)", w["rank"], w["host"], w["ip"], w["found"])
@@ -126,9 +82,12 @@ def main() -> None:
         return
 
     logger.info("%d/%d shards present — proceeding with gather", found, num_workers)
-    result = gather_shards(model_id=args.model_id)
+    result = request_gather_shards(model_id=args.model_id)
     log_shard_progress(logger, result["gathered"], [])
     logger.info("All shards saved → %s", result.get("save_path"))
+    logger.info("Fetching tokenizer and config from HuggingFace Hub...")
+    fetch_model_metadata(args.model_id, config)
+    logger.info("received_model/ is ready for inference")
 
 
 if __name__ == "__main__":

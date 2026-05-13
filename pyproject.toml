@@ -24,7 +24,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-addopts = "-m 'not ssh and not api'"
+addopts = "-m 'not api'"
 markers = [
     "integration: end-to-end tests that require model weights and a full cluster environment",
     "ssh: tests that SSH into live Pi workers via Fabric (requires cluster reachable)",

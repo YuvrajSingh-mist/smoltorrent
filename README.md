@@ -170,10 +170,13 @@ smoltorrent/
 │   └── launch.sh               # Full cluster orchestrator (rsync -> deps -> cleanup -> launch)
 ├── test/
 │   ├── README.md               # Test marker reference and run commands
-│   ├── test_gather_cli.py      # Unit + SSH + API tests for main.py
-│   ├── test_gather_shards_to_master.py   # Integration: gather shards -> merge -> infer
-│   ├── test_chunk_data.py      # Unit tests for tensor sharding logic
-│   └── test_smollm2.py         # Smoke test: load fixture model and run inference
+│   ├── test_dir_name_conversion.py           # Unit: model_id_to_dir_name()
+│   ├── test_chunk_data.py                    # Unit: chunk_data() tensor sharding
+│   ├── test_cli_args_and_shard_count.py      # Unit + SSH: main.py CLI, _count_remote_shards
+│   ├── test_api.py                           # API: /gather-shards and /store-shard
+│   ├── test_gather_shards_to_master.py       # Integration: gather -> merge -> infer
+│   ├── test_shard_store_and_gather.py        # Integration: shard round-trip via common_utils
+│   └── test_smollm2.py                       # Smoke: load fixture model, run MLX inference
 ├── configs/
 │   └── config.yaml             # Cluster topology, model paths, worker count
 ├── main.py                     # CLI: heartbeat -> shard count -> POST /gather-shards
@@ -227,37 +230,6 @@ This test:
 3. Reassembles the full model directory
 4. Runs MLX inference on the master with the prompt: *"Explain what a BitTorrent tracker does in one short paragraph."*
 5. Asserts the response is non-empty and prints it
-
----
-
-## Troubleshooting
-
-**Worker can't connect to server**
-- Check the server is actually listening: `ss -tlnp | grep 5000` on master
-- Verify Tailscale / VPN IPs in `config.yaml` match actual interface IPs
-- Worker retries for 60 attempts (3 s apart) before giving up — attach to `syncps_server` to see if it started
-
-**`ModuleNotFoundError: mlx`on a Pi**
-- This is expected and handled. MLX is macOS-only. Workers only use `torch` and `safetensors`.
-
-**Port already in use**
-```bash
-# Find and kill the process on port 5000
-lsof -ti:5000 | xargs kill -9
-```
-
-**RSA Host key warning blocks SSH**
-```bash
-ssh-keyscan -H pi4-1 >> ~/.ssh/known_hosts
-```
-
-**`yq` not found**
-```bash
-# macOS
-brew install yq
-# Linux
-sudo snap install yq
-```
 
 ---
 

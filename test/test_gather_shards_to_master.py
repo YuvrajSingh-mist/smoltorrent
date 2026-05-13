@@ -1,10 +1,12 @@
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import mlx.core as mx
 import pytest
+import torch
 import yaml
 from mlx_lm import generate, load
+from safetensors.torch import save_file as st_save_file
 
 from utils.common_utils import chunk_data, save_received_data_shard
 
@@ -70,10 +72,8 @@ def _save_merged(weights: dict, path: Path) -> None:
     if isinstance(first, mx.array):
         mx.save_safetensors(str(path), weights)
     else:
-        import torch
         if isinstance(first, torch.Tensor):
-            from safetensors.torch import save_file
-            save_file(weights, str(path))
+            st_save_file(weights, str(path))
         else:
             raise TypeError(
                 f"Unsupported tensor type in merged weights: {type(first)}. "

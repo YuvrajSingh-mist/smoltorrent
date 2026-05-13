@@ -1,5 +1,7 @@
-import logging
+import hashlib
+import io
 import json
+import logging
 import os
 import platform
 import socket
@@ -9,34 +11,97 @@ from typing import Any, Mapping, Optional
 
 import torch
 import yaml
+from safetensors.torch import load as st_load
+from safetensors.torch import load_file as st_load_file
+from safetensors.torch import save as st_save
+from safetensors.torch import save_file as st_save_file
 
 logger = logging.getLogger(__name__)
 
+CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 
-try:
-    import mlx.core as _mx
-except ImportError:
-    _mx = None
+
+def compute_checksum(data: bytes) -> str:
+    """SHA-256 over raw bytes. Call on the serialized shard bytes, not the dict."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def shard_to_bytes(shard: dict) -> bytes:
+    """Serialize a shard dict to safetensors bytes. No temp files, no numpy."""
+    if _IS_MAC:
+        import mlx.core as mx
+        _MLX_TO_TORCH = {
+            mx.bfloat16: torch.bfloat16, mx.float16: torch.float16,
+            mx.float32: torch.float32,   mx.float64: torch.float64,
+            mx.int8:    torch.int8,      mx.int16:   torch.int16,
+            mx.int32:   torch.int32,     mx.int64:   torch.int64,
+            mx.uint8:   torch.uint8,
+        }
+        mx.eval(*shard.values())
+        torch_shard = {
+            k: torch.frombuffer(bytearray(bytes(v)), dtype=_MLX_TO_TORCH[v.dtype]).reshape(v.shape).clone()
+            for k, v in shard.items()
+        }
+        return st_save(torch_shard)
+    return st_save(shard)
+
+
+# this is because mlx needs to know the filename to save/load safetensors, but we want to avoid temp files and just work with bytes in memory and io.BytesIO does not have .name attribute which mlx relies on
+class _NamedBytesIO(io.BytesIO):
+    name = "shard.safetensors"
+
+
+def shard_from_bytes(data: bytes) -> dict:
+    """Deserialize safetensors bytes. Returns MLX arrays on Mac, torch tensors on Pi."""
+    if _IS_MAC:
+        import mlx.core as mx
+        return dict(mx.load(_NamedBytesIO(data)))
+    return st_load(data)
+
+
+def load_config(config_path: Path = CONFIG_PATH) -> dict:
+    with config_path.open() as f:
+        return yaml.safe_load(f)
+
+
+def fetch_model_metadata(model_id: str, config: dict) -> None:
+    """Download tokenizer and config from HuggingFace Hub into the received_model dir.
+
+    Skips all weight files — the merged .safetensors is already there after gather.
+    """
+    from huggingface_hub import snapshot_download
+
+    dest_dir = Path(config["save_path"]).expanduser().parent
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Downloading tokenizer and config for %s from HuggingFace Hub...", model_id)
+    snapshot_download(
+        repo_id=model_id,
+        local_dir=str(dest_dir),
+        ignore_patterns=["*.safetensors", "*.bin", "*.pt", "*.gguf", "*.ot"],
+    )
+    logger.info("  metadata written to %s", dest_dir)
+
+
+_IS_MAC = platform.system() == "Darwin"
 
 
 def _save_shard(shard: dict, path: str) -> None:
-    """Save *shard* to *path*, picking the writer based on the actual value type.
-
-    - mlx.core.array → mx.save_safetensors
-    - torch.Tensor   → safetensors.torch.save_file
-    """
-    from safetensors.torch import save_file as _st_save
-
-    first = next(iter(shard.values()), None)
-    if _mx is not None and isinstance(first, _mx.array):
-        _mx.save_safetensors(path, shard)
-    elif isinstance(first, torch.Tensor):
-        _st_save(shard, path)
+    """Save shard to disk. Mac uses MLX, Pi uses safetensors.torch (shard is already torch tensors)."""
+    if _IS_MAC:
+        import mlx.core as mx
+        mx.save_safetensors(path, shard)
     else:
-        raise TypeError(
-            f"Unsupported tensor type in shard: {type(first)}. "
-            "Expected mlx.core.array or torch.Tensor."
-        )
+        st_save_file(shard, path)
+
+
+def load_tensors(path: str | Path) -> dict:
+    """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers)."""
+    if _IS_MAC:
+        import mlx.core as mx
+        return dict(mx.load(str(path)))
+    return st_load_file(str(path))
+
 
 
 def model_id_to_dir_name(model_id: str) -> str:
@@ -75,7 +140,7 @@ def save_received_data_shard(
     metadata: Optional[Mapping[str, Any]] = None,
     output_dir: Optional[str | Path] = None,
     config_path: Optional[str] = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, bool, str]:
     """Save a received shard using config ``save_path`` + metadata.
 
     The shard filename keeps the original base name from config ``save_path`` and appends
@@ -87,60 +152,65 @@ def save_received_data_shard(
     A sidecar JSON with the same stem is also written for audit/debugging.
     """
 
-    default_config = Path(__file__).resolve().parent.parent / "configs" / "config.yaml"
-    resolved_config_path = Path(config_path).expanduser() if config_path else default_config
+    try:
+        default_config = Path(__file__).resolve().parent.parent / "configs" / "config.yaml"
+        resolved_config_path = Path(config_path).expanduser() if config_path else default_config
 
-    if not resolved_config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {resolved_config_path}")
+        if not resolved_config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {resolved_config_path}")
 
-    with resolved_config_path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+        with resolved_config_path.open("r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
 
-    save_path = config.get("save_path")
-    if not save_path:
-        raise ValueError(f"'save_path' missing in config: {resolved_config_path}")
+        save_path = config.get("save_path")
+        if not save_path:
+            raise ValueError(f"'save_path' missing in config: {resolved_config_path}")
 
-    base_path = Path(save_path).expanduser()
-    destination_dir = Path(output_dir).expanduser() if output_dir else base_path.parent
-    destination_dir.mkdir(parents=True, exist_ok=True)
+        base_path = Path(save_path).expanduser()
+        destination_dir = Path(output_dir).expanduser() if output_dir else base_path.parent
+        destination_dir.mkdir(parents=True, exist_ok=True)
 
-    extension = "".join(base_path.suffixes)
-    base_name = base_path.name[: -len(extension)] if extension else base_path.name
+        extension = "".join(base_path.suffixes)
+        base_name = base_path.name[: -len(extension)] if extension else base_path.name
 
-    # Filename: {model_name}_shard_{rank}.safetensors
-    rank = metadata.get("rank", "") if metadata else ""
-    data_path_str = config.get("data_path", "")
-    model_name = Path(data_path_str).parent.name if data_path_str else base_name
-    rank_suffix = f"_shard_{rank}" if rank != "" else ""
-    shard_filename = f"{model_name}{rank_suffix}{extension}"
-    shard_path = destination_dir / shard_filename
+        # Filename: {model_name}_shard_{rank}.safetensors
+        rank = metadata.get("rank", "") if metadata else ""
+        data_path_str = config.get("data_path", "")
+        model_name = Path(data_path_str).parent.name if data_path_str else base_name
+        rank_suffix = f"_shard_{rank}" if rank != "" else ""
+        shard_filename = f"{model_name}{rank_suffix}{extension}"
+        shard_path = destination_dir / shard_filename
 
-    # Full metadata only goes into the sidecar JSON, not the filename.
-    auto_metadata = {
-        "hostname": socket.gethostname(),
-        "platform_machine": platform.machine(),
-        "pid": os.getpid(),
-    }
+        # Full metadata only goes into the sidecar JSON, not the filename.
+        auto_metadata = {
+            "hostname": socket.gethostname(),
+            "platform_machine": platform.machine(),
+            "pid": os.getpid(),
+        }
 
-    merged_metadata = dict(auto_metadata)
-    if metadata:
-        merged_metadata.update(dict(metadata))
+        merged_metadata = dict(auto_metadata)
+        if metadata:
+            merged_metadata.update(dict(metadata))
 
-    _save_shard(shard, str(shard_path))
+        _save_shard(shard, str(shard_path))
 
-    metadata_payload = dict(merged_metadata)
-    metadata_payload["saved_at_utc"] = datetime.now(timezone.utc).isoformat()
-    metadata_payload["source_save_path"] = str(base_path)
-    metadata_payload["saved_shard_path"] = str(shard_path)
-    metadata_payload["config_path"] = str(resolved_config_path)
+        metadata_payload = dict(merged_metadata)
+        metadata_payload["saved_at_utc"] = datetime.now(timezone.utc).isoformat()
+        metadata_payload["source_save_path"] = str(base_path)
+        metadata_payload["saved_shard_path"] = str(shard_path)
+        metadata_payload["config_path"] = str(resolved_config_path)
 
-    metadata_path = shard_path.with_suffix(shard_path.suffix + ".metadata.json")
-    metadata_path.write_text(
-        json.dumps(metadata_payload, indent=2, sort_keys=True), encoding="utf-8"
-    )
+        metadata_path = shard_path.with_suffix(shard_path.suffix + ".metadata.json")
+        metadata_path.write_text(
+            json.dumps(metadata_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
-    logger.info("Saved shard to %s with metadata %s", shard_path, metadata_path)
-    return str(shard_path), str(metadata_path)
+        logger.info("Saved shard to %s with metadata %s", shard_path, metadata_path)
+        return str(shard_path), str(metadata_path), True, ""
+
+    except Exception as e:
+        logger.error("Failed to save shard: %s", e)
+        return "", "", False, str(e)
 
 
 def merge_shards(shards: list[dict]) -> dict:

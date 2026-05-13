@@ -1,16 +1,16 @@
 # backend
 
-FastAPI REST API that runs on the master node (port 8000). Workers keep their shards in memory; this API pulls them over TCP and assembles the final model.
+FastAPI REST API that runs on the master node (port 8000).
 
 ## Endpoints
 
 ### `POST /gather-shards`
 
-Connects to every configured worker, pulls each shard via the TCP socket protocol, merges them, and writes the reassembled model to `save_path`.
+Connects to every configured worker via TCP, pulls each worker's in-memory shard, merges all shards into one model, and writes the result to `save_path`.
 
 | Query param | Type | Required | Description |
 |---|---|---|---|
-| `model_id` | string | No | HuggingFace-style ID (e.g. `mlx-community/Qwen2.5-0.5B-Instruct-bf16`). Slashes are converted to `--` for directory naming. Falls back to `data_path` in config if omitted. |
+| `model_id` | string | No | HuggingFace-style ID (e.g. `mlx-community/Qwen2.5-0.5B-Instruct-bf16`). Slashes are converted to `--` for directory naming. Falls back to `data_path` parent name in config if omitted. |
 
 **200 OK**
 ```json
@@ -29,36 +29,53 @@ Connects to every configured worker, pulls each shard via the TCP socket protoco
 
 ### `POST /store-shard`
 
-Accepts a `.safetensors` file upload and saves it to the shard store. Used when a worker pushes its shard to master directly (multipart form data).
+Loads the model from `data_path` in config, splits it into `N` shards (one per worker), and sends each shard to its ranked Pi worker over TCP using the `("store_shard", rank, tensor_dict)` protocol.
 
-| Form field | Type | Required | Description |
+No file upload needed — the model is already on disk at the master.
+
+| Query param | Type | Required | Description |
 |---|---|---|---|
-| `file` | binary | required | `.safetensors` shard file |
-| `rank` | int | required | Worker rank |
-| `role` | string | No | Label stored in metadata (default: `"received"`) |
-| `host` | string | No | Source hostname stored in metadata |
-| `output_dir` | string | No | Override destination directory |
+| `model_id` | string | No | HuggingFace-style ID used only for naming the response. Falls back to `data_path` parent name if omitted. |
 
 **200 OK**
 ```json
-{"shard_path": "...", "metadata_path": "...", "rank": 2}
+{
+  "model_name": "mlx-community--SmolLM2-135M-Instruct",
+  "num_shards": 4,
+  "sent_to": [
+    {"rank": 1, "host": "pi4-1"},
+    {"rank": 2, "host": "pi4-2"},
+    ...
+  ]
+}
 ```
+
+**404** — `data_path` from config does not exist on disk.
+
+**500** — one or more workers unreachable. Body includes `sent` (successes) and `errors` (per-rank failure reasons).
 
 ---
 
 ## Shard storage layout
 
-Incoming shards land under:
+Shards received by `handle_worker` (Pi -> master TCP push) are saved under:
+
+```
+shards/incoming_shards/
+  server/
+    from-rank-{rank}/
+      {model_name}_shard_{rank}.safetensors
+      {model_name}_shard_{rank}.safetensors.metadata.json
+```
+
+Shards pulled by `/gather-shards` (master -> Pi TCP pull) land under:
 
 ```
 shards/incoming_shards/
   {model_name}/
     worker-{rank}/
       {model_name}_shard_{rank}.safetensors
-      {model_name}_shard_{rank}.safetensors.metadata.json
 ```
-
-`model_name` is the HF model ID with `/` replaced by `--` (e.g. `mlx-community--SmolLM2-135M-Instruct`).
 
 ---
 
