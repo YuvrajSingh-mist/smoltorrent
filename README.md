@@ -1,25 +1,27 @@
 # smoltorrent
 
-Distributed inference and fine-tuning across heterogeneous edge devices using a synchronous parameter server (SyncPS). Built to run on Raspberry Pi clusters, Linux x86 nodes, and macOS — coordinated from a single `launch.sh`.
+Distributed model sharding across heterogeneous edge devices using a synchronous parameter server (SyncPS). Built to run on Raspberry Pi clusters coordinated from a macOS master via a REST API.
 
 ```
 Master (macOS)
-  ├── Parameter Server   (algorithms/SyncPS/server.py)
-  ├── REST API           (backend/api.py)
-  └── Workers × N        (algorithms/SyncPS/worker.py  ← runs on each Pi)
+  ├── REST API   (backend/api.py)         ← /store-shard, /gather-shards
+  └── Workers × N (algorithms/SyncPS/worker.py  ← runs on each Pi)
 ```
 
 ---
 
 ## How it works
 
-1. **Server** loads a `.safetensors` model, splits it into `N` shards (one per worker), and listens for connections.
-2. **Workers** (each on a Pi) register with the server, receive their shard, store it locally.
-3. Once all `N` shards are received, the server runs an integration test that:
-   - Gathers all shards back to master
-   - Merges them into a single model
-   - Runs inference to verify the reassembled model works end-to-end
-4. `main.py` provides a one-line CLI to trigger shard collection manually via the REST API.
+1. **Store** — `POST /store-shard`: The API on the master loads the model from `data_path`, splits it into `N` shards (one per worker), computes a SHA-256 checksum per shard, and sends each shard over TCP to its ranked Pi worker. Workers verify the checksum and save the shard to disk. Failed sends are retried with exponential backoff on a background thread.
+
+2. **Workers** each run a TCP listener. On `store_shard` they verify the checksum, write the shard to `shards/incoming_shards/{model}/{worker-rank}/`, and ack back with the shard path. On `send_shard` they load the shard from disk and stream it back.
+
+3. **Gather** — `POST /gather-shards`: The API connects to each worker, requests its shard (`send_shard`), receives the bytes, deserializes, merges all shards into one model, and writes it to `save_path`.
+
+4. `main.py` is a CLI that runs three checks before triggering gather:
+   - **Heartbeat** — TCP ping every worker
+   - **Shard count** — SSH to each worker, count `.safetensors` files on disk
+   - **Gather** — only proceeds if all shards are present
 
 ---
 
@@ -34,9 +36,8 @@ Master (macOS)
 | SSH key-based auth | Master -> all workers |
 
 Platform notes:
-- `torch[cpu]` is used everywhere — no CUDA required
-- `mlx-lm` is installed **only on macOS** (for inference verification on master)
-- Workers (Raspberry Pi / Linux) never touch MLX
+- Master (macOS): uses MLX for tensor operations; safetensors used as the cross-platform wire format
+- Workers (Raspberry Pi / Linux): use `torch` + `safetensors.torch`; MLX is never imported on Pi
 
 ---
 
@@ -56,7 +57,7 @@ Edit `configs/config.yaml`:
 
 ```yaml
 data_path: test/fixtures/mlx-community--SmolLM2-135M-Instruct/model.safetensors
-save_path: ~/Desktop/received_model/mlx-community--SmolLM2-135M-Instruct/model.safetensors
+save_path: ~/Desktop/smoltorrent/received_model/model.safetensors
 
 num_workers: 4
 
@@ -85,13 +86,11 @@ devices_config:
       port: 8004
 ```
 
-Use `host: localhost` for the master if the orchestrator runs on the same machine as the server. Worker `host` values must match the hostnames you SSH into.
-
 ### 3. Set up SSH access
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/smoltorrent_key
-ssh-copy-id -i ~/.ssh/smoltorrent_key.pub ubuntu@pi4-1
+ssh-copy-id -i ~/.ssh/smoltorrent_key.pub pi@pi4-1
 # Repeat for each worker
 ```
 
@@ -106,7 +105,7 @@ The launcher automatically:
 1. Rsyncs the codebase to every node
 2. Installs `uv`, creates `.venv`, runs `uv sync` on every node
 3. Kills any stale tmux sessions from a previous run
-4. Starts the REST API and parameter server on master
+4. Starts the REST API on the master
 5. Starts one worker process per node with the correct rank and hostname
 
 ---
@@ -117,6 +116,12 @@ The launcher automatically:
 
 ```bash
 bash scripts/launch.sh --dry-run
+```
+
+### Distribute model shards to workers
+
+```bash
+curl -X POST "http://localhost:8000/store-shard?model_id=mlx-community/SmolLM2-135M-Instruct"
 ```
 
 ### Trigger shard gather manually
@@ -136,10 +141,10 @@ uv run main.py --model-id mlx-community/SmolLM2-135M-Instruct
 ### Monitor sessions
 
 ```bash
-# Server logs (on master)
-tmux attach -t syncps_server
+# API logs (on master)
+tmux attach -t syncps_api
 
-# Worker logs (on master or any node)
+# Worker logs (SSH into a Pi first)
 tmux attach -t syncps_worker_1
 
 # All cluster logs
@@ -154,16 +159,15 @@ tail -f logging/cluster-logs/*.log
 smoltorrent/
 ├── algorithms/
 │   └── SyncPS/
-│       ├── server.py           # Parameter server: loads model, shards it, accepts workers
-│       └── worker.py           # Worker: registers, receives shard, stores locally; handles heartbeat
+│       └── worker.py           # TCP listener: store_shard (write to disk) + send_shard (read from disk)
 ├── backend/
-│   ├── api.py                  # FastAPI REST API (port 8000) — /gather-shards, /store-shard
+│   ├── api.py                  # FastAPI REST API (port 8000) — /store-shard, /gather-shards
 │   └── README.md               # API endpoint reference
 ├── networking/
 │   └── send_receive.py         # Length-prefixed TCP messaging with bandwidth metrics
 ├── utils/
 │   ├── check_workers.py        # TCP heartbeat check against all configured workers
-│   ├── common_utils.py         # chunk_data(), save_received_data_shard(), model_id_to_dir_name()
+│   ├── common_utils.py         # shard_to_bytes(), shard_from_bytes(), chunk_data(), save_received_data_shard()
 │   ├── log_utils.py            # Coloured per-component cluster logging
 │   └── network_metrics.py      # Send/recv bandwidth and latency tracking
 ├── scripts/
@@ -193,16 +197,15 @@ smoltorrent/
 | `save_path` | Where the reassembled model is written on master |
 | `n_chunks` | Number of shards to split the model into |
 | `num_workers` | Expected number of worker connections |
-| `devices_config.master` | Server host, IP, rank (always 0), port |
+| `devices_config.master` | Master host, IP, rank (always 0), port |
 | `devices_config.workers` | Per-worker: host, IP, rank (1…N), port |
-| `received_shards_dir` | *(optional)* Override incoming shard storage path (default: `shards/incoming_shards`) |
 | `log_dir` | *(optional)* Override log output directory (default: `/tmp/smolcluster-logs`) |
 
 ---
 
 ## Shard storage
 
-Each received shard is saved as:
+Each shard is saved on the Pi worker that holds it:
 
 ```
 shards/incoming_shards/
@@ -214,26 +217,10 @@ shards/incoming_shards/
 
 `model_name` is the HF model ID with `/` replaced by `--` (e.g. `mlx-community--SmolLM2-135M-Instruct`). The sidecar `.metadata.json` contains: `hostname`, `platform_machine`, `pid`, `saved_at_utc`, `rank`, `role`, and `config_path`.
 
----
-
-## Integration test
-
-After all shards are received, the server automatically runs:
-
-```bash
-pytest test/test_gather_shards_to_master.py -v -s -m integration
-```
-
-This test:
-1. Gathers all per-node shards from disk
-2. Merges them with no key overlap (raises `ValueError` if any tensor appears in two shards)
-3. Reassembles the full model directory
-4. Runs MLX inference on the master with the prompt: *"Explain what a BitTorrent tracker does in one short paragraph."*
-5. Asserts the response is non-empty and prints it
+After gather, the master also saves a local copy of each shard under the same layout (in `shards/incoming_shards/` on the master), then merges them to `save_path`.
 
 ---
 
 ## License
 
 See [LICENSE](LICENSE).
-

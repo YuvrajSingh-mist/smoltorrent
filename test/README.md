@@ -21,10 +21,18 @@ test/
 |---------------|------------------------------------------------------------------------------|-----------------|
 | *(none)*      | Pure unit tests, no I/O                                                      | yes             |
 | `integration` | Requires model weights in `test/fixtures/`                                   | yes             |
-| `ssh`         | SSHes into live Pi workers using `~/.ssh/config` entries from `config.yaml`  | yes             |
-| `api`         | Hits the real FastAPI server (`bash scripts/launch.sh` must be running)      | no              |
+| `ssh`         | SSHes into live Pi workers using entries from `configs/config.yaml`          | yes             |
+| `api`         | Hits the real FastAPI server on port 8000 (`bash scripts/launch.sh` must be running) | no   |
 
-`addopts = "-m 'not api'"` in `pyproject.toml` — ssh tests run by default.
+`addopts = "-m 'not api'"` in `pyproject.toml` — `api` tests are excluded by default; all others (including `ssh`) run.
+
+## Viewing generation output
+
+Pytest captures stdout by default — `print()` and `mlx_lm`'s `verbose=True` output are only shown on failure. Pass `-s` to disable capture:
+
+```bash
+uv run python -m pytest test/test_received_model_inference.py -s -k test_generate
+```
 
 ## Running
 
@@ -42,7 +50,7 @@ uv run pytest test/test_cli_args_and_shard_count.py -m ssh -v
 uv run pytest test/test_api.py -m api -v
 ```
 
-## Write Paths
+## Write paths
 
 Tests never write inside `test/fixtures/`. All generated artifacts go to:
 
