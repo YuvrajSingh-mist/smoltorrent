@@ -1,3 +1,9 @@
+"""FastAPI server that orchestrates shard distribution across workers.
+
+Exposes two endpoints:
+  POST /store-shard  — shards a local model and pushes each shard to its ranked worker.
+  POST /gather-shards — pulls shards from all workers, saves them locally, then merges.
+"""
 import logging
 import socket
 import sys
@@ -9,6 +15,7 @@ from queue import Queue
 import uvicorn
 import yaml
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -28,6 +35,11 @@ SHARDS_ROOT = Path(__file__).parents[1] / "shards" / "incoming_shards"
 MAX_RETRIES = 3
 
 def _load_config() -> dict:
+    """Load and return the YAML config from the default config path.
+
+    Returns:
+        Parsed config dict.
+    """
     with CONFIG_PATH.open() as f:
         return yaml.safe_load(f)
 
@@ -56,7 +68,16 @@ def _send_shard_to_worker(worker: dict, shard: dict, checksum: str) -> tuple[boo
 
 
 def _gather_shard_from_worker(worker: dict, shard: dict, checksum: str) -> tuple[bool, str, dict]:
-    """Pull one shard from a worker. Returns (ok, error_msg, result_entry)."""
+    """Pull one shard from a worker.
+
+    Args:
+        worker: Worker config dict with keys ``rank``, ``ip``, ``port``, and optionally ``host``/``device``.
+        shard: Unused placeholder kept for a uniform signature with _send_shard_to_worker.
+        checksum: Unused placeholder kept for a uniform signature.
+
+    Returns:
+        Tuple of (ok, error_msg, result) where result contains ``rank``, ``host``, and ``_shard``.
+    """
     rank = worker["rank"]
     host = worker.get("host") or worker.get("device")
     try:
@@ -72,10 +93,15 @@ def _gather_shard_from_worker(worker: dict, shard: dict, checksum: str) -> tuple
 
 
 def _retry_worker(retry_queue: Queue, recovered: list, dead_letter: list, lock: threading.Lock, send_fn) -> None:
-    """Daemon thread: drain retry_queue with exponential backoff.
+    """Daemon thread that drains retry_queue with exponential backoff.
 
-    send_fn is either _send_shard_to_worker or _gather_shard_from_worker.
-    Successes append to recovered, permanent failures append to dead_letter.
+    Args:
+        retry_queue: Queue of dicts with keys ``worker``, ``shard``, ``checksum``, ``attempt``.
+        recovered: Shared list; successful results are appended here under ``lock``.
+        dead_letter: Shared list; permanently failed entries are appended here under ``lock``.
+        lock: Threading lock protecting ``recovered`` and ``dead_letter``.
+        send_fn: Callable with signature ``(worker, shard, checksum) -> (ok, err, result)``;
+                 either ``_send_shard_to_worker`` or ``_gather_and_save``.
     """
     while True:
         item = retry_queue.get()
@@ -94,13 +120,29 @@ def _retry_worker(retry_queue: Queue, recovered: list, dead_letter: list, lock: 
                 recovered.append(result)
         else:
             retry_queue.put({"worker": worker, "shard": shard, "checksum": checksum, "attempt": attempt + 1})
-        # retry_queue.task_done()
+        retry_queue.task_done()
+
 
 
 def _connect_with_retry(ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0) -> socket.socket:
+    """Open a TCP connection, retrying on failure with a fixed delay.
+
+    Args:
+        ip: Target IP address.
+        port: Target port.
+        rank: Worker rank used only for log messages.
+        retries: Maximum number of connection attempts.
+        delay: Seconds to wait between attempts.
+
+    Returns:
+        Connected socket.
+
+    Raises:
+        ConnectionError: If all attempts fail.
+    """
     for attempt in range(1, retries + 1):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(None)
+        sock.settimeout(2.0)
         try:
             logger.info(f"Connecting to rank {rank} at {ip}:{port} (attempt {attempt}/{retries})")
             sock.connect((ip, port))
@@ -116,6 +158,18 @@ def _connect_with_retry(ip: str, port: int, rank: int, retries: int = 3, delay: 
 
 @app.post("/gather-shards")
 def gather_shards(model_id: str = Query(None, description="HuggingFace model ID, e.g. mlx-community/Qwen2.5-0.5B-Instruct-bf16")):
+    """Pull shards from every worker, save each shard locally as it arrives, then merge.
+
+    Args:
+        model_id: Optional HuggingFace model ID used to derive the directory name.
+                  Falls back to ``data_path`` in config when omitted.
+
+    Returns:
+        JSON with keys ``gathered`` (list of per-worker results) and ``save_path`` (merged model path).
+
+    Raises:
+        HTTPException 500: If any worker permanently fails or a shard cannot be saved.
+    """
     config = _load_config()
     workers = config["devices_config"]["workers"]
     if model_id:
@@ -125,17 +179,53 @@ def gather_shards(model_id: str = Query(None, description="HuggingFace model ID,
 
     logger.info("Gather request for model %s — %d workers", model_name, len(workers))
     gathered: list = []
+    shards_by_rank: dict = {}
+    save_errors: list = []
     dead_letter: list = []
     lock = threading.Lock()
     gather_queue: Queue = Queue()
 
+    def _gather_and_save(worker: dict, shard: dict, checksum: str) -> tuple[bool, str, dict]:
+        """Pull a shard from ``worker`` and immediately save it to ``SHARDS_ROOT``.
+
+        Args:
+            worker: Worker config dict.
+            shard: Unused; present for retry-worker signature compatibility.
+            checksum: Unused; present for retry-worker signature compatibility.
+
+        Returns:
+            Tuple of (ok, error_msg, result_entry) where result_entry contains
+            ``rank``, ``host``, and ``shard_path`` on success.
+        """
+        ok, err, result = _gather_shard_from_worker(worker, shard, checksum)
+        if not ok:
+            return False, err, {}
+        rank = result["rank"]
+        host = result["host"]
+        received_shard = result.pop("_shard")
+        shard_path, _, saved_ok, save_err = save_received_data_shard(
+            shard=received_shard,
+            metadata={"rank": rank, "role": "gathered", "host": host},
+            output_dir=SHARDS_ROOT / model_name / f"worker-{rank}",
+        )
+        if not saved_ok:
+            logger.error("  rank %d save failed: %s", rank, save_err)
+            with lock:
+                save_errors.append({"rank": rank, "host": host, "error": save_err})
+            return False, save_err, {}
+        result["shard_path"] = shard_path
+        logger.info("  rank %d saved → %s", rank, shard_path)
+        with lock:
+            shards_by_rank[rank] = received_shard
+        return True, "", result
+
     threading.Thread(
-        target=_retry_worker, args=(gather_queue, gathered, dead_letter, lock, _gather_shard_from_worker), daemon=True
+        target=_retry_worker, args=(gather_queue, gathered, dead_letter, lock, _gather_and_save), daemon=True
     ).start()
 
     for worker in workers:
         logger.info("Pulling shard from rank %d (%s)", worker["rank"], worker.get("host") or worker.get("device"))
-        ok, err, result = _gather_shard_from_worker(worker, {}, "")
+        ok, err, result = _gather_and_save(worker, {}, "")
         if ok:
             logger.info("  ✓ rank %d received", worker["rank"])
             with lock:
@@ -149,48 +239,45 @@ def gather_shards(model_id: str = Query(None, description="HuggingFace model ID,
 
     with lock:
         all_gathered = list(gathered)
-        failed = list(dead_letter)
+        failed = list(dead_letter) + list(save_errors)
 
     if failed:
-        raise HTTPException(
-            status_code=500,
-            detail={"gathered": all_gathered, "errors": failed},
+        logger.warning(
+            "Partial gather: %d/%d workers succeeded, %d failed — skipping merge",
+            len(all_gathered), len(workers), len(failed),
         )
-
-    logger.info("All %d shards gathered — saving to disk", len(all_gathered))
-    errors = []
-    for entry in all_gathered:
-        shard_path, _, ok, err = save_received_data_shard(
-            shard=entry["_shard"],
-            metadata={"rank": entry["rank"], "role": "gathered", "host": entry["host"]},
-            output_dir=SHARDS_ROOT / model_name / f"worker-{entry['rank']}",
+        for f in failed:
+            logger.warning("  ✗ rank %d (%s): %s", f["rank"], f.get("host"), f["error"])
+        return JSONResponse(
+            status_code=206,
+            content={"gathered": all_gathered, "errors": failed, "save_path": None},
         )
-        if not ok:
-            errors.append({"rank": entry["rank"], "host": entry["host"], "error": err})
-        else:
-            entry["shard_path"] = shard_path
-            logger.info("  rank %d saved → %s", entry["rank"], shard_path)
-
-    if errors:
-        raise HTTPException(status_code=500, detail={"gathered": all_gathered, "errors": errors})
 
     save_path = config.get("save_path")
     logger.info("Merging %d shards → %s", len(all_gathered), save_path)
-    merged = merge_shards([entry["_shard"] for entry in all_gathered])
+    merged = merge_shards(list(shards_by_rank.values()))
     save_merged_model(merged, save_path)
     logger.info("Merged model saved → %s", save_path)
 
-    for entry in all_gathered:
-        entry.pop("_shard", None)
-
-    return {"gathered": all_gathered, "save_path": save_path}
+    return {"gathered": all_gathered, "errors": [], "save_path": save_path}
 
 
 @app.post("/store-shard")
 def store_shard(
     model_id: str = Query(None, description="HuggingFace model ID; if omitted, derived from config data_path"),
 ):
-    """Load the model from config data_path, shard it, and push each shard to its ranked Pi worker via TCP."""
+    """Load the model, shard it, and push each shard to its ranked worker.
+
+    Args:
+        model_id: Optional HuggingFace model ID for naming. Falls back to ``data_path`` in config.
+
+    Returns:
+        JSON with keys ``model_name``, ``num_shards``, and ``sent_to`` (list of per-worker results).
+
+    Raises:
+        HTTPException 404: If ``data_path`` from config does not exist.
+        HTTPException 500: If any worker permanently fails to store its shard.
+    """
     config = _load_config()
     workers = config["devices_config"]["workers"]
     num_workers = len(workers)

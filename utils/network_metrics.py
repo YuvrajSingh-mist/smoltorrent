@@ -1,8 +1,16 @@
+"""Network performance metrics collection and logging."""
 import logging
 import time
 
 
 def log_metrics(metrics: dict, logger: logging.Logger, label: str) -> None:
+    """Log a formatted summary of network metrics at INFO level.
+
+    Args:
+        metrics: Dict returned by ``NetworkMetrics.get_metrics()``.
+        logger: Logger to write to.
+        label: Short label appended to the ``[net/<label>]`` prefix.
+    """
     if not metrics:
         return
     parts = []
@@ -29,7 +37,8 @@ def log_metrics(metrics: dict, logger: logging.Logger, label: str) -> None:
 class NetworkMetrics:
     """Track network performance metrics for distributed training."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialise empty metric accumulators."""
         self.send_times = []
         self.recv_times = []
         self.send_bytes = []

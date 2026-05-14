@@ -1,3 +1,4 @@
+"""HTTP client helpers that call the local FastAPI server for store and gather operations."""
 import logging
 
 import httpx
@@ -10,6 +11,17 @@ API_BASE = "http://localhost:8000"
 
 
 def request_store_shards(model_id: str) -> dict:
+    """POST /store-shard and return the parsed response body.
+
+    Args:
+        model_id: HuggingFace model ID passed as a query param to the API.
+
+    Returns:
+        Parsed JSON response dict with keys ``model_name``, ``num_shards``, ``sent_to``.
+
+    Raises:
+        httpx.HTTPStatusError: If the server returns a 4xx/5xx status.
+    """
     resp = httpx.post(
         f"{API_BASE}/store-shard",
         params={"model_id": model_id},
@@ -28,6 +40,17 @@ def request_store_shards(model_id: str) -> dict:
 
 
 def request_gather_shards(model_id: str) -> dict:
+    """POST /gather-shards and return the parsed response body.
+
+    Args:
+        model_id: HuggingFace model ID passed as a query param to the API.
+
+    Returns:
+        Parsed JSON response dict with keys ``gathered`` and ``save_path``.
+
+    Raises:
+        httpx.HTTPStatusError: If the server returns a 4xx/5xx status.
+    """
     resp = httpx.post(
         f"{API_BASE}/gather-shards",
         params={"model_id": model_id},

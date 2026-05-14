@@ -50,6 +50,18 @@ def count_remote_shards(model_name: str, workers: list[dict]) -> tuple[int, list
 
 
 def ping_worker(host: str, ip: str, port: int, rank: int, timeout: float = 5.0) -> tuple[bool, str]:
+    """Send a heartbeat to a worker and check for an ``"alive"`` response.
+
+    Args:
+        host: Human-readable host alias (used only for logging).
+        ip: Worker IP address.
+        port: Worker TCP port.
+        rank: Worker rank (used only for logging).
+        timeout: Socket connect/receive timeout in seconds.
+
+    Returns:
+        Tuple of (alive, reason_string).
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
@@ -67,6 +79,7 @@ def ping_worker(host: str, ip: str, port: int, rank: int, timeout: float = 5.0) 
 
 
 def main() -> None:
+    """CLI entry-point: ping every configured worker and print a status table. Exits 1 if any are dead."""
     config_path = Path(__file__).parents[1] / "configs" / "config.yaml"
     with config_path.open() as f:
         config = yaml.safe_load(f)

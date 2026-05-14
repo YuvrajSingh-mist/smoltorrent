@@ -1,8 +1,13 @@
+"""Low-level framed TCP messaging with automatic metrics collection.
+
+Messages are length-prefixed (4-byte big-endian header) and pickled.
+A global ``NetworkMetrics`` instance tracks bytes and latency for every send/receive.
+"""
 import pickle
 import struct
 import socket
 import time
-from typing import Any, Optional 
+from typing import Any, Optional
 import logging
 
 from utils.network_metrics import NetworkMetrics

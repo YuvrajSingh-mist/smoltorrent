@@ -7,6 +7,7 @@ CONFIG_FILE="$PROJECT_DIR/configs/config.yaml"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/Desktop/smoltorrent}"
 DRY_RUN=false
 API_ONLY=false
+WORKER_RANKS=""   # empty = all workers; comma-separated ranks to restrict
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RESET="\033[0m"
@@ -39,9 +40,15 @@ while [[ $# -gt 0 ]]; do
             API_ONLY=true
             shift
             ;;
+        --workers)
+            shift
+            [[ $# -eq 0 ]] && { err "--workers requires a comma-separated rank list (e.g. --workers 1,3)"; exit 1; }
+            WORKER_RANKS="$1"
+            shift
+            ;;
         *)
             err "Unknown option: $1"
-            warn "Usage: $0 [--dry-run] [--api-only]"
+            warn "Usage: $0 [--dry-run] [--api-only] [--workers <rank,...>]"
             exit 1
             ;;
     esac
@@ -204,6 +211,16 @@ launch_on_node() {
     fi
 }
 
+rank_selected() {
+    local rank="$1"
+    [[ -z "$WORKER_RANKS" ]] && return 0
+    local IFS=','
+    for r in $WORKER_RANKS; do
+        [[ "$r" == "$rank" ]] && return 0
+    done
+    return 1
+}
+
 info "${C_BOLD}Project:${C_RESET} $PROJECT_DIR"
 info "${C_BOLD}Config :${C_RESET} $CONFIG_FILE"
 info "${C_BOLD}Master :${C_RESET} $MASTER_HOST"
@@ -213,7 +230,8 @@ info "${C_BOLD}Workers:${C_RESET} ${WORKER_ENTRIES[*]}"
 ALL_HOSTS=("$MASTER_HOST")
 for worker in "${WORKER_ENTRIES[@]}"; do
     worker_host="${worker%%:*}"
-    ALL_HOSTS+=("$worker_host")
+    worker_rank="${worker##*:}"
+    rank_selected "$worker_rank" && ALL_HOSTS+=("$worker_host")
 done
 
 UNIQUE_HOSTS=()
@@ -294,6 +312,7 @@ if [[ "$DRY_RUN" != "true" ]]; then
     for worker in "${WORKER_ENTRIES[@]}"; do
         worker_host="${worker%%:*}"
         worker_rank="${worker##*:}"
+        rank_selected "$worker_rank" || continue
         if is_local_host "$worker_host"; then
             info "Cleaning local tmux session: syncps_worker_${worker_rank} (host: $worker_host)"
             tmux kill-session -t "syncps_worker_${worker_rank}" 2>/dev/null || true
@@ -320,10 +339,11 @@ else
     # Launch the shard API on the master
     launch_on_node "$MASTER_HOST" "syncps_api" "if [[ -x .venv/bin/uvicorn ]]; then .venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000; else uvicorn backend.api:app --host 0.0.0.0 --port 8000; fi"
 
-    # Launch workers
+    # Launch workers (all, or only the ranks specified with --workers)
     for worker in "${WORKER_ENTRIES[@]}"; do
         worker_host="${worker%%:*}"
         worker_rank="${worker##*:}"
+        rank_selected "$worker_rank" || { warn "  Skipping rank ${worker_rank} (not in --workers list)"; continue; }
         launch_on_node "$worker_host" "syncps_worker_${worker_rank}" "if [[ -x .venv/bin/python ]]; then .venv/bin/python algorithms/SyncPS/worker.py ${worker_rank} ${worker_host}; else python3 algorithms/SyncPS/worker.py ${worker_rank} ${worker_host}; fi"
     done
 fi
@@ -331,3 +351,4 @@ fi
 ok "Launch complete."
 info "API logs:        ssh $MASTER_HOST 'tmux attach -t syncps_api'"
 info "Trigger gather:  python main.py  (or POST http://$MASTER_HOST:8000/gather-shards)"
+[[ -n "$WORKER_RANKS" ]] && info "Workers launched: ranks ${WORKER_RANKS} only (others untouched)"

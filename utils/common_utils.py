@@ -1,3 +1,4 @@
+"""Shared tensor utilities: config loading, shard serialisation, chunking, saving, and merging."""
 import hashlib
 import io
 import json
@@ -46,8 +47,12 @@ def shard_to_bytes(shard: dict) -> bytes:
     return st_save(shard)
 
 
-# this is because mlx needs to know the filename to save/load safetensors, but we want to avoid temp files and just work with bytes in memory and io.BytesIO does not have .name attribute which mlx relies on
 class _NamedBytesIO(io.BytesIO):
+    """BytesIO subclass with a hard-coded ``.name`` attribute.
+
+    MLX's ``mx.load()`` requires a file-like object with a ``.name`` ending in
+    ``.safetensors``; standard ``io.BytesIO`` has no such attribute.
+    """
     name = "shard.safetensors"
 
 
@@ -60,6 +65,14 @@ def shard_from_bytes(data: bytes) -> dict:
 
 
 def load_config(config_path: Path = CONFIG_PATH) -> dict:
+    """Load and return the YAML config file.
+
+    Args:
+        config_path: Path to the YAML file. Defaults to ``configs/config.yaml``.
+
+    Returns:
+        Parsed config dict.
+    """
     with config_path.open() as f:
         return yaml.safe_load(f)
 
@@ -114,7 +127,15 @@ def model_id_to_dir_name(model_id: str) -> str:
 
 
 def chunk_data(data, n_chunks: int = 10) -> dict:
-    """Split data into chunks using torch."""
+    """Split a dict or list into ``n_chunks`` roughly equal parts.
+
+    Args:
+        data: A dict of tensors or a list. Keys/indices are distributed evenly.
+        n_chunks: Number of output chunks. Must be > 0.
+
+    Returns:
+        Dict mapping ``chunk_index`` → slice of ``data``.
+    """
     data_chunks = {}
     assert n_chunks > 0, "n_chunks must be greater than 0"
 
@@ -230,8 +251,8 @@ def save_merged_model(merged_weights: dict, save_path: str | Path) -> Path:
     return dest
 
 
-def main():
-    """Example usage of chunk_data."""
+def main() -> None:
+    """Quick smoke-test for chunk_data."""
     data = {f"tensor_{i}": float(i) for i in range(10)}
     n_chunks = 3
     chunks = chunk_data(data, n_chunks)

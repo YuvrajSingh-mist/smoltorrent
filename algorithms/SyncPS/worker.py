@@ -1,3 +1,8 @@
+"""SyncPS worker process — listens for shard store/send/heartbeat commands over TCP.
+
+Each worker binds a TCP port, handles incoming connections in daemon threads, and
+persists shards to disk under ``shards/incoming_shards/<model>/<worker-rank>/``.
+"""
 import threading
 import socket
 import sys
@@ -32,6 +37,14 @@ _MODEL_NAME = Path(config.get("data_path", "model")).parent.name
 
 
 def _label_caller(addr: tuple) -> str:
+    """Return a human-readable label for an incoming connection address.
+
+    Args:
+        addr: ``(ip, port)`` tuple from ``socket.accept()``.
+
+    Returns:
+        String like ``"server/master (192.168.1.1)"`` or ``"worker 'pi3' (192.168.1.3)"``.
+    """
     caller_ip = addr[0]
     master_ip = config["devices_config"]["master"][0]["ip"]
     if caller_ip == master_ip:
@@ -50,6 +63,18 @@ def _handle_shard_client(
     addr: tuple,
     logger: logging.Logger,
 ) -> None:
+    """Handle a single incoming TCP connection, dispatching on the command in the first message.
+
+    Supported commands:
+      ``heartbeat``   — reply ``"alive"``.
+      ``send_shard``  — read shard from disk and send bytes back.
+      ``store_shard`` — receive shard bytes, verify checksum, save to disk.
+
+    Args:
+        conn: Accepted client socket.
+        addr: ``(ip, port)`` of the remote caller.
+        logger: Logger instance for this worker.
+    """
     caller = _label_caller(addr)
     try:
         msg = receive_message(conn)
@@ -101,12 +126,18 @@ def _handle_shard_client(
         else:
             logger.warning(f"Unknown command '{command}' from {caller}")
     except Exception as e:
-        logger.error(f"Error serving shard to {caller}: {e}")
+        logger.error(f"Error serving from {caller}: {e}")
     finally:
         conn.close()
 
 
 def _shard_listener(port: int, logger: logging.Logger) -> None:
+    """Accept connections forever and spawn a daemon thread per client.
+
+    Args:
+        port: TCP port to bind on all interfaces.
+        logger: Logger instance for this worker.
+    """
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
@@ -126,8 +157,13 @@ def _shard_listener(port: int, logger: logging.Logger) -> None:
             break
 
 
-def run_worker(worker_rank: int, hostname: str):
+def run_worker(worker_rank: int, hostname: str) -> None:
+    """Initialise logging, start the shard listener, and block forever.
 
+    Args:
+        worker_rank: Integer rank of this worker (must match a rank in config).
+        hostname: Human-readable hostname used in log file naming.
+    """
     logger = logging.getLogger(f"[WORKER-{worker_rank}]")
 
     # Configure centralized logging
@@ -156,6 +192,7 @@ def run_worker(worker_rank: int, hostname: str):
     threading.Event().wait()  # block forever; shard listener runs as daemon threads
 
 def main() -> None:
+    """CLI entry-point. Expects ``<worker_rank>`` and ``<hostname>`` as positional args."""
     if len(sys.argv) < 3:
         raise SystemExit("Usage: python algorithms/SyncPS/worker.py <worker_rank> <hostname>")
     run_worker(int(sys.argv[1]), sys.argv[2])

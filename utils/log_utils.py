@@ -77,6 +77,7 @@ class ColourFormatter(logging.Formatter):
     _FMT = "{dim}{asctime}{reset}  {level_col}{levelname:<8}{reset}  {ctx}{dim}{name}{reset}  {msg}"
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003
+        """Format ``record`` as a coloured single-line string."""
         record.message = record.getMessage()
         record.asctime = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
 
@@ -224,19 +225,43 @@ def setup_cluster_logging(
 
 
 def log_shard_progress(logger: logging.Logger, gathered: list, errors: list) -> None:
+    """Log a summary of gathered shards and any errors.
+
+    Args:
+        logger: Logger to write to.
+        gathered: List of successful result dicts (keys: ``rank``, ``host``, ``shard_path``).
+        errors: List of error dicts (keys: ``rank``, ``host``, ``error``).
+    """
     total = len(gathered) + len(errors)
     logger.info(f"Gathered {len(gathered)}/{total} shards")
     for s in gathered:
-        logger.info(f"  ✓ rank {s['rank']} ({s['host']})  →  {s['shard_path']}")
+        logger.info(f"  ✓ rank {s['rank']} ({s['host']})  →  {s.get('shard_path', 'n/a')}")
     for e in errors:
         logger.error(f"  ✗ rank {e['rank']} ({e['host']}): {e['error']}")
 
 
 def log_step(logger: logging.Logger, step: int, message: str, level: int = logging.INFO) -> None:
+    """Emit a structured step log line: ``step:<n> | <message>``.
+
+    Args:
+        logger: Logger to write to.
+        step: Training step number.
+        message: Human-readable description of the step event.
+        level: Logging level (default INFO).
+    """
     logger.log(level, "step:%d | %s", step, message)
 
 
 def log_metric(logger: logging.Logger, step: int, metric_name: str, value: float, extra_info: Optional[str] = None) -> None:
+    """Emit a structured metric log line: ``step:<n> | metric:<name> | value:<v>``.
+
+    Args:
+        logger: Logger to write to.
+        step: Training step number.
+        metric_name: Name of the metric (e.g. ``"loss"``).
+        value: Numeric value of the metric.
+        extra_info: Optional additional context appended to the line.
+    """
     msg = f"step:{step} | metric:{metric_name} | value:{value:.6f}"
     if extra_info:
         msg += f" | {extra_info}"
