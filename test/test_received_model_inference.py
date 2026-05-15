@@ -1,21 +1,19 @@
 """
-Load the gathered model from received_model/ and run a few generation passes.
+Load the gathered Qwen2.5-0.5B gaming checkpoint and run a few generation passes.
 
-received_model/ is populated by `python main.py --action gather`, which merges
-distributed weights and downloads fresh tokenizer/config from HuggingFace Hub.
+RECEIVED_MODEL_DIR must contain merged.safetensors (or model*.safetensors) plus
+config.json and tokenizer.json. If config/tokenizer are missing the fixture
+downloads them from HuggingFace Hub automatically.
 
-If tokenizer/config are missing (weights present but gather not fully run),
-the fixture downloads them automatically so the test is self-contained.
-
-Mark: integration — needs merged weights on disk.
+Mark: integration — needs merged weights on disk (run `python main.py gather` first).
 """
 
 from pathlib import Path
 
 import pytest
 
-RECEIVED_MODEL_DIR = Path(__file__).parents[1] / "received_model"
-MODEL_ID = "mlx-community/SmolLM2-135M-Instruct"
+RECEIVED_MODEL_DIR = Path.home() / "smolcluster/checkpoints/Qwen2.5-0.5B-instruct-bf16/gaming/latest"
+MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 
 PROMPTS = [
     "What is a BitTorrent tracker?",
