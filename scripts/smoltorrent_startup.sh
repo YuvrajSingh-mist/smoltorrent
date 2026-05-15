@@ -3,7 +3,7 @@
 # Waits for Tailscale to be reachable, then delegates to launch.sh.
 set -euo pipefail
 
-SMOLTORRENT_DIR="/Users/yuvrajsingh1/Desktop/smoltorrent"
+SMOLTORRENT_DIR="/Users/yuvrajsingh1/smoltorrent"
 LOG=/tmp/smoltorrent-startup.log
 TAILSCALE_PROBE="100.68.124.90"   # pi4-1 — first worker to come up
 TIMEOUT=300                        # give up after 5 min

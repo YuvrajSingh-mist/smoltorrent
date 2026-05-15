@@ -1,6 +1,6 @@
-# Configuration file for the data processing script
+# legacy keys — used only by old tests and save_received_data_shard util
 data_path: test/fixtures/mlx-community--SmolLM2-135M-Instruct/model.safetensors
-save_path: ~/Desktop/smoltorrent/received_model/model.safetensors
+save_path: ~/smolcluster/received_model/model.safetensors
 ckpt_root: ~/smolcluster/checkpoints
 
 # Number of chunks to split the data into
