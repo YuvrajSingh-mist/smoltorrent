@@ -8,7 +8,8 @@ REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/Desktop/smoltorrent}"
 DRY_RUN=false
 API_ONLY=false
 DAEMONS=false
-WORKER_RANKS=""   # empty = all workers; comma-separated ranks to restrict
+WORKER_RANKS=""
+WATCH_EXT=".safetensors"  # comma-separated extensions for the watcher
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RESET="\033[0m"
@@ -45,6 +46,12 @@ while [[ $# -gt 0 ]]; do
             DAEMONS=true
             shift
             ;;
+        --ext)
+            shift
+            [[ $# -eq 0 ]] && { err "--ext requires a value (e.g. --ext .safetensors,.pth)"; exit 1; }
+            WATCH_EXT="$1"
+            shift
+            ;;
         --workers)
             shift
             [[ $# -eq 0 ]] && { err "--workers requires a comma-separated rank list (e.g. --workers 1,3)"; exit 1; }
@@ -60,18 +67,26 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$DAEMONS" == "true" ]]; then
-    LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
-    mkdir -p "$LAUNCH_AGENTS"
-    for plist in com.smoltorrent.api com.smoltorrent.watcher; do
-        src="$SCRIPT_DIR/${plist}.plist"
-        dst="$LAUNCH_AGENTS/${plist}.plist"
-        cp "$src" "$dst"
-        launchctl unload "$dst" 2>/dev/null || true
-        launchctl load "$dst"
-        ok "Loaded daemon: $plist"
-        info "  logs: tail -f /tmp/${plist#com.smoltorrent.}.log"
-    done
-    info "Stop daemons:  launchctl unload ~/Library/LaunchAgents/com.smoltorrent.{api,watcher}.plist"
+    APP_DST="$HOME/Applications/SmolTorrent Startup.app"
+    STARTUP_SCRIPT="$SCRIPT_DIR/smoltorrent_startup.sh"
+
+    # Build a minimal AppleScript .app that runs the startup wrapper at login.
+    # LaunchAgents and launchctl are broken on macOS 26 Tahoe beta — Login Items
+    # via an .app bundle is the only reliable path.
+    mkdir -p "$HOME/Applications"
+    osacompile -o "$APP_DST" - <<AS 2>/dev/null
+do shell script "/bin/bash ${STARTUP_SCRIPT} > /tmp/smoltorrent-startup.log 2>&1 &"
+AS
+
+    # Clean up stale plists and cron entries
+    rm -f "$HOME/Library/LaunchAgents/com.smoltorrent.api.plist" \
+          "$HOME/Library/LaunchAgents/com.smoltorrent.watcher.plist"
+    ( crontab -l 2>/dev/null | grep -v "smoltorrent" || true ) | crontab - 2>/dev/null || true
+
+    ok "App built → $APP_DST"
+    warn "One manual step required (macOS 26 Tahoe restriction):"
+    info "  System Settings → General → Login Items & Extensions → + → ~/Applications/SmolTorrent Startup.app"
+    info "Logs after reboot:  tail -f /tmp/smoltorrent-startup.log"
     exit 0
 fi
 
@@ -359,6 +374,7 @@ if [[ "$API_ONLY" == "true" ]]; then
 else
     # Launch the shard API on the master
     launch_on_node "$MASTER_HOST" "syncps_api" "if [[ -x .venv/bin/uvicorn ]]; then .venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000; else uvicorn backend.api:app --host 0.0.0.0 --port 8000; fi"
+    launch_on_node "$MASTER_HOST" "syncps_watcher" "if [[ -x .venv/bin/python ]]; then .venv/bin/python watcher/watch.py --ext '${WATCH_EXT}'; else python3 watcher/watch.py --ext '${WATCH_EXT}'; fi"
 
     # Launch workers (all, or only the ranks specified with --workers)
     for worker in "${WORKER_ENTRIES[@]}"; do

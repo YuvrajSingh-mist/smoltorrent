@@ -56,15 +56,15 @@ def receive_message(sock: socket.socket) -> Optional[Any]:
     msglen = struct.unpack(">I", raw_msglen)[0]
     _network_metrics.record_buffer_size(msglen)
 
-    data = b""
-    remaining = msglen
-    while remaining > 0:
-        chunk = sock.recv(min(65536, remaining))
-        if not chunk:
+    buf = bytearray(msglen)
+    view = memoryview(buf)
+    received = 0
+    while received < msglen:
+        n = sock.recv_into(view[received:], min(65536, msglen - received))
+        if not n:
             raise ConnectionError("Socket connection broken while receiving message")
-        data += chunk
-        remaining -= len(chunk)
+        received += n
 
-    result = pickle.loads(data)
+    result = pickle.loads(buf)
     _network_metrics.record_recv(msglen, time.time() - start_time)
     return result

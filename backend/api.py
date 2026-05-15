@@ -33,7 +33,7 @@ app = FastAPI(title="SmolTorrent Shard API")
 
 CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 SHARDS_ROOT = Path(__file__).parents[1] / "shards"
-MAX_RETRIES = 3
+MAX_RETRIES = 6
 
 
 def _load_config() -> dict:
