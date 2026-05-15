@@ -1,0 +1,20 @@
+[Unit]
+Description=SmolTorrent shard listener
+After=network.target
+
+[Service]
+# Set WORKER_RANK and HOSTNAME to match this Pi's rank and hostname in config.yaml
+Environment=WORKER_RANK=0
+Environment=WORKER_HOSTNAME=pi0
+
+WorkingDirectory=/home/pi/smoltorrent
+ExecStart=/home/pi/smoltorrent/.venv/bin/python algorithms/SyncPS/worker.py ${WORKER_RANK} ${WORKER_HOSTNAME}
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

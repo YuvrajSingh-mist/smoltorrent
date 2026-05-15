@@ -14,21 +14,20 @@ No file upload needed — the model is already on disk at the master.
 |---|---|---|---|
 | `model_id` | string | No | HuggingFace-style ID (e.g. `mlx-community/SmolLM2-135M-Instruct`). Slashes become `--` for directory naming. Falls back to `data_path` parent name in config if omitted. |
 
-**200 OK**
-```json
-{
-  "model_name": "mlx-community--SmolLM2-135M-Instruct",
-  "num_shards": 4,
-  "sent_to": [
-    {"rank": 1, "host": "pi4-1", "shard_path": "/home/pi/smoltorrent/shards/incoming_shards/.../model_shard_1.safetensors", "metadata_path": "...metadata.json"},
-    ...
-  ]
-}
+**200 OK** — `text/plain` streaming. One log line per event, flushed as each shard lands:
+
+```
+Loaded 148 tensors (270.4 MB) — chunking into 4 shards
+  ✓ rank 1 (pi4-1)
+  ✓ rank 2 (pi4-2)
+  ✓ rank 3 (pi4-3)
+  ✓ rank 4 (pi4-4)
+Done: 4/4 shards stored for mlx-community--SmolLM2-135M-Instruct
 ```
 
-**404** — `data_path` from config does not exist on disk.
+On partial failure, failed ranks emit `  ✗ rank N (host) permanently failed: <reason>` and the final line is `ERROR: N/M shards failed`.
 
-**500** — one or more workers permanently failed after retries. Body includes `sent` (successes) and `permanently_failed` (per-rank failure reasons).
+**404** — `data_path` from config does not exist on disk (emitted as `ERROR:` line in the stream).
 
 ---
 
@@ -40,18 +39,17 @@ Connects to every configured worker via TCP, requests each worker's shard (`send
 |---|---|---|---|
 | `model_id` | string | No | HuggingFace-style ID. Falls back to `data_path` parent name in config if omitted. |
 
-**200 OK**
-```json
-{
-  "gathered": [
-    {"rank": 1, "host": "pi4-1", "shard_path": "shards/incoming_shards/.../worker-1/...safetensors"},
-    ...
-  ],
-  "save_path": "~/Desktop/smoltorrent/received_model/model.safetensors"
-}
+**200 OK** — `text/plain` streaming. One log line per event, flushed as each shard arrives and is saved:
+
+```
+  ✓ rank 1 (pi4-1) — saved → shards/incoming_shards/.../worker-1/model_shard_1.safetensors
+  ✓ rank 2 (pi4-2) — saved → ...
+  ...
+Merging 4 shards → ~/Desktop/smoltorrent/received_model/model.safetensors
+Done: saved → ~/Desktop/smoltorrent/received_model/model.safetensors
 ```
 
-**500** — one or more workers failed after retries, or a shard save/merge failed. Body includes `gathered` (successes so far) and `errors`.
+Each shard is written to disk immediately as it arrives rather than buffering all shards before saving. On partial failure the final line is `ERROR: N/M shards failed — skipping merge`.
 
 ---
 

@@ -1,16 +1,16 @@
 """CLI entry-point for SmolTorrent.
 
 Usage:
-    python main.py --model-id <hf_model_id> --action [store|gather]
+    python main.py store --ckpt-path <absolute_path_to_checkpoint.safetensors>
+    python main.py gather --ckpt-rel-path <relative_path, e.g. grpo/run1/step_100>
 
-  store  — shard the model and push shards to all configured workers.
-  gather — pull shards from workers, merge, and download HuggingFace metadata.
+  store  — shard the checkpoint and push shards to all configured workers.
+  gather — pull shards from workers and merge into a single .safetensors file.
 """
 import argparse
 import logging
 
-from utils.common_utils import fetch_model_metadata, load_config, model_id_to_dir_name
-from utils.log_utils import log_shard_progress
+from utils.common_utils import fetch_model_metadata, load_config
 from utils.shard_ops import request_gather_shards, request_store_shards
 
 logging.basicConfig(
@@ -20,55 +20,47 @@ logger = logging.getLogger("smoltorrent")
 
 
 def main() -> None:
-    """Parse CLI args, check worker heartbeats, then run store or gather.
-
-    Exits early (returns without error) if any worker is unreachable or if
-    fewer shards than workers are found during a gather pre-check.
-    """
+    """Parse CLI args then run store or gather."""
     parser = argparse.ArgumentParser(description="SmolTorrent — distributed shard store/gather")
-    parser.add_argument(
+    sub = parser.add_subparsers(dest="action", required=True)
+
+    store_p = sub.add_parser("store", help="Shard a checkpoint and push to workers")
+    store_p.add_argument(
+        "--ckpt-path",
+        required=True,
+        metavar="PATH",
+        help="Absolute path to the checkpoint .safetensors file",
+    )
+
+    gather_p = sub.add_parser("gather", help="Pull shards from workers and merge")
+    gather_p.add_argument(
+        "--ckpt-path",
+        required=True,
+        metavar="PATH",
+        help="Absolute path to the checkpoint file (same path used for store)",
+    )
+    gather_p.add_argument(
         "--model-id",
         metavar="MODEL_ID",
-        required=True,
-        help="HuggingFace model ID, e.g. mlx-community/Qwen2.5-0.5B-Instruct-bf16",
+        default=None,
+        help="HuggingFace model ID to fetch tokenizer/config after merge, e.g. mlx-community/Qwen2.5-0.5B-Instruct-bf16",
     )
-    parser.add_argument(
-        "--action",
-        choices=["store", "gather"],
-        default="gather",
-        help="store: shard model and push to workers. gather: pull shards back and merge (default: gather)",
-    )
+
     args = parser.parse_args()
 
-    config = load_config()
-    workers = config["devices_config"]["workers"]
-    num_workers = len(workers)
-    model_name = model_id_to_dir_name(args.model_id)
-
     if args.action == "store":
-        logger.info("Storing shards for %s...", model_name)
-        result = request_store_shards(model_id=args.model_id)
-        for entry in result.get("sent_to", []):
-            logger.info("  ✓ rank %d (%s)", entry["rank"], entry["host"])
-        logger.info(
-            "Stored %d/%d shards for %s",
-            len(result.get("sent_to", [])), result.get("num_shards", num_workers), model_name,
-        )
-        return
-
-    logger.info("Gathering shards for %s...", model_name)
-    result = request_gather_shards(model_id=args.model_id)
-    log_shard_progress(logger, result["gathered"], result.get("errors", []))
-    if result.get("errors"):
-        logger.warning(
-            "Partial gather: %d/%d shards retrieved — model is incomplete, skipping inference metadata",
-            len(result["gathered"]), num_workers,
-        )
-        return
-    logger.info("All shards saved → %s", result.get("save_path"))
-    logger.info("Fetching tokenizer and config from HuggingFace Hub...")
-    fetch_model_metadata(args.model_id, config)
-    logger.info("received_model/ is ready for inference")
+        logger.info("Storing shards for %s...", args.ckpt_path)
+        request_store_shards(ckpt_path=args.ckpt_path, log_fn=logger.info)
+    else:
+        logger.info("Gathering shards for %s...", args.ckpt_path)
+        request_gather_shards(ckpt_path=args.ckpt_path, log_fn=logger.info)
+        if args.model_id:
+            logger.info("Fetching tokenizer and config from HuggingFace Hub...")
+            config = load_config()
+            fetch_model_metadata(args.model_id, config)
+            logger.info("Model directory ready for inference")
+        else:
+            logger.info("Done — merged.safetensors is ready")
 
 
 if __name__ == "__main__":

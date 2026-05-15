@@ -7,6 +7,7 @@ CONFIG_FILE="$PROJECT_DIR/configs/config.yaml"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/Desktop/smoltorrent}"
 DRY_RUN=false
 API_ONLY=false
+DAEMONS=false
 WORKER_RANKS=""   # empty = all workers; comma-separated ranks to restrict
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -40,6 +41,10 @@ while [[ $# -gt 0 ]]; do
             API_ONLY=true
             shift
             ;;
+        --daemons)
+            DAEMONS=true
+            shift
+            ;;
         --workers)
             shift
             [[ $# -eq 0 ]] && { err "--workers requires a comma-separated rank list (e.g. --workers 1,3)"; exit 1; }
@@ -48,11 +53,27 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             err "Unknown option: $1"
-            warn "Usage: $0 [--dry-run] [--api-only] [--workers <rank,...>]"
+            warn "Usage: $0 [--dry-run] [--api-only] [--daemons] [--workers <rank,...>]"
             exit 1
             ;;
     esac
 done
+
+if [[ "$DAEMONS" == "true" ]]; then
+    LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
+    mkdir -p "$LAUNCH_AGENTS"
+    for plist in com.smoltorrent.api com.smoltorrent.watcher; do
+        src="$SCRIPT_DIR/${plist}.plist"
+        dst="$LAUNCH_AGENTS/${plist}.plist"
+        cp "$src" "$dst"
+        launchctl unload "$dst" 2>/dev/null || true
+        launchctl load "$dst"
+        ok "Loaded daemon: $plist"
+        info "  logs: tail -f /tmp/${plist#com.smoltorrent.}.log"
+    done
+    info "Stop daemons:  launchctl unload ~/Library/LaunchAgents/com.smoltorrent.{api,watcher}.plist"
+    exit 0
+fi
 
 if ! command -v yq >/dev/null 2>&1; then
     err "Error: yq is required to parse $CONFIG_FILE"

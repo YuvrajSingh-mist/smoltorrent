@@ -12,16 +12,16 @@ Master (macOS)
 
 ## How it works
 
-1. **Store** — `POST /store-shard`: The API on the master loads the model from `data_path`, splits it into `N` shards (one per worker), computes a SHA-256 checksum per shard, and sends each shard over TCP to its ranked Pi worker. Workers verify the checksum and save the shard to disk. Failed sends are retried with exponential backoff on a background thread.
+1. **Store** — `POST /store-shard`: The API loads the model from `data_path`, splits it into `N` shards (one per worker), computes a SHA-256 checksum per shard, and sends each shard over TCP to its ranked Pi worker. Workers verify the checksum and save the shard to disk. Failed sends are retried with exponential backoff on a background thread. Progress streams back to the caller line by line as each shard lands.
 
 2. **Workers** each run a TCP listener. On `store_shard` they verify the checksum, write the shard to `shards/incoming_shards/{model}/{worker-rank}/`, and ack back with the shard path. On `send_shard` they load the shard from disk and stream it back.
 
-3. **Gather** — `POST /gather-shards`: The API connects to each worker, requests its shard (`send_shard`), receives the bytes, deserializes, merges all shards into one model, and writes it to `save_path`.
+3. **Gather** — `POST /gather-shards`: The API connects to each worker, pulls its shard, saves it to disk immediately as it arrives, then merges all shards into one model and writes it to `save_path`. Progress streams back line by line.
 
-4. `main.py` is a CLI that runs three checks before triggering gather:
+4. `main.py` is a CLI that runs three checks before triggering store or gather:
    - **Heartbeat** — TCP ping every worker
-   - **Shard count** — SSH to each worker, count `.safetensors` files on disk
-   - **Gather** — only proceeds if all shards are present
+   - **Shard count** — SSH to each worker, count `.safetensors` files on disk (gather only)
+   - **Store / Gather** — only proceeds if all workers are alive
 
 ---
 
@@ -121,22 +121,26 @@ bash scripts/launch.sh --dry-run
 ### Distribute model shards to workers
 
 ```bash
-curl -X POST "http://localhost:8000/store-shard?model_id=mlx-community/SmolLM2-135M-Instruct"
+uv run python main.py --model-id mlx-community/SmolLM2-135M-Instruct --action store
+# Loaded 148 tensors (270.4 MB) — chunking into 4 shards
+#   ✓ rank 1 (pi4-1)
+#   ✓ rank 2 (pi4-2)
+#   ✓ rank 3 (pi4-3)
+#   ✓ rank 4 (pi4-4)
+# Done: 4/4 shards stored for mlx-community--SmolLM2-135M-Instruct
 ```
 
-### Trigger shard gather manually
-
-`main.py` runs three checks before calling the API:
-1. **Heartbeat** — TCP ping every worker; aborts if any are unreachable
-2. **Shard count** — SSHes to each worker and counts `.safetensors` files on disk
-3. **Gather** — only proceeds if all shards are present
+### Gather shards back and merge
 
 ```bash
-uv run main.py --model-id mlx-community/SmolLM2-135M-Instruct
-# Checking heartbeats... all alive
-# Checking shards... 4/4 present
-# Gathered 4 shards -> ~/Desktop/smoltorrent/received_model/model.safetensors
+uv run python main.py --model-id mlx-community/SmolLM2-135M-Instruct --action gather
+#   ✓ rank 1 (pi4-1) — saved → shards/incoming_shards/.../model_shard_1.safetensors
+#   ✓ rank 2 (pi4-2) — saved → ...
+#   ...
+# Done: saved → ~/Desktop/smoltorrent/received_model/model.safetensors
 ```
+
+Both actions stream progress to your terminal as each shard is processed, rather than waiting for the full operation to complete.
 
 ### Monitor sessions
 

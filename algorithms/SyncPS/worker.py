@@ -1,7 +1,7 @@
 """SyncPS worker process — listens for shard store/send/heartbeat commands over TCP.
 
 Each worker binds a TCP port, handles incoming connections in daemon threads, and
-persists shards to disk under ``shards/incoming_shards/<model>/<worker-rank>/``.
+persists shards to disk under ``shards/worker_{rank}/{rel_path}/shard.safetensors``.
 """
 import threading
 import socket
@@ -31,8 +31,7 @@ WORLD_SIZE = NUM_WORKERS + 1  # Total participants including server
 HOST_IP = config["devices_config"]["master"][0]["ip"]
 PORT = config["devices_config"]["master"][0]["port"]
 _PROJECT_ROOT = Path(__file__).parents[2]
-SHARDS_ROOT = _PROJECT_ROOT / "shards" / "incoming_shards"
-_MODEL_NAME = Path(config.get("data_path", "model")).parent.name
+SHARDS_ROOT = _PROJECT_ROOT / "shards"
 
 
 
@@ -87,20 +86,20 @@ def _handle_shard_client(
             logger.info(f"Heartbeat ack → {caller}")
 
         elif command == "send_shard":
-            rank = msg[1] if len(msg) > 1 else None
-            shard_dir = SHARDS_ROOT / _MODEL_NAME / f"worker-{rank}"
-            existing = sorted(shard_dir.glob("*.safetensors")) if shard_dir.exists() else []
-            if not existing:
-                logger.warning(f"No shard on disk for rank {rank} at {shard_dir}, cannot serve to {caller}")
+            _, rank, rel_path = msg
+            shard_path = SHARDS_ROOT / f"worker_{rank}" / rel_path / "shard.safetensors"
+            if not shard_path.exists():
+                logger.warning(f"No shard on disk for rank {rank} at {shard_path}, cannot serve to {caller}")
+                send_message(conn, None)
                 return
-            logger.info(f"Loading shard from disk for rank {rank}: {existing[0]}")
-            shard_bytes = shard_to_bytes(load_tensors(existing[0]))
+            logger.info(f"Loading shard from disk for rank {rank}: {shard_path}")
+            shard_bytes = shard_to_bytes(load_tensors(shard_path))
             send_message(conn, shard_bytes)
             log_metrics(_network_metrics.get_metrics(), logger, "serve-shard-to-api")
             logger.info(f"Served shard to {caller}")
 
         elif command == "store_shard":
-            _, rank, shard_bytes, received_checksum = msg
+            _, rank, shard_bytes, received_checksum, rel_path = msg
             if shard_bytes is None:
                 logger.warning(f"No shard data in store_shard from {caller}")
                 send_message(conn, ("store_shard_failed", rank, "no shard data"))
@@ -111,17 +110,17 @@ def _handle_shard_client(
                     send_message(conn, ("store_shard_failed", rank, "checksum mismatch"))
                     return
             shard = shard_from_bytes(shard_bytes)
-            shard_path, metadata_path, ok, err = save_received_data_shard(
-                shard=shard,
-                metadata={"role": "worker_received", "rank": rank, "source_host": caller},
-                output_dir=SHARDS_ROOT / _MODEL_NAME / f"worker-{rank}",
-            )
-            if ok:
+            shard_dir = SHARDS_ROOT / f"worker_{rank}" / rel_path
+            shard_dir.mkdir(parents=True, exist_ok=True)
+            shard_path = shard_dir / "shard.safetensors"
+            try:
+                from safetensors.torch import save_file
+                save_file(shard, str(shard_path))
                 logger.info(f"Stored shard for rank {rank} from {caller} → {shard_path}")
-                send_message(conn, ("store_shard_done", rank, shard_path, metadata_path))
-            else:
-                logger.error(f"Failed to save shard for rank {rank}: {err}")
-                send_message(conn, ("store_shard_failed", rank, err))
+                send_message(conn, ("store_shard_done", rank, str(shard_path)))
+            except Exception as e:
+                logger.error(f"Failed to save shard for rank {rank}: {e}")
+                send_message(conn, ("store_shard_failed", rank, str(e)))
 
         else:
             logger.warning(f"Unknown command '{command}' from {caller}")
