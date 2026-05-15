@@ -122,6 +122,42 @@ def _checksum_sync_all(workers: list, intersection: list[Path], ckpt_root: Path)
     return corrupted
 
 
+def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[str]]:
+    """Ask one worker which rel_paths are missing entirely.
+    Returns (rank, missing_rel_paths). Unreachable workers report all as missing."""
+    rank = worker["rank"]
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10.0)
+        sock.connect((worker["ip"], worker["port"]))
+        sock.settimeout(None)
+        send_message(sock, ("all_shards_present", rank, rel_paths))
+        missing = receive_message(sock)
+        sock.close()
+        return rank, missing if missing else []
+    except Exception as e:
+        logger.warning("Crosscheck failed for rank %d: %s", rank, e)
+        return rank, rel_paths
+
+
+def _crosscheck_all_workers(workers: list, local_paths: list[Path], ckpt_root: Path) -> list[Path]:
+    """Verify every worker has a shard for every local checkpoint.
+    Returns the subset of local_paths that need re-transfer."""
+    if not local_paths:
+        return []
+    rel_paths = [str(p.parent.relative_to(ckpt_root)) for p in local_paths]
+    path_map = {str(p.parent.relative_to(ckpt_root)): p for p in local_paths}
+    needs_retry: set[str] = set()
+    with ThreadPoolExecutor(max_workers=len(workers)) as pool:
+        futures = {pool.submit(_crosscheck_worker, w, rel_paths): w for w in workers}
+        for f in as_completed(futures):
+            rank, missing = f.result()
+            if missing:
+                logger.warning("[crosscheck] rank %d missing %d shard(s): %s", rank, len(missing), missing)
+                needs_retry.update(missing)
+    return [path_map[rp] for rp in needs_retry if rp in path_map]
+
+
 def _scan_local(ckpt_root: Path, extensions: list[str]) -> list[Path]:
     """Find all files under ckpt_root matching any of the given extensions."""
     paths = []
@@ -174,6 +210,19 @@ def _run_transfer_loop(
 
         if not checksum_retry and not to_transfer:
             logger.info("All files in sync — nothing to transfer.")
+
+        # --- crosscheck: ensure every worker has every shard ---
+        logger.info("[crosscheck] verifying all workers have complete shards for %d file(s)...", len(local_paths))
+        crosscheck_retry = _crosscheck_all_workers(workers, local_paths, ckpt_root)
+        if crosscheck_retry:
+            logger.warning("[crosscheck] %d file(s) incomplete on ≥1 worker — re-transferring...", len(crosscheck_retry))
+            for path in crosscheck_retry:
+                try:
+                    request_store_shards(ckpt_path=str(path), log_fn=logger.info)
+                except Exception as e:
+                    logger.error("Crosscheck re-transfer failed for %s: %s", path, e)
+        else:
+            logger.info("[crosscheck] all workers complete.")
 
         # Re-evaluate pending files
         with pending_lock:

@@ -117,6 +117,15 @@ def _handle_shard_client(
                     send_message(conn, ("checksum_mismatch", rel_path))
                     logger.warning(f"Checksum mismatch for rank {rank} at {rel_path}")
 
+        elif command == "all_shards_present":
+            _, rank, rel_paths = msg
+            missing = [
+                rp for rp in rel_paths
+                if not (SHARDS_ROOT / f"worker_{rank}" / rp / "shard.safetensors").exists()
+            ]
+            send_message(conn, missing)
+            logger.info(f"Crosscheck: {len(rel_paths) - len(missing)}/{len(rel_paths)} present, {len(missing)} missing")
+
         elif command == "sync":
             _, rank, extensions = msg
             worker_dir = SHARDS_ROOT / f"worker_{rank}"

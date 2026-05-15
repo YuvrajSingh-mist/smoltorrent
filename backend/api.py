@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import chunk_data, compute_checksum, load_tensors, merge_shards, save_merged_model, shard_from_bytes, shard_to_bytes
+from utils.common_utils import chunk_data, compute_checksum, load_tensors, merge_shards, save_merged_model, shard_from_bytes, shard_to_bytes, _save_shard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -311,8 +311,7 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
             shard_dir.mkdir(parents=True, exist_ok=True)
             shard_path = shard_dir / "shard.safetensors"
             try:
-                from safetensors.torch import save_file
-                save_file(received_shard, str(shard_path))
+                _save_shard(received_shard, str(shard_path))
             except Exception as e:
                 with lock:
                     save_errors.append({"rank": rank, "host": host, "error": str(e)})
