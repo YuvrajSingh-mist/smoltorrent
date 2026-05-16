@@ -147,14 +147,30 @@ macOS has three ways to run background scripts automatically:
 | **LaunchAgent** | `~/Library/LaunchAgents/` | user | on login |
 | **Login Item (.app)** | System Settings | user | on login |
 
-smoltorrent uses a **Login Item** (the only reliable path on macOS 26 Tahoe — LaunchAgents are silently ignored and LaunchDaemon `launchctl` APIs are broken in the beta):
+### macOS 26 Tahoe — what's broken and what works
+
+Tahoe broke the traditional auto-start APIs:
+
+| What you try | What happens |
+|---|---|
+| `launchctl load com.smoltorrent.startup.plist` | SIGABRT exit 134 — API removed |
+| `launchctl bootstrap gui/<UID> ...plist` | error 125 — GUI domain broken in beta |
+| `~/Library/LaunchAgents/` plist | Silently ignored — needs SMAppService from Swift |
+| **`/Library/LaunchDaemons/` + `sudo launchctl enable` + `sudo launchctl bootstrap system`** | **Works** |
+
+**TCC caveat**: macOS blocks system daemons (running as root) from accessing `~/Desktop`, `~/Documents`, and `~/Downloads`. Keep code and checkpoint data outside those directories — that's why everything lives under `~/smoltorrent/` and `~/smolcluster/`.
+
+### Boot flow
 
 ```
-login → ~/Applications/SmolTorrent Startup.app
-            → scripts/smoltorrent_startup.sh
-                → pings pi4-1 until Tailscale is up (5 min timeout)
-                → bash scripts/launch.sh
-                    → rsync + deps + tmux sessions on all nodes
+boot
+ └── /Library/LaunchDaemons/com.smoltorrent.startup.plist   (registered by --daemons)
+       └── /usr/local/bin/smoltorrent_startup.sh
+             → pings pi4-1 every 5s until Tailscale is up (5 min timeout)
+             → bash ~/smoltorrent/scripts/launch.sh
+                   → rsync code to all Pis
+                   → uv sync on all nodes
+                   → tmux: API + watcher on master, worker_{rank} on each Pi
 ```
 
 ### Register auto-start
@@ -163,11 +179,29 @@ login → ~/Applications/SmolTorrent Startup.app
 bash scripts/launch.sh --daemons
 ```
 
-Then follow the one manual step it prints:
+This copies `smoltorrent_startup.sh` to `/usr/local/bin/` (outside TCC-blocked paths), writes the plist to `/Library/LaunchDaemons/`, then registers it:
 
-> System Settings → General → Login Items & Extensions → + → `~/Applications/SmolTorrent Startup.app`
+```bash
+sudo launchctl enable system/com.smoltorrent.startup
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
+```
 
-Logs after reboot:
+### Verify it's registered
+
+```bash
+sudo launchctl print system/com.smoltorrent.startup
+```
+
+### If bootstrap fails with "Bootstrap failed: 5"
+
+```bash
+sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
+sudo launchctl enable system/com.smoltorrent.startup
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
+```
+
+### Logs after reboot
+
 ```bash
 tail -f /tmp/smoltorrent-startup.log
 ```
