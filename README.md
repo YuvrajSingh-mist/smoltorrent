@@ -1,49 +1,66 @@
 # smoltorrent
 
-Distributed model sharding across heterogeneous edge devices using a synchronous parameter server (SyncPS). Built to run on Raspberry Pi clusters coordinated from a macOS master via a REST API.
+Distributed ML checkpoint sharding across a Raspberry Pi cluster, coordinated from a macOS master. Shards `.safetensors` checkpoints across workers over Tailscale, reassembles them on demand, and auto-syncs new checkpoints as they appear.
 
 ```
-Master (macOS)
-  ├── REST API   (backend/api.py)         ← /store-shard, /gather-shards
-  └── Workers × N (algorithms/SyncPS/worker.py  ← runs on each Pi)
+Master (Mac Mini)
+  ├── FastAPI server   backend/api.py          ← /store-shard, /gather-shards
+  ├── Watcher daemon   watcher/watch.py         ← auto-syncs new checkpoints
+  └── Workers × 4      algorithms/SyncPS/worker.py  ← TCP listener on each Pi
 ```
 
 ---
 
 ## How it works
 
-1. **Store** — `POST /store-shard`: The API loads the model from `data_path`, splits it into `N` shards (one per worker), computes a SHA-256 checksum per shard, and sends each shard over TCP to its ranked Pi worker. Workers verify the checksum and save the shard to disk. Failed sends are retried with exponential backoff on a background thread. Progress streams back to the caller line by line as each shard lands.
+**Store** — the API loads a checkpoint, splits tensors evenly into N shards (one per worker), computes a SHA-256 checksum per shard, and sends each over TCP. Workers verify the checksum and write the shard to disk with a `.checksum` sidecar. Failed sends retry with exponential backoff.
 
-2. **Workers** each run a TCP listener. On `store_shard` they verify the checksum, write the shard to `shards/incoming_shards/{model}/{worker-rank}/`, and ack back with the shard path. On `send_shard` they load the shard from disk and stream it back.
+**Gather** — the API pulls each shard from its worker, saves locally, merges all shards back into one `.safetensors` file, and writes `merged.safetensors` next to the original checkpoint.
 
-3. **Gather** — `POST /gather-shards`: The API connects to each worker, pulls its shard, saves it to disk immediately as it arrives, then merges all shards into one model and writes it to `save_path`. Progress streams back line by line.
+**Watcher** — monitors `ckpt_root` for new `.safetensors` files. On each trigger:
+1. `file_sync` — asks all workers what they have (intersection)
+2. `checksum_sync` — validates SHA-256 on every shared file
+3. `transfer` — pushes any missing or corrupted files
+4. `crosscheck` — after transfer, confirms every worker has every shard; re-transfers anything still missing
 
-4. `main.py` is a CLI that runs three checks before triggering store or gather:
-   - **Heartbeat** — TCP ping every worker
-   - **Shard count** — SSH to each worker, count `.safetensors` files on disk (gather only)
-   - **Store / Gather** — only proceeds if all workers are alive
+**Wire format** — safetensors only. MLX arrays (Mac) are converted to torch tensors before sending; workers store and return torch tensors; the master converts back to MLX on receive.
+
+---
+
+## Cluster topology
+
+| Node | Host | IP | Port | Rank |
+|---|---|---|---|---|
+| Mac Mini (master) | localhost | 100.78.120.114 | 8000 (API) | 0 |
+| pi4-1 | pi4-1 | 100.68.124.90 | 5001 | 1 |
+| pi4-2 | pi4-2 | 100.79.150.107 | 5002 | 2 |
+| pi4-3 | pi4-3 | 100.105.164.35 | 5003 | 3 |
+| pi4-4 | pi4-4 | 100.77.162.23 | 8004 | 4 |
+
+Network: Tailscale VPN over 100 Mbps Ethernet. ~2 min per 942 MB checkpoint per worker (parallel across all 4).
 
 ---
 
 ## Requirements
 
-| Dependency | Where needed |
+| Dependency | Where |
 |---|---|
 | Python ≥ 3.13 | All nodes |
 | [uv](https://github.com/astral-sh/uv) | All nodes (auto-installed by launcher) |
 | tmux ≥ 3.0 | All nodes (auto-installed by launcher) |
-| [yq](https://github.com/mikefarah/yq) | Master only (config parsing) |
-| SSH key-based auth | Master -> all workers |
+| [yq](https://github.com/mikefarah/yq) | Master only |
+| SSH key-based auth | Master → all workers (`~/.ssh/smolcluster_key`) |
+| Tailscale | All nodes |
 
-Platform notes:
-- Master (macOS): uses MLX for tensor operations; safetensors used as the cross-platform wire format
-- Workers (Raspberry Pi / Linux): use `torch` + `safetensors.torch`; MLX is never imported on Pi
+Platform split:
+- **Master (macOS)** — MLX for tensor ops; converts to torch before sending over wire
+- **Workers (Raspberry Pi / Linux)** — `torch` + `safetensors.torch`; MLX never imported
 
 ---
 
 ## Quick start
 
-### 1. Clone and install locally
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/YuvrajSingh-mist/smoltorrent
@@ -51,47 +68,16 @@ cd smoltorrent
 uv sync
 ```
 
-### 2. Configure your cluster
+### 2. Configure
 
-Edit `configs/config.yaml`:
+Edit `configs/config.yaml` — set `ckpt_root` and worker IPs/ports to match your cluster.
 
-```yaml
-data_path: test/fixtures/mlx-community--SmolLM2-135M-Instruct/model.safetensors
-save_path: ~/Desktop/smoltorrent/received_model/model.safetensors
-
-num_workers: 4
-
-devices_config:
-  master:
-    - host: localhost
-      ip: 100.78.120.114
-      rank: 0
-      port: 5000
-  workers:
-    - host: pi4-1
-      ip: 100.68.124.90
-      rank: 1
-      port: 5001
-    - host: pi4-2
-      ip: 100.79.150.107
-      rank: 2
-      port: 5002
-    - host: pi4-3
-      ip: 100.105.164.35
-      rank: 3
-      port: 5003
-    - host: pi4-4
-      ip: 100.77.162.23
-      rank: 4
-      port: 8004
-```
-
-### 3. Set up SSH access
+### 3. SSH access
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/smoltorrent_key
-ssh-copy-id -i ~/.ssh/smoltorrent_key.pub pi@pi4-1
-# Repeat for each worker
+ssh-keygen -t ed25519 -f ~/.ssh/smolcluster_key
+ssh-copy-id -i ~/.ssh/smolcluster_key.pub lab-pi4-1@pi4-1
+# repeat for each worker
 ```
 
 ### 4. Launch
@@ -100,59 +86,116 @@ ssh-copy-id -i ~/.ssh/smoltorrent_key.pub pi@pi4-1
 bash scripts/launch.sh
 ```
 
-The launcher automatically:
-
-1. Rsyncs the codebase to every node
-2. Installs `uv`, creates `.venv`, runs `uv sync` on every node
-3. Kills any stale tmux sessions from a previous run
-4. Starts the REST API on the master
-5. Starts one worker process per node with the correct rank and hostname
+This rsyncs the codebase to every Pi, installs dependencies, kills stale tmux sessions, then starts the API, watcher, and all 4 workers.
 
 ---
 
 ## Usage
 
-### Dry run (prints what would happen, no SSH/launch)
+### Store a checkpoint
 
 ```bash
-bash scripts/launch.sh --dry-run
+python main.py store --ckpt-path ~/smolcluster/checkpoints/Qwen2.5-0.5B/run1/latest/model.safetensors
 ```
 
-### Distribute model shards to workers
+### Gather (reassemble) a checkpoint
 
 ```bash
-uv run python main.py --model-id mlx-community/SmolLM2-135M-Instruct --action store
-# Loaded 148 tensors (270.4 MB) — chunking into 4 shards
-#   ✓ rank 1 (pi4-1)
-#   ✓ rank 2 (pi4-2)
-#   ✓ rank 3 (pi4-3)
-#   ✓ rank 4 (pi4-4)
-# Done: 4/4 shards stored for mlx-community--SmolLM2-135M-Instruct
+python main.py gather --ckpt-path ~/smolcluster/checkpoints/Qwen2.5-0.5B/run1/latest/model.safetensors
+# merged.safetensors is written to the same directory
 ```
 
-### Gather shards back and merge
+### Watch logs
 
 ```bash
-uv run python main.py --model-id mlx-community/SmolLM2-135M-Instruct --action gather
-#   ✓ rank 1 (pi4-1) — saved → shards/incoming_shards/.../model_shard_1.safetensors
-#   ✓ rank 2 (pi4-2) — saved → ...
-#   ...
-# Done: saved → ~/Desktop/smoltorrent/received_model/model.safetensors
-```
-
-Both actions stream progress to your terminal as each shard is processed, rather than waiting for the full operation to complete.
-
-### Monitor sessions
-
-```bash
-# API logs (on master)
+# API
 tmux attach -t syncps_api
 
-# Worker logs (SSH into a Pi first)
+# Watcher
+tmux attach -t syncps_watcher
+
+# Worker (SSH first)
+ssh pi4-1
 tmux attach -t syncps_worker_1
 
-# All cluster logs
+# All logs
 tail -f logging/cluster-logs/*.log
+```
+
+---
+
+## launch.sh flags
+
+| Flag | What it does |
+|---|---|
+| *(none)* | Full launch: rsync → deps → API + watcher + all workers |
+| `--dry-run` | Print what would happen, no SSH or launches |
+| `--api-only` | Heartbeat-check workers, then start API only (skip watcher + workers) |
+| `--workers 1,3` | Launch only the specified worker ranks (leave others untouched) |
+| `--ext .safetensors,.pth` | Override file extensions the watcher monitors |
+| `--daemons` | Register auto-start at login (see below) |
+
+---
+
+## Auto-start on macOS
+
+macOS has three ways to run background scripts automatically:
+
+| Mechanism | Where | Runs as | When |
+|---|---|---|---|
+| **LaunchDaemon** | `/Library/LaunchDaemons/` | root | at boot, before login |
+| **LaunchAgent** | `~/Library/LaunchAgents/` | user | on login |
+| **Login Item (.app)** | System Settings | user | on login |
+
+smoltorrent uses a **Login Item** (the only reliable path on macOS 26 Tahoe — LaunchAgents are silently ignored and LaunchDaemon `launchctl` APIs are broken in the beta):
+
+```
+login → ~/Applications/SmolTorrent Startup.app
+            → scripts/smoltorrent_startup.sh
+                → pings pi4-1 until Tailscale is up (5 min timeout)
+                → bash scripts/launch.sh
+                    → rsync + deps + tmux sessions on all nodes
+```
+
+### Register auto-start
+
+```bash
+bash scripts/launch.sh --daemons
+```
+
+Then follow the one manual step it prints:
+
+> System Settings → General → Login Items & Extensions → + → `~/Applications/SmolTorrent Startup.app`
+
+Logs after reboot:
+```bash
+tail -f /tmp/smoltorrent-startup.log
+```
+
+---
+
+## Shard layout
+
+On each Pi worker:
+```
+~/Desktop/smoltorrent/shards/worker_{rank}/
+  {model}/{experiment}/{run}/latest/
+    shard.safetensors
+    shard.checksum        ← SHA-256 sidecar for corruption detection
+```
+
+On the master (local cache after gather):
+```
+~/smoltorrent/shards/worker_{rank}/
+  {model}/{experiment}/{run}/latest/
+    shard.safetensors
+```
+
+Merged output (written by gather):
+```
+~/smolcluster/checkpoints/{model}/{experiment}/{run}/latest/
+  model.safetensors      ← original training checkpoint
+  merged.safetensors     ← reassembled from Pi shards
 ```
 
 ---
@@ -161,33 +204,30 @@ tail -f logging/cluster-logs/*.log
 
 ```
 smoltorrent/
-├── algorithms/
-│   └── SyncPS/
-│       └── worker.py           # TCP listener: store_shard (write to disk) + send_shard (read from disk)
+├── algorithms/SyncPS/
+│   └── worker.py            # TCP listener: store_shard, send_shard, sync,
+│                            #   checksum_sync, all_shards_present
 ├── backend/
-│   ├── api.py                  # FastAPI REST API (port 8000) — /store-shard, /gather-shards
-│   └── README.md               # API endpoint reference
+│   └── api.py               # FastAPI: /store-shard, /gather-shards
+├── watcher/
+│   └── watch.py             # Watchdog daemon: file_sync → checksum_sync
+│                            #   → transfer → crosscheck
 ├── networking/
-│   └── send_receive.py         # Length-prefixed TCP messaging with bandwidth metrics
+│   └── send_receive.py      # Length-prefixed TCP framing + bandwidth metrics
 ├── utils/
-│   ├── check_workers.py        # TCP heartbeat check against all configured workers
-│   ├── common_utils.py         # shard_to_bytes(), shard_from_bytes(), chunk_data(), save_received_data_shard()
-│   ├── log_utils.py            # Coloured per-component cluster logging
-│   └── network_metrics.py      # Send/recv bandwidth and latency tracking
+│   ├── common_utils.py      # shard_to_bytes/from_bytes, chunk_data, merge_shards
+│   ├── shard_ops.py         # HTTP client wrappers for store/gather API calls
+│   ├── check_workers.py     # TCP heartbeat check against all workers
+│   ├── log_utils.py         # Per-component cluster logging
+│   └── network_metrics.py   # Send/recv bandwidth and latency tracking
 ├── scripts/
-│   └── launch.sh               # Full cluster orchestrator (rsync -> deps -> cleanup -> launch)
+│   ├── launch.sh            # Cluster orchestrator (rsync → deps → tmux)
+│   └── smoltorrent_startup.sh  # Boot wrapper: wait for Tailscale → launch.sh
 ├── test/
-│   ├── README.md               # Test marker reference and run commands
-│   ├── test_dir_name_conversion.py           # Unit: model_id_to_dir_name()
-│   ├── test_chunk_data.py                    # Unit: chunk_data() tensor sharding
-│   ├── test_cli_args_and_shard_count.py      # Unit + SSH: main.py CLI, _count_remote_shards
-│   ├── test_api.py                           # API: /gather-shards and /store-shard
-│   ├── test_gather_shards_to_master.py       # Integration: gather -> merge -> infer
-│   ├── test_shard_store_and_gather.py        # Integration: shard round-trip via common_utils
-│   └── test_smollm2.py                       # Smoke: load fixture model, run MLX inference
+│   └── test_received_model_inference.py  # Integration: load gathered weights, run MLX inference
 ├── configs/
-│   └── config.yaml             # Cluster topology, model paths, worker count
-├── main.py                     # CLI: heartbeat -> shard count -> POST /gather-shards
+│   └── config.yaml          # Cluster topology + ckpt_root
+├── main.py                  # CLI: store / gather
 └── pyproject.toml
 ```
 
@@ -197,31 +237,11 @@ smoltorrent/
 
 | Key | Description |
 |---|---|
-| `data_path` | Source model weights (`.safetensors`) to distribute |
-| `save_path` | Where the reassembled model is written on master |
-| `n_chunks` | Number of shards to split the model into |
-| `num_workers` | Expected number of worker connections |
+| `ckpt_root` | Root directory the watcher monitors and gather saves into |
+| `num_workers` | Number of Pi workers |
 | `devices_config.master` | Master host, IP, rank (always 0), port |
 | `devices_config.workers` | Per-worker: host, IP, rank (1…N), port |
-| `log_dir` | *(optional)* Override log output directory (default: `/tmp/smolcluster-logs`) |
-
----
-
-## Shard storage
-
-Each shard is saved on the Pi worker that holds it:
-
-```
-shards/incoming_shards/
-  {model_name}/
-    worker-{rank}/
-      {model_name}_shard_{rank}.safetensors
-      {model_name}_shard_{rank}.safetensors.metadata.json
-```
-
-`model_name` is the HF model ID with `/` replaced by `--` (e.g. `mlx-community--SmolLM2-135M-Instruct`). The sidecar `.metadata.json` contains: `hostname`, `platform_machine`, `pid`, `saved_at_utc`, `rank`, `role`, and `config_path`.
-
-After gather, the master also saves a local copy of each shard under the same layout (in `shards/incoming_shards/` on the master), then merges them to `save_path`.
+| `n_chunks` | Shards per checkpoint (should equal `num_workers`) |
 
 ---
 
