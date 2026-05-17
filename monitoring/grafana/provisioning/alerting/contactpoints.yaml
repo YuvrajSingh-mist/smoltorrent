@@ -1,0 +1,11 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: gmail
+    receivers:
+      - uid: gmail-receiver
+        type: email
+        settings:
+          addresses: rajceo2031@gmail.com
+          singleEmail: false

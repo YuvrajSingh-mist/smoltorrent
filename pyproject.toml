@@ -16,6 +16,7 @@ dependencies = [
     "torch[cpu]>=2.11.0",
     "uvicorn[standard]>=0.34.0",
     "watchdog>=6.0.0",
+    "prometheus-client>=0.20.0",
 ]
 
 [dependency-groups]

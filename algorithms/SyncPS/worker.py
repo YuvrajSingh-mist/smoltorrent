@@ -3,7 +3,6 @@
 Each worker binds a TCP port, handles incoming connections in daemon threads, and
 persists shards to disk under ``shards/worker_{rank}/{rel_path}/shard.safetensors``.
 """
-import hashlib
 import threading
 import socket
 import sys
@@ -36,13 +35,6 @@ SHARDS_ROOT = _PROJECT_ROOT / "shards"
 
 
 
-def _file_checksum(path: Path) -> str:
-    """Compute SHA-256 of a file on disk."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _label_caller(addr: tuple) -> str:
@@ -99,23 +91,17 @@ def _handle_shard_client(
             _, rank, rel_path = msg
             shard_path = SHARDS_ROOT / f"worker_{rank}" / rel_path / "shard.safetensors"
             checksum_path = shard_path.parent / "shard.checksum"
-            if not shard_path.exists():
-                send_message(conn, ("checksum_missing", rel_path))
-            elif not checksum_path.exists():
-                # Shard exists but predates checksum sidecar — bootstrap it now
-                cksum = _file_checksum(shard_path)
+            if not checksum_path.exists():
+                cksum = compute_checksum(shard_path)
                 checksum_path.write_text(cksum)
                 logger.info(f"Bootstrapped checksum for rank {rank} at {rel_path}")
-                send_message(conn, ("checksum_ok", rel_path))
+                send_message(conn, ("checksum_sync_result", "ok", rel_path))
             else:
-                current = _file_checksum(shard_path)
+                current = compute_checksum(shard_path)
                 stored = checksum_path.read_text().strip()
-                if current == stored:
-                    send_message(conn, ("checksum_ok", rel_path))
-                    logger.info(f"Checksum ok for rank {rank} at {rel_path}")
-                else:
-                    send_message(conn, ("checksum_mismatch", rel_path))
-                    logger.warning(f"Checksum mismatch for rank {rank} at {rel_path}")
+                status = "ok" if current == stored else "mismatch"
+                send_message(conn, ("checksum_sync_result", status, rel_path))
+                logger.info(f"Checksum {status} for rank {rank} at {rel_path}")
 
         elif command == "all_shards_present":
             _, rank, rel_paths = msg
@@ -127,13 +113,12 @@ def _handle_shard_client(
             logger.info(f"Crosscheck: {len(rel_paths) - len(missing)}/{len(rel_paths)} present, {len(missing)} missing")
 
         elif command == "sync":
-            _, rank, extensions = msg
+            _, rank, extensions = msg  # extensions unused: shards are always stored as shard.safetensors
             worker_dir = SHARDS_ROOT / f"worker_{rank}"
             existing = []
             if worker_dir.exists():
-                for ext in extensions:
-                    for f in worker_dir.rglob(f"*{ext}"):
-                        existing.append(str(f.parent.relative_to(worker_dir)))
+                for shard_file in worker_dir.rglob("shard.safetensors"):
+                    existing.append(str(shard_file.parent.relative_to(worker_dir)))
             send_message(conn, existing)
             logger.info(f"Sync: reported {len(existing)} existing path(s) to {caller}")
 
@@ -169,8 +154,9 @@ def _handle_shard_client(
                 from safetensors.torch import save_file
                 save_file(shard, str(shard_path))
                 # store checksum of saved file for later corruption detection
-                cksum = _file_checksum(shard_path)
+                cksum = compute_checksum(shard_path)
                 (shard_dir / "shard.checksum").write_text(cksum)
+                log_metrics(_network_metrics.get_metrics(), logger, f"store-shard-rank{rank}")
                 logger.info(f"Stored shard for rank {rank} from {caller} → {shard_path}")
                 send_message(conn, ("store_shard_done", rank, str(shard_path)))
             except Exception as e:

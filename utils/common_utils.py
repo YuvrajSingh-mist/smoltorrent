@@ -17,30 +17,34 @@ from safetensors.torch import load_file as st_load_file
 from safetensors.torch import save as st_save
 from safetensors.torch import save_file as st_save_file
 
+from utils.dtypes import MLX_TO_TORCH
+ 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 
 
-def compute_checksum(data: bytes) -> str:
-    """SHA-256 over raw bytes. Call on the serialized shard bytes, not the dict."""
-    return hashlib.sha256(data).hexdigest()
+def compute_checksum(src: bytes | str | Path) -> str:
+    """SHA-256 in 64 KB chunks. Accepts in-memory bytes or a file path."""
+    h = hashlib.sha256()
+    if isinstance(src, bytes):
+        for i in range(0, len(src), 65536):
+            h.update(src[i : i + 65536])
+    else:
+        with open(src, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    return h.hexdigest()
 
 
 def shard_to_bytes(shard: dict) -> bytes:
     """Serialize a shard dict to safetensors bytes. No temp files, no numpy."""
     if _IS_MAC:
         import mlx.core as mx
-        _MLX_TO_TORCH = {
-            mx.bfloat16: torch.bfloat16, mx.float16: torch.float16,
-            mx.float32: torch.float32,   mx.float64: torch.float64,
-            mx.int8:    torch.int8,      mx.int16:   torch.int16,
-            mx.int32:   torch.int32,     mx.int64:   torch.int64,
-            mx.uint8:   torch.uint8,
-        }
+       
         mx.eval(*shard.values())
         torch_shard = {
-            k: torch.frombuffer(bytearray(bytes(v)), dtype=_MLX_TO_TORCH[v.dtype]).reshape(v.shape).clone()
+            k: torch.frombuffer(bytearray(bytes(v)), dtype=MLX_TO_TORCH[v.dtype]).reshape(v.shape).clone()
             for k, v in shard.items()
         }
         return st_save(torch_shard)

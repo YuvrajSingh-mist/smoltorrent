@@ -67,26 +67,71 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$DAEMONS" == "true" ]]; then
-    APP_DST="$HOME/Applications/SmolTorrent Startup.app"
     STARTUP_SCRIPT="$SCRIPT_DIR/smoltorrent_startup.sh"
+    PLIST_LABEL="com.smoltorrent.startup"
+    PLIST_DST="/Library/LaunchDaemons/${PLIST_LABEL}.plist"
+    SCRIPT_DST="/usr/local/bin/smoltorrent_startup.sh"
 
-    # Build a minimal AppleScript .app that runs the startup wrapper at login.
-    # LaunchAgents and launchctl are broken on macOS 26 Tahoe beta — Login Items
-    # via an .app bundle is the only reliable path.
-    mkdir -p "$HOME/Applications"
-    osacompile -o "$APP_DST" - <<AS 2>/dev/null
-do shell script "/bin/bash ${STARTUP_SCRIPT} > /tmp/smoltorrent-startup.log 2>&1 &"
-AS
+    # macOS 26 Tahoe notes:
+    #   - launchctl load          → SIGABRT exit 134 (API removed)
+    #   - launchctl bootstrap gui → error 125 (GUI domain broken in beta)
+    #   - ~/Library/LaunchAgents  → silently ignored (needs SMAppService from Swift)
+    #   - /Library/LaunchDaemons  + sudo launchctl enable + bootstrap system → WORKS
+    #
+    # TCC blocks system daemons from ~/Desktop, ~/Documents, ~/Downloads.
+    # Script lives at /usr/local/bin/ to sidestep TCC.
 
-    # Clean up stale plists and cron entries
-    rm -f "$HOME/Library/LaunchAgents/com.smoltorrent.api.plist" \
-          "$HOME/Library/LaunchAgents/com.smoltorrent.watcher.plist"
-    ( crontab -l 2>/dev/null | grep -v "smoltorrent" || true ) | crontab - 2>/dev/null || true
+    info "Copying startup script to /usr/local/bin/ (TCC-safe location)..."
+    sudo cp "$STARTUP_SCRIPT" "$SCRIPT_DST"
+    sudo chmod +x "$SCRIPT_DST"
 
-    ok "App built → $APP_DST"
-    warn "One manual step required (macOS 26 Tahoe restriction):"
-    info "  System Settings → General → Login Items & Extensions → + → ~/Applications/SmolTorrent Startup.app"
-    info "Logs after reboot:  tail -f /tmp/smoltorrent-startup.log"
+    CURRENT_USER="$(whoami)"
+
+    info "Writing LaunchDaemon plist to $PLIST_DST..."
+    sudo tee "$PLIST_DST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${PLIST_LABEL}</string>
+    <key>UserName</key>
+    <string>${CURRENT_USER}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${SCRIPT_DST}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/smoltorrent-startup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/smoltorrent-startup.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/${CURRENT_USER}</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+    sudo chmod 644 "$PLIST_DST"
+
+    info "Registering with launchctl..."
+    # Bootout first in case a stale registration exists (Bootstrap failed: 5 fix)
+    sudo launchctl bootout system/"$PLIST_LABEL" 2>/dev/null || true
+    sudo launchctl bootstrap system "$PLIST_DST"
+    sudo launchctl enable system/"$PLIST_LABEL"
+
+    ok "LaunchDaemon registered — smoltorrent will auto-start on next boot."
+    info "Verify:  sudo launchctl print system/${PLIST_LABEL}"
+    info "Logs:    tail -f /tmp/smoltorrent-startup.log"
     exit 0
 fi
 

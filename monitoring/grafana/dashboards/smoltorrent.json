@@ -1,0 +1,171 @@
+{
+  "uid": "smoltorrent",
+  "title": "SmolTorrent",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Bandwidth (Mbps)",
+      "description": "Send and receive bandwidth as reported directly by the API. A curve that starts fast and decelerates exponentially = O(n²) copying bug.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "smoltorrent_send_bandwidth_mbps",
+          "legendFormat": "send Mbps"
+        },
+        {
+          "expr": "smoltorrent_recv_bandwidth_mbps",
+          "legendFormat": "recv Mbps"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Transfer Duration p95 (seconds)",
+      "description": "95th percentile send/recv duration per operation. Rising p95 = slow worker or network issue.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
+          "legendFormat": "send p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
+          "legendFormat": "recv p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Transfer Errors by Worker",
+      "description": "Error rate per worker rank. A rank that keeps erroring = flaky Pi or dead port.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(smoltorrent_transfer_errors_total[5m])",
+          "legendFormat": "rank {{rank}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Operations",
+      "description": "Total store and gather operations completed.",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "increase(smoltorrent_store_operations_total[$__range])",
+          "legendFormat": "stores"
+        },
+        {
+          "expr": "increase(smoltorrent_gather_operations_total[$__range])",
+          "legendFormat": "gathers"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "colorMode": "value" }
+    },
+    {
+      "id": 5,
+      "title": "Avg Latency (ms)",
+      "description": "Rolling average send and receive latency per message.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "smoltorrent_avg_send_latency_ms",
+          "legendFormat": "send avg ms"
+        },
+        {
+          "expr": "smoltorrent_avg_recv_latency_ms",
+          "legendFormat": "recv avg ms"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Buffer Size (KB)",
+      "description": "Average and max TCP message buffer size. Sudden spike = unusually large checkpoint.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "smoltorrent_avg_buffer_size_kb",
+          "legendFormat": "avg buf KB"
+        },
+        {
+          "expr": "smoltorrent_max_buffer_size_kb",
+          "legendFormat": "max buf KB"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "kbytes", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Bytes Transferred",
+      "description": "Cumulative bytes sent and received over TCP.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "smoltorrent_bytes_sent_total / 1024 / 1024",
+          "legendFormat": "sent MB"
+        },
+        {
+          "expr": "smoltorrent_bytes_recv_total / 1024 / 1024",
+          "legendFormat": "recv MB"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Cluster Logs",
+      "description": "All logs from master (API, watcher) and Pi workers in one stream.",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"smoltorrent\"}",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": false,
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

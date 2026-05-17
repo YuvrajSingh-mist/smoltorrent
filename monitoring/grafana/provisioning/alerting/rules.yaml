@@ -1,0 +1,68 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: smoltorrent
+    folder: SmolTorrent
+    interval: 1m
+    rules:
+
+      - uid: worker-transfer-errors
+        title: Worker Transfer Errors
+        condition: A
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: increase(smoltorrent_transfer_errors_total[5m]) > 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Worker rank {{ $labels.rank }} has transfer errors"
+          description: "Permanent shard transfer failures detected on rank {{ $labels.rank }}. Pi may be down or port dead."
+        labels:
+          severity: warning
+
+      - uid: transfer-too-slow
+        title: Transfer p95 Too Slow
+        condition: A
+        for: 3m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m])) > 120
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Send p95 latency exceeds 2 minutes"
+          description: "95th percentile send duration is above 2 min. Likely cause: slow Pi SD card, network congestion, or Pi under memory pressure."
+        labels:
+          severity: warning
+
+      - uid: api-dead
+        title: SmolTorrent API Unreachable
+        condition: A
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: up{job="smoltorrent-api"} == 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "SmolTorrent API is down"
+          description: "Prometheus cannot scrape the FastAPI backend at :8000. API may have crashed or the Mac went to sleep."
+        labels:
+          severity: critical

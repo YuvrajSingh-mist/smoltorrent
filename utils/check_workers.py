@@ -19,12 +19,31 @@ import yaml
 from networking.send_receive import receive_message, send_message
 
 
-def count_remote_shards(model_name: str, workers: list[dict]) -> tuple[int, list[dict]]:
-    """SSH into each worker and count .safetensors shard files.
+def count_remote_shards(
+    model_name: str,
+    workers: list[dict],
+    extensions: list[str] | None = None,
+) -> tuple[int, list[dict]]:
+    """SSH into each worker and count shard files matching ``extensions``.
 
-    Returns (total_count, per_worker_results) where each entry has
-    keys: rank, host, ip, found.
+    Args:
+        model_name: Model subdirectory to search under the remote shards root.
+        workers: List of worker config dicts from config.yaml.
+        extensions: File extensions to match (e.g. ``['.safetensors', '.pth']``).
+                    Defaults to ``['.safetensors']``.
+
+    Returns:
+        Tuple of (total_count, per_worker_results) where each result has
+        keys: ``rank``, ``host``, ``ip``, ``remote_dir``, ``found``.
     """
+    if extensions is None:
+        extensions = [".safetensors"]
+
+    # Build a find expression that matches any of the requested extensions:
+    #   -name '*.safetensors' -o -name '*.pth' ...
+    name_clauses = " -o ".join(f"-name '*{ext}'" for ext in extensions)
+    find_expr = f"\\( {name_clauses} \\)" if len(extensions) > 1 else f"-name '*{extensions[0]}'"
+
     results = []
     total = 0
     for worker in workers:
@@ -32,7 +51,7 @@ def count_remote_shards(model_name: str, workers: list[dict]) -> tuple[int, list
         ip = worker["ip"]
         rank = worker["rank"]
         remote_dir = f"{REMOTE_SHARDS_ROOT}/{model_name}/worker-{rank}"
-        cmd = f"find {remote_dir} -maxdepth 1 -name '*.safetensors' 2>/dev/null | wc -l"
+        cmd = f"find {remote_dir} -maxdepth 1 {find_expr} 2>/dev/null | wc -l"
         try:
             proc = subprocess.run(
                 ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host_alias, cmd],
@@ -44,12 +63,12 @@ def count_remote_shards(model_name: str, workers: list[dict]) -> tuple[int, list
         except Exception as e:
             logger.warning("Could not SSH into %s (%s): %s", host_alias, ip, e)
             count = 0
-        results.append({"rank": rank, "host": host_alias, "ip": ip, "found": count})
+        results.append({"rank": rank, "host": host_alias, "ip": ip, "remote_dir": remote_dir, "found": count})
         total += count
     return total, results
 
 
-def ping_worker(host: str, ip: str, port: int, rank: int, timeout: float = 5.0) -> tuple[bool, str]:
+def ping_worker(host: str, ip: str, port: int, rank: int, timeout: float = 0.5) -> tuple[bool, str]:
     """Send a heartbeat to a worker and check for an ``"alive"`` response.
 
     Args:
@@ -66,7 +85,6 @@ def ping_worker(host: str, ip: str, port: int, rank: int, timeout: float = 5.0) 
     sock.settimeout(timeout)
     try:
         sock.connect((ip, port))
-        sock.settimeout(None)
         send_message(sock, ("heartbeat",))
         response = receive_message(sock)
         if response == "alive":

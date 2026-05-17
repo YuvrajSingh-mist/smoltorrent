@@ -53,7 +53,7 @@ def _sync_worker(worker: dict, extensions: list[str]) -> tuple[bool, set[str]]:
     rank = worker["rank"]
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5.0)
+        sock.settimeout(0.2)
         sock.connect((worker["ip"], worker["port"]))
         sock.settimeout(None)
         send_message(sock, ("sync", rank, extensions))
@@ -89,36 +89,35 @@ def _checksum_sync_worker(worker: dict, rel_path: str) -> str:
     rank = worker["rank"]
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(10.0)
+        sock.settimeout(0.2)
         sock.connect((worker["ip"], worker["port"]))
         sock.settimeout(None)
         send_message(sock, ("checksum_sync", rank, rel_path))
         result = receive_message(sock)
         sock.close()
-        return result[0].replace("checksum_", "") if result else "missing"
+        return result[1] if result else "missing"
     except Exception as e:
         logger.warning("Checksum sync failed for rank %d path %s: %s", rank, rel_path, e)
         return "missing"
 
 
-def _checksum_sync_all(workers: list, intersection: list[Path], ckpt_root: Path) -> set[str]:
+def _checksum_sync_all(workers: list, intersection: list[Path], ckpt_root: Path) -> set[Path]:
     """Check all workers for every file in the intersection.
-    Returns rel_paths where any worker reports mismatch or missing."""
+    Returns Path objects where any worker reports mismatch or missing."""
     if not intersection:
         return set()
-    corrupted: set[str] = set()
+    corrupted: set[Path] = set()
     with ThreadPoolExecutor(max_workers=len(workers)) as pool:
         futures = {
             pool.submit(_checksum_sync_worker, w, str(p.parent.relative_to(ckpt_root))): (w, p)
-            for w in workers for p in intersection
+            for p in intersection for w in workers
         }
         for f in as_completed(futures):
             worker, path = futures[f]
-            rel_path = str(path.parent.relative_to(ckpt_root))
             status = f.result()
             if status != "ok":
-                logger.warning("Checksum %s — rank %d at %s", status, worker["rank"], rel_path)
-                corrupted.add(rel_path)
+                logger.warning("Checksum %s — rank %d at %s", status, worker["rank"], path.parent.relative_to(ckpt_root))
+                corrupted.add(path)
     return corrupted
 
 
@@ -128,9 +127,8 @@ def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[st
     rank = worker["rank"]
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(10.0)
+        sock.settimeout(1.0)
         sock.connect((worker["ip"], worker["port"]))
-        sock.settimeout(None)
         send_message(sock, ("all_shards_present", rank, rel_paths))
         missing = receive_message(sock)
         sock.close()
@@ -140,8 +138,9 @@ def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[st
         return rank, rel_paths
 
 
-def _crosscheck_all_workers(workers: list, local_paths: list[Path], ckpt_root: Path) -> list[Path]:
+def _crosscheck_all_workers(workers: list, local_paths: list[Path], ckpt_root: Path, checksum: bool = False) -> list[Path]:
     """Verify every worker has a shard for every local checkpoint.
+    If checksum=True, also validates integrity of present shards and includes corrupted ones.
     Returns the subset of local_paths that need re-transfer."""
     if not local_paths:
         return []
@@ -155,6 +154,12 @@ def _crosscheck_all_workers(workers: list, local_paths: list[Path], ckpt_root: P
             if missing:
                 logger.warning("[crosscheck] rank %d missing %d shard(s): %s", rank, len(missing), missing)
                 needs_retry.update(missing)
+    if checksum:
+        present_paths = [p for p in local_paths if str(p.parent.relative_to(ckpt_root)) not in needs_retry]
+        corrupted = _checksum_sync_all(workers, present_paths, ckpt_root)
+        if corrupted:
+            logger.warning("[crosscheck] %d corrupted shard(s) found — queuing for re-transfer", len(corrupted))
+            needs_retry.update(str(p.parent.relative_to(ckpt_root)) for p in corrupted)
     return [path_map[rp] for rp in needs_retry if rp in path_map]
 
 
@@ -165,7 +170,22 @@ def _scan_local(ckpt_root: Path, extensions: list[str]) -> list[Path]:
         paths.extend(ckpt_root.rglob(f"*{ext}"))
     return paths
 
+def _run_pending_loop(pending: list, pending_lock: threading.Lock, trigger: threading.Event) -> None:
+    
+    while True:
+        time.sleep(10)
+        if pending:
+            logger.info("Re-evaluating %d pending file(s) for stability...", len(pending))
+            with pending_lock:
+                still_pending, now_stable = [], []
+                for path in pending:
+                    (now_stable if _is_stable(path) else still_pending).append(path)
+                pending[:] = still_pending
 
+            if now_stable:
+                logger.info("%d pending file(s) now stable — re-triggering.", len(now_stable))
+                trigger.set()
+        
 def _run_transfer_loop(
     ckpt_root: Path,
     workers: list,
@@ -174,7 +194,13 @@ def _run_transfer_loop(
     pending: list,
     pending_lock: threading.Lock,
 ) -> None:
-    """Transfer thread: wake on trigger, sync, diff, transfer, then check pending."""
+    """Transfer thread: wake on trigger, sync, diff, transfer, then check pending.
+
+    checksum_sync (re-hashing existing shards on workers) runs only on the first
+    wake-up (startup). Subsequent triggers skip it — per-transfer integrity is
+    already guaranteed by the SHA-256 sent with every store_shard call.
+    """
+    startup = True
     while True:
         trigger.wait()
         trigger.clear()
@@ -187,10 +213,18 @@ def _run_transfer_loop(
         intersection = [p for p in local_paths if str(p.parent.relative_to(ckpt_root)) in worker_paths]
         to_transfer  = [p for p in local_paths if str(p.parent.relative_to(ckpt_root)) not in worker_paths]
 
-        ### --- checksum_sync ---
-        logger.info("[checksum_sync] validating %d shared file(s)...", len(intersection))
-        corrupted_paths = _checksum_sync_all(workers, intersection, ckpt_root)
-        checksum_retry  = [p for p in intersection if str(p.parent.relative_to(ckpt_root)) in corrupted_paths]
+        # --- checksum_sync (startup only) ---
+        # On file-event triggers the per-transfer SHA-256 already guarantees
+        # correctness; re-hashing all existing shards every time would block
+        # new transfers for minutes when the cluster has many checkpoints.
+        checksum_retry: list = []
+        if startup:
+            logger.info("[checksum_sync] startup integrity sweep — validating %d shared file(s)...", len(intersection))
+            corrupted_paths = _checksum_sync_all(workers, intersection, ckpt_root)
+            checksum_retry  = list(corrupted_paths)
+            startup = False
+        else:
+            logger.info("[checksum_sync] skipped (file-event trigger — transfer checksum covers integrity)")
 
         if checksum_retry:
             logger.info("[checksum_retry] re-transferring %d corrupted file(s) first...", len(checksum_retry))
@@ -224,16 +258,19 @@ def _run_transfer_loop(
         else:
             logger.info("[crosscheck] all workers complete.")
 
-        # Re-evaluate pending files
-        with pending_lock:
-            still_pending, now_stable = [], []
-            for path in pending:
-                (now_stable if _is_stable(path) else still_pending).append(path)
-            pending[:] = still_pending
+       
+        
+        
+        # # Re-evaluate pending files
+        # with pending_lock:
+        #     still_pending, now_stable = [], []
+        #     for path in pending:
+        #         (now_stable if _is_stable(path) else still_pending).append(path)
+        #     pending[:] = still_pending
 
-        if now_stable:
-            logger.info("%d pending file(s) now stable — re-triggering.", len(now_stable))
-            trigger.set()
+        # if now_stable:
+        #     logger.info("%d pending file(s) now stable — re-triggering.", len(now_stable))
+        #     trigger.set()
 
 
 class CheckpointHandler(FileSystemEventHandler):
@@ -293,7 +330,12 @@ def main() -> None:
     logger.info("Waiting 10s for workers to bind before initial sync...")
     time.sleep(10)
     trigger.set()  # initial sync after workers are ready
-
+    
+    threading.Thread(
+        target=_run_pending_loop,
+        args=(pending, pending_lock, trigger),
+        daemon=True,
+    ).start()
     try:
         while observer.is_alive():
             observer.join(timeout=1)

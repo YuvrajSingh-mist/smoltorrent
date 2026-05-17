@@ -179,12 +179,50 @@ boot
 bash scripts/launch.sh --daemons
 ```
 
-This copies `smoltorrent_startup.sh` to `/usr/local/bin/` (outside TCC-blocked paths), writes the plist to `/Library/LaunchDaemons/`, then registers it:
+This copies `smoltorrent_startup.sh` to `/usr/local/bin/` (outside TCC-blocked paths), writes the plist below to `/Library/LaunchDaemons/`, then registers it:
 
 ```bash
-sudo launchctl enable system/com.smoltorrent.startup
+sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
+sudo launchctl enable system/com.smoltorrent.startup
 ```
+
+The plist it writes:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.smoltorrent.startup</string>
+    <key>UserName</key>
+    <string>yuvrajsingh1</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/usr/local/bin/smoltorrent_startup.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/smoltorrent-startup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/smoltorrent-startup.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/yuvrajsingh1</string>
+    </dict>
+</dict>
+</plist>
+```
+
+`UserName` makes it run as your user not root. `EnvironmentVariables` ensures Homebrew and uv are on PATH — without it the startup script can't find them.
 
 ### Verify it's registered
 
@@ -192,19 +230,105 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.p
 sudo launchctl print system/com.smoltorrent.startup
 ```
 
+### Remove / uninstall
+
+```bash
+sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/com.smoltorrent.startup.plist
+sudo rm -f /usr/local/bin/smoltorrent_startup.sh
+
+# Verify it's gone
+sudo launchctl print system/com.smoltorrent.startup 2>&1
+```
+
 ### If bootstrap fails with "Bootstrap failed: 5"
 
 ```bash
 sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
-sudo launchctl enable system/com.smoltorrent.startup
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
+sudo launchctl enable system/com.smoltorrent.startup
 ```
+
+### Check if it ran successfully
+
+```bash
+cat /tmp/smoltorrent-startup.log
+```
+
+A successful run looks like:
+
+```
+[Sat May 16 05:37:31 IST 2026] smoltorrent_startup: waiting for Tailscale (100.68.124.90)...
+[Sat May 16 05:37:31 IST 2026] smoltorrent_startup: network ready — launching cluster...
+Project: /Users/yuvrajsingh1/smoltorrent
+...
+Launched syncps_api on local host localhost
+Launched syncps_watcher on local host localhost
+Launched syncps_worker_1 on remote host pi4-1
+...
+Launch complete.
+```
+
+Note: `launchctl print` may show `last exit code = 1` and `state = not running` — this is expected. The daemon runs once at boot, launches everything into tmux sessions, then exits. The cluster keeps running in tmux independently.
 
 ### Logs after reboot
 
 ```bash
 tail -f /tmp/smoltorrent-startup.log
 ```
+
+---
+
+## Monitoring (Prometheus + Grafana + Loki)
+
+All logs and metrics in one place — Mac API, watcher, and all 4 Pi workers.
+
+```bash
+cd monitoring
+docker compose up -d
+# Grafana → http://localhost:3000  (admin / smoltorrent)
+```
+
+**6 dashboard panels:** throughput MB/s, transfer duration p95, errors by worker rank, operation counts, buffer sizes, and a unified log stream from all nodes.
+
+Metrics are exposed at `http://localhost:8000/metrics` by the API. Pi workers ship logs via Promtail → Loki. See [monitoring/README.md](monitoring/README.md) for full setup including Pi Promtail install.
+
+---
+
+## Pi worker auto-start (systemd)
+
+The master auto-starts via LaunchDaemon (above), which SSHes into each Pi to launch `worker.py`. But if a Pi reboots independently later, its worker process is dead until you re-run `launch.sh`. To fix that, install a systemd service on every Pi:
+
+```bash
+# Install on all 4 workers (run from master)
+bash scripts/install_worker_service.sh
+
+# Specific ranks only
+bash scripts/install_worker_service.sh --workers 1,3
+
+# Custom SSH key
+bash scripts/install_worker_service.sh --ssh-key ~/.ssh/my_key
+```
+
+This installs `/etc/systemd/system/smoltorrent-worker@.service` on each Pi, enables `smoltorrent-worker@<rank>`, and starts it immediately. On reboot the Pi brings up its worker automatically without waiting for the master.
+
+**Useful commands (run from master):**
+
+```bash
+# Status
+ssh -i ~/.ssh/smolcluster_key pi4-1 'systemctl status smoltorrent-worker@1'
+
+# Live logs
+ssh -i ~/.ssh/smolcluster_key pi4-1 'journalctl -u smoltorrent-worker@1 -f'
+
+# Restart a worker manually
+ssh -i ~/.ssh/smolcluster_key pi4-2 'sudo systemctl restart smoltorrent-worker@2'
+
+# Uninstall from all workers
+bash scripts/install_worker_service.sh --uninstall
+```
+
+> **Note:** `launch.sh` still kills and re-launches workers via tmux when you run it. The systemd service and the tmux session are independent — if tmux is running the worker, systemd's process will fail to bind the port and restart after 5 s. Run `install_worker_service.sh` when you want systemd as the primary keeper; use `launch.sh` alone when you want manual tmux control.
 
 ---
 
@@ -255,9 +379,13 @@ smoltorrent/
 │   ├── log_utils.py         # Per-component cluster logging
 │   └── network_metrics.py   # Send/recv bandwidth and latency tracking
 ├── scripts/
-│   ├── launch.sh            # Cluster orchestrator (rsync → deps → tmux)
-│   └── smoltorrent_startup.sh  # Boot wrapper: wait for Tailscale → launch.sh
+│   ├── launch.sh                  # Cluster orchestrator (rsync → deps → tmux)
+│   ├── smoltorrent_startup.sh     # Boot wrapper: wait for Tailscale → launch.sh
+│   └── install_worker_service.sh  # Install systemd service on Pi workers for auto-restart
 ├── test/
+│   ├── test_shard_serialization.py       # Unit: shard_to_bytes, checksum, merge (no cluster needed)
+│   ├── test_worker_commands.py           # Integration: all worker TCP commands
+│   ├── test_watcher_logic.py             # Integration: watcher sync, crosscheck, file trigger
 │   └── test_received_model_inference.py  # Integration: load gathered weights, run MLX inference
 ├── configs/
 │   └── config.yaml          # Cluster topology + ckpt_root
