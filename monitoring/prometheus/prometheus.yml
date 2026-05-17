@@ -6,5 +6,43 @@ scrape_configs:
   - job_name: smoltorrent-api
     static_configs:
       - targets:
-          - host.docker.internal:8000   # FastAPI /metrics on Mac
+          - host.docker.internal:8000   # FastAPI /metrics on Server
     metrics_path: /metrics/
+
+  - job_name: worker-metrics
+    static_configs:
+      - targets: ["100.68.124.90:9201"]
+        labels: { node: pi4-1, rank: "1" }
+      - targets: ["100.79.150.107:9202"]
+        labels: { node: pi4-2, rank: "2" }
+      - targets: ["100.105.164.35:9203"]
+        labels: { node: pi4-3, rank: "3" }
+      - targets: ["100.77.162.23:9204"]
+        labels: { node: pi4-4, rank: "4" }
+
+  - job_name: node
+    static_configs:
+      - targets:
+          - host.docker.internal:9100
+        labels:
+          node: master
+      - targets:
+          - 100.68.124.90:9100
+        labels:
+          node: pi4-1
+          rank: "1"
+      - targets:
+          - 100.79.150.107:9100
+        labels:
+          node: pi4-2
+          rank: "2"
+      - targets:
+          - 100.105.164.35:9100
+        labels:
+          node: pi4-3
+          rank: "3"
+      - targets:
+          - 100.77.162.23:9100
+        labels:
+          node: pi4-4
+          rank: "4"

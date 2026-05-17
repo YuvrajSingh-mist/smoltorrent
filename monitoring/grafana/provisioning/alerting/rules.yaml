@@ -7,6 +7,52 @@ groups:
     interval: 1m
     rules:
 
+      # ── API ────────────────────────────────────────────────────────────────
+
+      - uid: api-dead
+        title: API Down
+        condition: A
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: up{job="smoltorrent-api"} == 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "SmolTorrent API is down"
+          description: "Prometheus cannot scrape :8000. FastAPI may have crashed."
+        labels:
+          severity: critical
+
+      # ── Workers ────────────────────────────────────────────────────────────
+
+      - uid: worker-down
+        title: Pi Worker Down
+        condition: A
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: up{job="worker-metrics"} == 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Pi worker {{ $labels.node }} is unreachable"
+          description: "Prometheus cannot scrape the worker metrics endpoint on {{ $labels.node }} (rank {{ $labels.rank }}). Worker process may have crashed."
+        labels:
+          severity: critical
+
       - uid: worker-transfer-errors
         title: Worker Transfer Errors
         condition: A
@@ -16,6 +62,7 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
             model:
               expr: increase(smoltorrent_transfer_errors_total[5m]) > 0
               intervalMs: 1000
@@ -27,6 +74,95 @@ groups:
         labels:
           severity: warning
 
+      # ── Server ─────────────────────────────────────────────────────────────
+
+      - uid: server-down
+        title: Server Down
+        condition: A
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: up{job="node", node="master"} == 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Server node_exporter is unreachable"
+          description: "Prometheus cannot scrape node_exporter on the master server. Machine may be offline or node_exporter crashed."
+        labels:
+          severity: critical
+
+      - uid: server-cpu-high
+        title: Server CPU High
+        condition: A
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: 100 - (avg(rate(node_cpu_seconds_total{job="node",node="master",mode="idle"}[5m])) * 100) > 90
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Server CPU above 90%"
+          description: "Server CPU has been above 90% for 5 minutes."
+        labels:
+          severity: warning
+
+      - uid: server-disk-low
+        title: Server Disk Low
+        condition: A
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: node_filesystem_avail_bytes{job="node",node="master",mountpoint="/"} < 5 * 1024 * 1024 * 1024
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Server disk below 5 GB free"
+          description: "Root filesystem on the server has less than 5 GB available."
+        labels:
+          severity: warning
+
+      # ── Transfer performance ───────────────────────────────────────────────
+
+      - uid: transfer-bandwidth-low
+        title: Transfer Bandwidth Low
+        condition: A
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: (smoltorrent_send_bandwidth_mbps > 0) < 10
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Send bandwidth below 10 Mbps during active transfer"
+          description: "A transfer is in progress but send bandwidth has dropped below 10 Mbps for 2 min. Expected ~25 Mbps per worker on a 100 Mbps link. Check network or Pi load."
+        labels:
+          severity: warning
+
+
       - uid: transfer-too-slow
         title: Transfer p95 Too Slow
         condition: A
@@ -36,6 +172,7 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
             model:
               expr: histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m])) > 120
               intervalMs: 1000
@@ -43,26 +180,92 @@ groups:
               instant: true
         annotations:
           summary: "Send p95 latency exceeds 2 minutes"
-          description: "95th percentile send duration is above 2 min. Likely cause: slow Pi SD card, network congestion, or Pi under memory pressure."
+          description: "95th percentile send duration above 2 min. Likely: slow Pi SD card, network congestion, or Pi under memory pressure."
         labels:
           severity: warning
 
-      - uid: api-dead
-        title: SmolTorrent API Unreachable
+      - uid: transfer-latency-high
+        title: Transfer Latency High
         condition: A
-        for: 2m
-        noDataState: Alerting
+        for: 3m
+        noDataState: OK
         execErrState: Error
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: up{job="smoltorrent-api"} == 0
+              expr: smoltorrent_avg_send_latency_ms > 5000
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
         annotations:
-          summary: "SmolTorrent API is down"
-          description: "Prometheus cannot scrape the FastAPI backend at :8000. API may have crashed or the Mac went to sleep."
+          summary: "Average send latency above 5 seconds"
+          description: "Rolling average TCP send latency has exceeded 5000 ms. Check network and Pi load."
         labels:
-          severity: critical
+          severity: warning
+
+      # ── Pi system health ───────────────────────────────────────────────────
+
+      - uid: pi-cpu-high
+        title: Pi CPU High
+        condition: A
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: 100 - (avg by (node) (rate(node_cpu_seconds_total{job="node",node=~"pi4-.*",mode="idle"}[5m])) * 100) > 90
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Pi {{ $labels.node }} CPU above 90%"
+          description: "{{ $labels.node }} CPU has been above 90% for 5 minutes."
+        labels:
+          severity: warning
+
+      - uid: pi-temp-high
+        title: Pi Temperature High
+        condition: A
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: node_thermal_zone_temp{job="node",node=~"pi4-.*",zone="0"} > 80
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Pi {{ $labels.node }} temperature above 80°C"
+          description: "{{ $labels.node }} SoC temperature is above 80°C — CPU throttling is likely."
+        labels:
+          severity: warning
+
+      - uid: pi-disk-low
+        title: Pi Disk Low
+        condition: A
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: node_filesystem_avail_bytes{job="node",node=~"pi4-.*",mountpoint="/"} < 2 * 1024 * 1024 * 1024
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Pi {{ $labels.node }} disk below 2 GB free"
+          description: "{{ $labels.node }} SD card has less than 2 GB available. Old shards may need clearing."
+        labels:
+          severity: warning

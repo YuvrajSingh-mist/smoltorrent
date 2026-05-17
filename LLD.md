@@ -54,7 +54,7 @@ master → worker:  ("send_shard", rank, rel_path)
 worker → master:  shard_bytes  (raw safetensors bytes)
                or None         (shard not found)
 ```
-Worker reads `shards/worker_{rank}/{rel_path}/shard.safetensors` and sends the raw bytes. The master deserializes with `shard_from_bytes` (→ MLX on Mac, torch on Pi).
+Worker reads `shards/worker_{rank}/{rel_path}/shard.safetensors` and sends the raw bytes. The master deserializes with `shard_from_bytes` (→ MLX on Server, torch on Pi).
 
 ---
 
@@ -97,7 +97,7 @@ Called after every transfer batch (crosscheck phase). Unlike `sync` which return
 
 ## Serialization path (`utils/common_utils.py`)
 
-### Mac → bytes (`shard_to_bytes`)
+### Server → bytes (`shard_to_bytes`)
 
 MLX arrays can't be passed to `safetensors.torch.save` directly (different framework).
 
@@ -112,7 +112,7 @@ This is the only path that works for bfloat16 — numpy's PEP 3118 interpreter r
 ### bytes → tensors (`shard_from_bytes`)
 
 ```python
-# Mac
+# Server
 mx.load(_NamedBytesIO(data))   # MLX needs file-like with .name ending in .safetensors
 # Pi
 safetensors.torch.load(data)   # returns torch tensors directly
@@ -224,15 +224,31 @@ while True:
         request_store_shards(ckpt_path=str(path), log_fn=logger.info)
 
     # Phase 4: crosscheck
+    # checksum=True merges presence check + integrity validation in one pass (startup);
+    # checksum=False (default) skips re-hashing on file-event triggers.
     crosscheck_retry = _crosscheck_all_workers(workers, local_paths, ckpt_root)
     for path in crosscheck_retry:
         request_store_shards(ckpt_path=str(path), log_fn=logger.info)
-
-    # Re-evaluate pending (files that were unstable when detected)
-    now_stable = [p for p in pending if _is_stable(p)]
-    if now_stable:
-        trigger.set()   # re-trigger for the newly stable files
 ```
+
+Pending re-evaluation is handled by a **separate thread** (`_run_pending_loop`), not inside the transfer loop:
+
+```python
+# _run_pending_loop (daemon thread)
+while True:
+    time.sleep(10)
+    with pending_lock:
+        snapshot = list(pending)         # snapshot outside stability check
+    still_pending, now_stable = [], []
+    for path in snapshot:
+        (now_stable if _is_stable(path) else still_pending).append(path)
+    with pending_lock:
+        pending[:] = still_pending       # write back only confirmed unstable
+    if now_stable:
+        trigger.set()
+```
+
+The lock is held only for the snapshot read and the write-back. `_is_stable` (1 s sleep per file) runs outside the lock so `on_created` can append to `pending` without blocking.
 
 ### Why intersection for phase 1, not union
 
@@ -252,23 +268,23 @@ Pi:
     shard.safetensors
     shard.checksum          ← SHA-256 of shard.safetensors
 
-Mac (local cache after gather):
+Server (local cache after gather):
 ~/smoltorrent/shards/worker_{rank}/{rel_path}/
     shard.safetensors
 
-Mac (merged output):
+Server (merged output):
 ~/smolcluster/checkpoints/{rel_path}/
     model.safetensors       ← original training checkpoint
     merged.safetensors      ← reassembled from Pi shards
 ```
 
-`rel_path` = `ckpt_file.parent.relative_to(ckpt_root)`, e.g. `Qwen2.5/run1/latest`. It's the same on both Mac and Pi — the master uses it as the storage key, and the worker uses it as the directory name under its `shards/worker_{rank}/` root.
+`rel_path` = `ckpt_file.parent.relative_to(ckpt_root)`, e.g. `Qwen2.5/run1/latest`. It's the same on both Server and Pi — the master uses it as the storage key, and the worker uses it as the directory name under its `shards/worker_{rank}/` root.
 
 ---
 
 ## Auto-start
 
-### Mac (`/Library/LaunchDaemons/`)
+### Server (`/Library/LaunchDaemons/`)
 
 The plist runs `/usr/local/bin/smoltorrent_startup.sh` at boot (before login). The script pings a Pi every 5s until Tailscale is up (5 min timeout), then runs `launch.sh`.
 

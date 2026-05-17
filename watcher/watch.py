@@ -172,6 +172,8 @@ def _scan_local(ckpt_root: Path, extensions: list[str]) -> list[Path]:
 
 def _run_pending_loop(pending: list, pending_lock: threading.Lock, trigger: threading.Event) -> None:
     
+    """Pending loop: wakes every 10s to re-check pending files for stability."""
+    
     while True:
         time.sleep(10)
         if pending:
@@ -179,6 +181,9 @@ def _run_pending_loop(pending: list, pending_lock: threading.Lock, trigger: thre
             with pending_lock:
                 still_pending, now_stable = [], []
                 for path in pending:
+                    if not path.exists():
+                        logger.info("Pending file no longer exists — dropping: %s", path)
+                        continue
                     (now_stable if _is_stable(path) else still_pending).append(path)
                 pending[:] = still_pending
 

@@ -60,7 +60,7 @@ Shards travel as raw `safetensors` bytes over TCP.
 
 Safetensors is the only format that carries shape + dtype + tensor name cleanly across frameworks with no framework-specific code embedded in the bytes.
 
-**Important:** on gather, the master receives shard bytes and deserializes to MLX arrays (Mac). Saving must use `_save_shard()` (which calls `mx.save_safetensors`) — using `safetensors.torch.save_file()` directly will crash because it expects torch tensors, not MLX arrays.
+**Important:** on gather, the master receives shard bytes and deserializes to MLX arrays (Server). Saving must use `_save_shard()` (which calls `mx.save_safetensors`) — using `safetensors.torch.save_file()` directly will crash because it expects torch tensors, not MLX arrays.
 
 ---
 

@@ -4,11 +4,11 @@
 
 ## Wire format — safetensors (`utils/common_utils.py`)
 
-Mac runs MLX, Pi workers run torch. Pickle fails because unpickling an MLX array on Pi tries to `import mlx` which isn't installed. Numpy fails on bfloat16 because numpy doesn't natively support it — any path through numpy's dtype interpreter raises a PEP 3118 item-size mismatch.
+Server runs MLX, Pi workers run torch. Pickle fails because unpickling an MLX array on Pi tries to `import mlx` which isn't installed. Numpy fails on bfloat16 because numpy doesn't natively support it — any path through numpy's dtype interpreter raises a PEP 3118 item-size mismatch.
 
 Safetensors is the fix: it's a flat format (shape + dtype string + raw bytes) with no framework embedded. Same bytes are readable by both `mx.load()` and `safetensors.torch.load()`.
 
-Serialization path on Mac (`shard_to_bytes`):
+Serialization path on Server (`shard_to_bytes`):
 1. `bytes(mlx_array)` — MLX exposes raw memory via the buffer protocol directly, no numpy dtype interpretation
 2. `torch.frombuffer(bytearray(...), dtype=...)` — reinterprets those bits as the correct torch dtype
 3. `safetensors.torch.save(torch_dict)` — produces the bytes that go on the wire
@@ -21,7 +21,7 @@ Safetensors is used as the serialization format for the wire, not just for disk 
 
 ## MLX gather save bug (`backend/api.py`)
 
-`/gather-shards` received shard bytes from a Pi and called `safetensors.torch.save_file(received_shard, path)` on the master to cache it locally. On Mac, `shard_from_bytes` deserializes to MLX arrays (via `mx.load()`), not torch tensors. `safetensors.torch.save_file` expects torch tensors — it crashed with `Key X is invalid, expected torch.Tensor but received mlx.core.array`.
+`/gather-shards` received shard bytes from a Pi and called `safetensors.torch.save_file(received_shard, path)` on the master to cache it locally. On Server, `shard_from_bytes` deserializes to MLX arrays (via `mx.load()`), not torch tensors. `safetensors.torch.save_file` expects torch tensors — it crashed with `Key X is invalid, expected torch.Tensor but received mlx.core.array`.
 
 Fix: replaced `safetensors.torch.save_file` with `_save_shard()` from `common_utils`, which branches on `_IS_MAC` and calls `mx.save_safetensors()` on macOS.
 
@@ -50,6 +50,14 @@ The watcher monitors `ckpt_root` for new `.safetensors` files and keeps all work
 4. **crosscheck** — after all transfers complete, sends `all_shards_present` to every worker with the full list of expected rel_paths; any worker that reports a missing shard triggers a re-transfer for that file
 
 The crosscheck catches partial transfers — a file that failed mid-send on one worker but succeeded on others would appear in the intersection (missing from the intersection means all workers lacked it), but crosscheck queries each worker individually and catches the one-worker-missing case.
+
+`_crosscheck_all_workers` accepts a `checksum=True` flag that also runs `_checksum_sync_all` on present shards and folds any corrupted paths into the re-transfer list — used during startup to combine presence check and integrity in one pass.
+
+### Pending loop
+
+Files detected while still being written (size changes within the 1 s stability window) are added to a `pending` list instead of triggering a transfer. A dedicated thread (`_run_pending_loop`) polls the list every 10 s, re-evaluates each file with `_is_stable`, promotes stable ones by setting `trigger`, and leaves unstable ones for the next tick.
+
+The lock is held only for the read snapshot and the final write-back — `_is_stable` (which sleeps 1 s per file) runs outside the lock so `on_created` is never blocked waiting to append.
 
 ---
 
@@ -81,7 +89,7 @@ Serialization = converting an object to bytes. Deserialization = converting byte
 
 Two different serializers are used for different things:
 
-- **Pickle** — serializes the message tuple `("store_shard", rank, shard_bytes, ...)` for TCP transport. Fine on both Mac and Pi because the tuple contains only plain Python types. `shard_bytes` inside the tuple is already a `bytes` object — pickle treats it as an opaque blob.
+- **Pickle** — serializes the message tuple `("store_shard", rank, shard_bytes, ...)` for TCP transport. Fine on both Server and Pi because the tuple contains only plain Python types. `shard_bytes` inside the tuple is already a `bytes` object — pickle treats it as an opaque blob.
 - **Safetensors** — serializes the tensor data itself into `shard_bytes` before pickle sees it. Needed because pickling MLX arrays directly would embed the `mlx.core.array` class — unpickling on Pi would `import mlx`, which isn't installed.
 
 Rule: pickle handles structure, safetensors handles tensors. Never let pickle see raw MLX arrays.

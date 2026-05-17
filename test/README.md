@@ -12,6 +12,7 @@ test/
 ├── test_shard_serialization.py                   # Unit: shard_to_bytes, shard_from_bytes, checksum, merge_shards
 ├── test_worker_commands.py                       # Integration: all worker TCP commands (heartbeat/sync/store/send/checksum)
 ├── test_watcher_logic.py                         # Integration: watcher sync, crosscheck, file trigger, extension filter
+├── test_pending_loop.py                          # Integration: pending loop — real file sizes (~150–400 MB), real worker APIs
 ├── test_api.py                                   # API: /gather-shards and /store-shard endpoints
 ├── test_gather_shards_to_master.py               # Integration: gather -> merge
 ├── test_shard_store_and_gather.py                # Integration: shard round-trip via common_utils
@@ -47,6 +48,9 @@ uv run pytest test/test_worker_commands.py -v -m integration
 
 # Watcher logic (sync, crosscheck, file trigger, extension filter)
 uv run pytest test/test_watcher_logic.py -v -m integration
+
+# Pending loop (real file sizes, real worker APIs — takes ~5 min)
+uv run pytest test/test_pending_loop.py -v -m integration
 
 # Shard serialization unit tests (no cluster)
 uv run pytest test/test_shard_serialization.py -v

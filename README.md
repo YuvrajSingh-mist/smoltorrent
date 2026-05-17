@@ -3,7 +3,7 @@
 Distributed ML checkpoint sharding across a Raspberry Pi cluster, coordinated from a macOS master. Shards `.safetensors` checkpoints across workers over Tailscale, reassembles them on demand, and auto-syncs new checkpoints as they appear.
 
 ```
-Master (Mac Mini)
+Master (Server)
   ├── FastAPI server   backend/api.py          ← /store-shard, /gather-shards
   ├── Watcher daemon   watcher/watch.py         ← auto-syncs new checkpoints
   └── Workers × 4      algorithms/SyncPS/worker.py  ← TCP listener on each Pi
@@ -19,11 +19,13 @@ Master (Mac Mini)
 
 **Watcher** — monitors `ckpt_root` for new `.safetensors` files. On each trigger:
 1. `file_sync` — asks all workers what they have (intersection)
-2. `checksum_sync` — validates SHA-256 on every shared file
+2. `checksum_sync` *(startup only)* — validates SHA-256 on every shared file; skipped on file-event triggers
 3. `transfer` — pushes any missing or corrupted files
 4. `crosscheck` — after transfer, confirms every worker has every shard; re-transfers anything still missing
 
-**Wire format** — safetensors only. MLX arrays (Mac) are converted to torch tensors before sending; workers store and return torch tensors; the master converts back to MLX on receive.
+Files detected while still being written go to a **pending list**. A dedicated polling thread (`_run_pending_loop`) re-evaluates them every 10 s and re-triggers the transfer loop once they become stable.
+
+**Wire format** — safetensors only. MLX arrays (Server) are converted to torch tensors before sending; workers store and return torch tensors; the master converts back to MLX on receive.
 
 ---
 
@@ -31,7 +33,7 @@ Master (Mac Mini)
 
 | Node | Host | IP | Port | Rank |
 |---|---|---|---|---|
-| Mac Mini (master) | localhost | 100.78.120.114 | 8000 (API) | 0 |
+| Server (master) | localhost | 100.78.120.114 | 8000 (API) | 0 |
 | pi4-1 | pi4-1 | 100.68.124.90 | 5001 | 1 |
 | pi4-2 | pi4-2 | 100.79.150.107 | 5002 | 2 |
 | pi4-3 | pi4-3 | 100.105.164.35 | 5003 | 3 |
@@ -281,7 +283,7 @@ tail -f /tmp/smoltorrent-startup.log
 
 ## Monitoring (Prometheus + Grafana + Loki)
 
-All logs and metrics in one place — Mac API, watcher, and all 4 Pi workers.
+All logs and metrics in one place — Server API, watcher, and all 4 Pi workers.
 
 ```bash
 cd monitoring
@@ -289,9 +291,14 @@ docker compose up -d
 # Grafana → http://localhost:3000  (admin / smoltorrent)
 ```
 
-**6 dashboard panels:** throughput MB/s, transfer duration p95, errors by worker rank, operation counts, buffer sizes, and a unified log stream from all nodes.
+Four dashboard sections — smoltorrent transfer metrics, Server system stats, Pi worker system stats + per-Pi smoltorrent metrics, and API server stats — plus a unified log stream from all nodes.
 
-Metrics are exposed at `http://localhost:8000/metrics` by the API. Pi workers ship logs via Promtail → Loki. See [monitoring/README.md](monitoring/README.md) for full setup including Pi Promtail install.
+- **Master metrics** — `http://localhost:8000/metrics` (FastAPI + `prometheus_client`)
+- **Pi worker metrics** — `http://<pi>:920{rank}/metrics` (per-worker `prometheus_client` server in `worker.py`)
+- **System metrics** — `http://<node>:9100/metrics` (node_exporter on all 5 nodes)
+- **Logs** — Promtail → Loki on Server (Docker) and all Pis (systemd)
+
+See [monitoring/README.md](monitoring/README.md) for full setup, metrics reference, and dashboard panel guide.
 
 ---
 
@@ -365,6 +372,7 @@ smoltorrent/
 ├── algorithms/SyncPS/
 │   └── worker.py            # TCP listener: store_shard, send_shard, sync,
 │                            #   checksum_sync, all_shards_present
+│                            #   + prometheus_client metrics on port 9200+rank
 ├── backend/
 │   └── api.py               # FastAPI: /store-shard, /gather-shards
 ├── watcher/
@@ -386,6 +394,7 @@ smoltorrent/
 │   ├── test_shard_serialization.py       # Unit: shard_to_bytes, checksum, merge (no cluster needed)
 │   ├── test_worker_commands.py           # Integration: all worker TCP commands
 │   ├── test_watcher_logic.py             # Integration: watcher sync, crosscheck, file trigger
+│   ├── test_pending_loop.py              # Integration: pending loop with real file sizes (~150–400 MB)
 │   └── test_received_model_inference.py  # Integration: load gathered weights, run MLX inference
 ├── configs/
 │   └── config.yaml          # Cluster topology + ckpt_root

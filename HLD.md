@@ -4,14 +4,14 @@
 
 ## What the system does
 
-SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi workers and reassembles them on demand. The Mac Mini is the master — it holds the original checkpoints, runs the API and watcher, and coordinates all operations. The Pis are dumb storage workers — they receive shards, hold them on disk, and serve them back on request.
+SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi workers and reassembles them on demand. The Server is the master — it holds the original checkpoints, runs the API and watcher, and coordinates all operations. The Pis are dumb storage workers — they receive shards, hold them on disk, and serve them back on request.
 
 ```
   Training script / user
          │
          │  writes model.safetensors
          ▼
-  ~/smolcluster/checkpoints/   (ckpt_root on Mac)
+  ~/smolcluster/checkpoints/   (ckpt_root on Server)
          │
          │  watcher detects new file
          ▼
@@ -26,9 +26,9 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 
 ## Why this topology
 
-- **Master orchestrates, workers store** — the Mac has MLX for tensor ops; Pis run pure torch. Keeping orchestration on the Mac avoids cross-framework complexity on workers.
+- **Master orchestrates, workers store** — the Server has MLX for tensor ops; Pis run pure torch. Keeping orchestration on the Server avoids cross-framework complexity on workers.
 - **Tailscale VPN** — Pis are behind NAT; Tailscale gives every node a stable routable IP without port-forwarding or a public server.
-- **Safetensors as wire format** — the only format that carries shape + dtype + tensor name across both MLX (Mac) and torch (Pi) without importing the other framework. Pickle embeds the originating class; numpy fails on bfloat16.
+- **Safetensors as wire format** — the only format that carries shape + dtype + tensor name across both MLX (Server) and torch (Pi) without importing the other framework. Pickle embeds the originating class; numpy fails on bfloat16.
 
 ---
 
@@ -46,14 +46,14 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 
 | Component | Where it runs | Role |
 |---|---|---|
-| `backend/api.py` | Mac, port 8000 | HTTP API — orchestrates store and gather |
-| `watcher/watch.py` | Mac, daemon | Watches `ckpt_root`, triggers store automatically |
-| `algorithms/SyncPS/worker.py` | Each Pi | TCP listener — stores and serves shards |
+| `backend/api.py` | Server, port 8000 | HTTP API — orchestrates store and gather |
+| `watcher/watch.py` | Server, daemon | Watches `ckpt_root`, triggers store automatically |
+| `algorithms/SyncPS/worker.py` | Each Pi | TCP listener — stores and serves shards; exposes Prometheus metrics on port `9200+rank` |
 | `networking/send_receive.py` | Both | Zero-copy TCP framing shared by master and workers |
 | `utils/common_utils.py` | Both | Tensor ops: chunk, serialize, deserialize, merge |
-| `utils/shard_ops.py` | Mac | HTTP client wrappers that call the API |
-| `scripts/launch.sh` | Mac (run manually) | rsync → deps → start all processes in tmux |
-| `scripts/install_worker_service.sh` | Mac (run once) | Install systemd auto-restart service on each Pi |
+| `utils/shard_ops.py` | Server | HTTP client wrappers that call the API |
+| `scripts/launch.sh` | Server (run manually) | rsync → deps → start all processes in tmux |
+| `scripts/install_worker_service.sh` | Server (run once) | Install systemd auto-restart service on each Pi |
 
 ---
 
@@ -93,8 +93,22 @@ On each trigger (new file or startup):
 
 | Node | Mechanism | Effect |
 |---|---|---|
-| Mac | `/Library/LaunchDaemons/` plist + `launchctl bootstrap system` | Runs `smoltorrent_startup.sh` at boot → waits for Tailscale → `launch.sh` |
+| Server | `/Library/LaunchDaemons/` plist + `launchctl bootstrap system` | Runs `smoltorrent_startup.sh` at boot → waits for Tailscale → `launch.sh` |
 | Each Pi | `systemd` template unit `smoltorrent-worker@{rank}.service` | Starts `worker.py` at boot, restarts on crash |
+
+---
+
+## Observability
+
+Prometheus + Grafana + Loki run in Docker on the Server. Three metric sources feed the dashboard:
+
+| Source | Endpoint | What it exposes |
+|---|---|---|
+| Master API | `localhost:8000/metrics/` | Transfer bytes, duration histograms, op counts, errors by rank |
+| Pi workers | `<pi-ip>:920{rank}/metrics` | Per-worker store/send bytes, duration, op counts, errors |
+| node_exporter | `<node>:9100/metrics` | CPU, memory, disk, load, temperature (all 5 nodes) |
+
+node_exporter runs as a systemd service on each Pi and is started at boot via `smoltorrent_startup.sh` on the Server. See [monitoring/README.md](monitoring/README.md) for setup and the full metrics reference.
 
 ---
 

@@ -1,86 +1,72 @@
 {
   "uid": "smoltorrent",
-  "title": "SmolTorrent",
+  "title": "Server",
   "schemaVersion": 38,
   "version": 1,
   "refresh": "10s",
   "time": { "from": "now-1h", "to": "now" },
   "panels": [
     {
+      "id": 100,
+      "title": "Server",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
       "id": 1,
       "title": "Bandwidth (Mbps)",
       "description": "Send and receive bandwidth as reported directly by the API. A curve that starts fast and decelerates exponentially = O(n²) copying bug.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "smoltorrent_send_bandwidth_mbps",
-          "legendFormat": "send Mbps"
-        },
-        {
-          "expr": "smoltorrent_recv_bandwidth_mbps",
-          "legendFormat": "recv Mbps"
-        }
+        { "expr": "smoltorrent_send_bandwidth_mbps", "legendFormat": "send Mbps" },
+        { "expr": "smoltorrent_recv_bandwidth_mbps", "legendFormat": "recv Mbps" }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "none", "custom": { "lineWidth": 2 } }
-      }
+      "fieldConfig": { "defaults": { "unit": "none", "custom": { "lineWidth": 2 } } }
     },
     {
       "id": 2,
-      "title": "Transfer Duration p95 (seconds)",
-      "description": "95th percentile send/recv duration per operation. Rising p95 = slow worker or network issue.",
+      "title": "Transfer Duration Percentiles (seconds)",
+      "description": "p50 / p90 / p95 / p99 send and recv duration. Rising tail = slow worker or network issue.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
-          "legendFormat": "send p95"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
-          "legendFormat": "recv p95"
-        }
+        { "expr": "histogram_quantile(0.50, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p50" },
+        { "expr": "histogram_quantile(0.90, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p90" },
+        { "expr": "histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p95" },
+        { "expr": "histogram_quantile(0.99, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p99" },
+        { "expr": "histogram_quantile(0.50, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p50" },
+        { "expr": "histogram_quantile(0.90, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p90" },
+        { "expr": "histogram_quantile(0.95, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p95" },
+        { "expr": "histogram_quantile(0.99, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p99" }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
-      }
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
     },
     {
       "id": 3,
       "title": "Transfer Errors by Worker",
       "description": "Error rate per worker rank. A rank that keeps erroring = flaky Pi or dead port.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 8 },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "rate(smoltorrent_transfer_errors_total[5m])",
-          "legendFormat": "rank {{rank}}"
-        }
+        { "expr": "rate(smoltorrent_transfer_errors_total[5m])", "legendFormat": "rank {{rank}}" }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
-      }
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
     },
     {
       "id": 4,
       "title": "Operations",
       "description": "Total store and gather operations completed.",
       "type": "stat",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 8 },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "increase(smoltorrent_store_operations_total[$__range])",
-          "legendFormat": "stores"
-        },
-        {
-          "expr": "increase(smoltorrent_gather_operations_total[$__range])",
-          "legendFormat": "gathers"
-        }
+        { "expr": "increase(smoltorrent_store_operations_total[$__range])", "legendFormat": "stores" },
+        { "expr": "increase(smoltorrent_gather_operations_total[$__range])", "legendFormat": "gathers" }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "colorMode": "value" }
     },
@@ -89,76 +75,127 @@
       "title": "Avg Latency (ms)",
       "description": "Rolling average send and receive latency per message.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 8 },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "smoltorrent_avg_send_latency_ms",
-          "legendFormat": "send avg ms"
-        },
-        {
-          "expr": "smoltorrent_avg_recv_latency_ms",
-          "legendFormat": "recv avg ms"
-        }
+        { "expr": "smoltorrent_avg_send_latency_ms", "legendFormat": "send avg ms" },
+        { "expr": "smoltorrent_avg_recv_latency_ms", "legendFormat": "recv avg ms" }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } }
-      }
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
     },
     {
       "id": 7,
       "title": "Buffer Size (KB)",
       "description": "Average and max TCP message buffer size. Sudden spike = unusually large checkpoint.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "smoltorrent_avg_buffer_size_kb",
-          "legendFormat": "avg buf KB"
-        },
-        {
-          "expr": "smoltorrent_max_buffer_size_kb",
-          "legendFormat": "max buf KB"
-        }
+        { "expr": "smoltorrent_avg_buffer_size_kb", "legendFormat": "avg buf KB" },
+        { "expr": "smoltorrent_max_buffer_size_kb", "legendFormat": "max buf KB" }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "kbytes", "custom": { "lineWidth": 2 } }
-      }
+      "fieldConfig": { "defaults": { "unit": "kbytes", "custom": { "lineWidth": 2 } } }
     },
     {
       "id": 8,
       "title": "Bytes Transferred",
       "description": "Cumulative bytes sent and received over TCP.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "smoltorrent_bytes_sent_total / 1024 / 1024",
-          "legendFormat": "sent MB"
-        },
-        {
-          "expr": "smoltorrent_bytes_recv_total / 1024 / 1024",
-          "legendFormat": "recv MB"
-        }
+        { "expr": "smoltorrent_bytes_sent_total / 1024 / 1024", "legendFormat": "sent MB" },
+        { "expr": "smoltorrent_bytes_recv_total / 1024 / 1024", "legendFormat": "recv MB" }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } }
-      }
+      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 21,
+      "title": "CPU Usage (%)",
+      "description": "Overall CPU utilisation across all cores (100% = 1 core fully busy).",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[1m])) * 100)", "legendFormat": "CPU %" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 22,
+      "title": "Memory Usage",
+      "description": "Active + wired memory vs total. macOS does not report a single 'used' counter; active+wired is the closest equivalent.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "(node_memory_active_bytes{job=\"node\"} + node_memory_wired_bytes{job=\"node\"}) / 1024 / 1024 / 1024", "legendFormat": "used GB" },
+        { "expr": "node_memory_total_bytes{job=\"node\"} / 1024 / 1024 / 1024", "legendFormat": "total GB" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decgbytes", "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 23,
+      "title": "Disk Free — / (root)",
+      "description": "Available bytes on the root APFS volume.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "node_filesystem_avail_bytes{job=\"node\",mountpoint=\"/\"} / 1024 / 1024 / 1024", "legendFormat": "free GB" },
+        { "expr": "node_filesystem_size_bytes{job=\"node\",mountpoint=\"/\"} / 1024 / 1024 / 1024", "legendFormat": "total GB" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decgbytes", "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 24,
+      "title": "Disk I/O (MB/s)",
+      "description": "Read and write throughput on disk0.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "rate(node_disk_read_bytes_total{job=\"node\",device=\"disk0\"}[1m]) / 1024 / 1024", "legendFormat": "read MB/s" },
+        { "expr": "rate(node_disk_written_bytes_total{job=\"node\",device=\"disk0\"}[1m]) / 1024 / 1024", "legendFormat": "write MB/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 25,
+      "title": "System Load",
+      "description": "1 / 5 / 15 minute load average.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "node_load1{job=\"node\"}", "legendFormat": "1m" },
+        { "expr": "node_load5{job=\"node\"}", "legendFormat": "5m" },
+        { "expr": "node_load15{job=\"node\"}", "legendFormat": "15m" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 26,
+      "title": "Swap Used",
+      "description": "macOS swap usage. Non-zero means memory pressure is causing pages to be compressed/swapped.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "node_memory_swap_used_bytes{job=\"node\"} / 1024 / 1024", "legendFormat": "swap used MB" },
+        { "expr": "node_memory_compressed_bytes{job=\"node\"} / 1024 / 1024", "legendFormat": "compressed MB" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
     },
     {
       "id": 6,
       "title": "Cluster Logs",
       "description": "All logs from master (API, watcher) and Pi workers in one stream.",
       "type": "logs",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 35 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
-        {
-          "expr": "{job=\"smoltorrent\"}",
-          "legendFormat": ""
-        }
+        { "expr": "{job=\"smoltorrent\"}", "legendFormat": "" }
       ],
       "options": {
         "showTime": true,
