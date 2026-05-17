@@ -16,35 +16,9 @@ from networking.send_receive import receive_message, send_message, _network_metr
 from utils.common_utils import compute_checksum, load_tensors, save_received_data_shard, shard_from_bytes, shard_to_bytes
 from utils.log_utils import setup_cluster_logging
 from utils.network_metrics import log_metrics
+from utils.metrics import init_worker_metrics, WorkerMetrics
 
-try:
-    from prometheus_client import Counter, Histogram, start_http_server
-    _PROM_AVAILABLE = True
-except ImportError:
-    _PROM_AVAILABLE = False
-
-_bytes_recv   = None
-_bytes_sent   = None
-_store_ops    = None
-_send_ops     = None
-_store_errors = None
-_store_duration = None
-_send_duration  = None
-
-def _init_metrics(rank: int) -> None:
-    global _bytes_recv, _bytes_sent, _store_ops, _send_ops, _store_errors, _store_duration, _send_duration
-    if not _PROM_AVAILABLE:
-        return
-    labels = {"rank": str(rank)}
-    _bytes_recv     = Counter("worker_bytes_recv_total",    "Bytes received (store_shard)", ["rank"])
-    _bytes_sent     = Counter("worker_bytes_sent_total",    "Bytes sent (send_shard)",      ["rank"])
-    _store_ops      = Counter("worker_store_ops_total",     "Completed store_shard ops",    ["rank"])
-    _send_ops       = Counter("worker_send_ops_total",      "Completed send_shard ops",     ["rank"])
-    _store_errors   = Counter("worker_store_errors_total",  "Failed store_shard ops",       ["rank"])
-    _store_duration = Histogram("worker_store_duration_seconds", "store_shard duration",    ["rank"],
-                                buckets=[1, 5, 10, 30, 60, 120, 300])
-    _send_duration  = Histogram("worker_send_duration_seconds",  "send_shard duration",     ["rank"],
-                                buckets=[1, 5, 10, 30, 60, 120, 300])
+_metrics: WorkerMetrics | None = None
 
 # Setup logging (will be replaced by setup_cluster_logging in run_syncps_server)
 logging.basicConfig(
@@ -163,10 +137,10 @@ def _handle_shard_client(
             shard_bytes = shard_to_bytes(load_tensors(shard_path))
             send_message(conn, shard_bytes)
             elapsed = time.perf_counter() - t0
-            if _PROM_AVAILABLE and _bytes_sent:
-                _bytes_sent.labels(rank=str(rank)).inc(len(shard_bytes))
-                _send_ops.labels(rank=str(rank)).inc()
-                _send_duration.labels(rank=str(rank)).observe(elapsed)
+            if _metrics:
+                _metrics.bytes_sent.labels(rank=str(rank)).inc(len(shard_bytes))
+                _metrics.send_ops.labels(rank=str(rank)).inc()
+                _metrics.send_duration.labels(rank=str(rank)).observe(elapsed)
             log_metrics(_network_metrics.get_metrics(), logger, "serve-shard-to-api")
             logger.info(f"Served shard to {caller}")
 
@@ -179,12 +153,12 @@ def _handle_shard_client(
             if received_checksum is not None:
                 if compute_checksum(shard_bytes) != received_checksum:
                     logger.error(f"Checksum mismatch for rank {rank} from {caller}")
-                    if _PROM_AVAILABLE and _store_errors:
-                        _store_errors.labels(rank=str(rank)).inc()
+                    if _metrics:
+                        _metrics.store_errors.labels(rank=str(rank)).inc()
                     send_message(conn, ("store_shard_failed", rank, "checksum mismatch"))
                     return
-            if _PROM_AVAILABLE and _bytes_recv:
-                _bytes_recv.labels(rank=str(rank)).inc(len(shard_bytes))
+            if _metrics:
+                _metrics.bytes_recv.labels(rank=str(rank)).inc(len(shard_bytes))
             shard = shard_from_bytes(shard_bytes)
             shard_dir = SHARDS_ROOT / f"worker_{rank}" / rel_path
             shard_dir.mkdir(parents=True, exist_ok=True)
@@ -196,16 +170,16 @@ def _handle_shard_client(
                 elapsed = time.perf_counter() - t0
                 cksum = compute_checksum(shard_path)
                 (shard_dir / "shard.checksum").write_text(cksum)
-                if _PROM_AVAILABLE and _store_ops:
-                    _store_ops.labels(rank=str(rank)).inc()
-                    _store_duration.labels(rank=str(rank)).observe(elapsed)
+                if _metrics:
+                    _metrics.store_ops.labels(rank=str(rank)).inc()
+                    _metrics.store_duration.labels(rank=str(rank)).observe(elapsed)
                 log_metrics(_network_metrics.get_metrics(), logger, f"store-shard-rank{rank}")
                 logger.info(f"Stored shard for rank {rank} from {caller} → {shard_path}")
                 send_message(conn, ("store_shard_done", rank, str(shard_path)))
             except Exception as e:
                 logger.error(f"Failed to save shard for rank {rank}: {e}")
-                if _PROM_AVAILABLE and _store_errors:
-                    _store_errors.labels(rank=str(rank)).inc()
+                if _metrics:
+                    _metrics.store_errors.labels(rank=str(rank)).inc()
                 send_message(conn, ("store_shard_failed", rank, str(e)))
 
         else:
@@ -267,13 +241,8 @@ def run_worker(worker_rank: int, hostname: str) -> None:
     )
     my_port = my_config["port"]
 
-    _init_metrics(worker_rank)
-    metrics_port = 9200 + worker_rank
-    if _PROM_AVAILABLE:
-        start_http_server(metrics_port)
-        logger.info(f"Prometheus metrics on port {metrics_port}")
-    else:
-        logger.warning("prometheus_client not installed — metrics disabled")
+    global _metrics
+    _metrics = init_worker_metrics(worker_rank)
 
     threading.Thread(
         target=_shard_listener,

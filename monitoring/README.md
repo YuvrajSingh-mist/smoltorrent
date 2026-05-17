@@ -209,7 +209,51 @@ Exposed by `algorithms/SyncPS/worker.py` via `prometheus_client`. Each Pi expose
 
 ### System metrics (`http://<node>:9100/metrics`)
 
-Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Installed as a systemd service on each Pi; started at boot via `smoltorrent_startup.sh` on the Server.
+Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Powers the CPU, disk, memory, temperature, and boot-time panels in all dashboards.
+
+`launch.sh` installs and registers `node_exporter` automatically on first run. If you need to set it up manually:
+
+**Server (macOS — run once in your terminal):**
+
+```bash
+brew install node_exporter
+
+# Register as a system LaunchDaemon (survives reboots — brew services is broken on macOS 26 Tahoe)
+sudo tee /Library/LaunchDaemons/com.node-exporter.plist > /dev/null <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.node-exporter</string>
+    <key>ProgramArguments</key>
+    <array><string>/opt/homebrew/bin/node_exporter</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/tmp/node-exporter.log</string>
+    <key>StandardErrorPath</key><string>/tmp/node-exporter.log</string>
+</dict>
+</plist>
+EOF
+sudo chmod 644 /Library/LaunchDaemons/com.node-exporter.plist
+sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.node-exporter.plist
+sudo launchctl enable system/com.node-exporter
+```
+
+Verify: `curl http://localhost:9100/metrics | grep node_boot_time_seconds`
+
+**Pis (Linux/Raspberry Pi OS — handled automatically by `launch.sh`):**
+
+```bash
+sudo apt update && sudo apt install -y prometheus-node-exporter
+sudo systemctl enable --now prometheus-node-exporter
+```
+
+All 4 Pis use systemd — the service starts at boot automatically. Verify on a Pi:
+
+```bash
+systemctl is-active node_exporter   # → active
+```
 
 ---
 
@@ -220,8 +264,8 @@ Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Installed as a syste
 | Alert | Fires when | For |
 |---|---|---|
 | **API Down** | Prometheus can't scrape `:8000` | 2 min |
-| **Pi Worker Down** | any worker metrics endpoint unreachable | 2 min |
-| **Server Down** | server node_exporter unreachable | 2 min |
+| **Pi Worker Down** | any Pi node_exporter unreachable (Pi machine down) | 2 min |
+| **Server Node Exporter Down** | server node_exporter process crashed (system stats missing) | 2 min |
 | **Worker Transfer Errors** | any rank accumulates transfer errors | 2 min |
 | **Transfer p95 Too Slow** | send p95 > 2 min | 3 min |
 | **Transfer Latency High** | avg send latency > 5 s | 3 min |

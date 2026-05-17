@@ -13,7 +13,7 @@ groups:
         title: API Down
         condition: A
         for: 2m
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Error
         data:
           - refId: A
@@ -36,20 +36,20 @@ groups:
         title: Pi Worker Down
         condition: A
         for: 2m
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Error
         data:
           - refId: A
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: up{job="worker-metrics"} == 0
+              expr: up{job="node", node=~"pi4-.*"} == 0
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
         annotations:
-          summary: "Pi worker {{ $labels.node }} is unreachable"
-          description: "Prometheus cannot scrape the worker metrics endpoint on {{ $labels.node }} (rank {{ $labels.rank }}). Worker process may have crashed."
+          summary: "Pi {{ $labels.node }} is unreachable"
+          description: "Prometheus cannot scrape node_exporter on {{ $labels.node }}. The Pi machine may be offline or node_exporter crashed."
         labels:
           severity: critical
 
@@ -77,10 +77,10 @@ groups:
       # ── Server ─────────────────────────────────────────────────────────────
 
       - uid: server-down
-        title: Server Down
+        title: Server Node Exporter Down
         condition: A
         for: 2m
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Error
         data:
           - refId: A
@@ -92,10 +92,10 @@ groups:
               maxDataPoints: 43200
               instant: true
         annotations:
-          summary: "Server node_exporter is unreachable"
-          description: "Prometheus cannot scrape node_exporter on the master server. Machine may be offline or node_exporter crashed."
+          summary: "Server node_exporter process is down"
+          description: "Prometheus cannot scrape node_exporter on the master server. The node_exporter process may have crashed — system stats (CPU, disk, memory) will be missing."
         labels:
-          severity: critical
+          severity: warning
 
       - uid: server-cpu-high
         title: Server CPU High

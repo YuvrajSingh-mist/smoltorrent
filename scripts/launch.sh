@@ -132,6 +132,56 @@ PLIST
     ok "LaunchDaemon registered — smoltorrent will auto-start on next boot."
     info "Verify:  sudo launchctl print system/${PLIST_LABEL}"
     info "Logs:    tail -f /tmp/smoltorrent-startup.log"
+
+    # ── node_exporter LaunchDaemon ────────────────────────────────────────────
+    # brew services is broken on macOS 26 Tahoe (launchctl enable gui/ → error 125).
+    # Register node_exporter as a system daemon the same way as smoltorrent itself.
+    NODE_EXP_PLIST="/Library/LaunchDaemons/com.node-exporter.plist"
+    NODE_EXP_LABEL="com.node-exporter"
+
+    if ! command -v node_exporter >/dev/null 2>&1; then
+        if ! command -v brew >/dev/null 2>&1; then
+            err "Homebrew required to install node_exporter — skipping"
+        else
+            info "Installing node_exporter via Homebrew..."
+            brew install node_exporter
+        fi
+    fi
+
+    if command -v node_exporter >/dev/null 2>&1; then
+        NODE_EXP_BIN="$(command -v node_exporter)"
+        info "Registering node_exporter LaunchDaemon → $NODE_EXP_PLIST"
+        sudo tee "$NODE_EXP_PLIST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${NODE_EXP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${NODE_EXP_BIN}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/node-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/node-exporter.log</string>
+</dict>
+</plist>
+PLIST
+        sudo chmod 644 "$NODE_EXP_PLIST"
+        sudo launchctl bootout system/"$NODE_EXP_LABEL" 2>/dev/null || true
+        sudo launchctl bootstrap system "$NODE_EXP_PLIST"
+        sudo launchctl enable system/"$NODE_EXP_LABEL"
+        ok "node_exporter LaunchDaemon registered — metrics on port 9100 survive reboots."
+        info "Verify:  curl http://localhost:9100/metrics | grep node_boot_time_seconds"
+        info "Logs:    tail -f /tmp/node-exporter.log"
+    fi
+
     exit 0
 fi
 
@@ -188,20 +238,45 @@ install_uv_local() {
 ensure_local_dependencies() {
     export PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+    local os
+    os="$(uname -s)"
+
     if ! command -v tmux >/dev/null 2>&1; then
         warn "Local host is missing tmux. Installing..."
-        if [[ "$(uname -s)" == "Darwin" ]]; then
+        if [[ "$os" == "Darwin" ]]; then
             if ! command -v brew >/dev/null 2>&1; then
                 err "Error: Homebrew is required to install tmux on local macOS host"
                 return 1
             fi
             brew install tmux
-        elif [[ "$(uname -s)" == "Linux" ]]; then
+        elif [[ "$os" == "Linux" ]]; then
             sudo apt update && sudo apt install -y tmux curl ca-certificates
         else
-            err "Error: unsupported local OS for automatic tmux install: $(uname -s)"
+            err "Error: unsupported local OS for automatic tmux install: $os"
             return 1
         fi
+    fi
+
+    # node_exporter — install binary if missing (LaunchDaemon registration handled by --daemons)
+    if ! command -v node_exporter >/dev/null 2>&1; then
+        warn "node_exporter not found. Installing..."
+        if [[ "$os" == "Darwin" ]]; then
+            if ! command -v brew >/dev/null 2>&1; then
+                err "Error: Homebrew is required to install node_exporter on local macOS host"
+                return 1
+            fi
+            brew install node_exporter
+            warn "Run 'bash scripts/launch.sh --daemons' to register node_exporter for auto-start on boot."
+        elif [[ "$os" == "Linux" ]]; then
+            sudo apt update && sudo apt install -y prometheus-node-exporter
+            sudo systemctl enable --now prometheus-node-exporter
+            ok "node_exporter installed and enabled via systemd (port 9100)"
+        else
+            err "Error: unsupported local OS for automatic node_exporter install: $os"
+            return 1
+        fi
+    else
+        ok "node_exporter already installed"
     fi
 
     install_uv_local
@@ -232,9 +307,11 @@ install_uv() {
     command -v uv >/dev/null 2>&1
 }
 
+_os="$(uname -s)"
+
 if ! command -v tmux >/dev/null 2>&1; then
     echo "Installing tmux on $(hostname)..."
-    case "$(uname -s)" in
+    case "$_os" in
         Darwin)
             if ! command -v brew >/dev/null 2>&1; then
                 echo "Error: Homebrew is required on remote macOS host $(hostname)"
@@ -247,10 +324,30 @@ if ! command -v tmux >/dev/null 2>&1; then
             sudo apt install -y tmux curl ca-certificates
             ;;
         *)
-            echo "Error: unsupported remote OS for automatic tmux install: $(uname -s)"
+            echo "Error: unsupported remote OS for automatic tmux install: $_os"
             exit 1
             ;;
     esac
+fi
+
+# node_exporter — needed for CPU/disk/memory panels in Grafana
+if ! command -v node_exporter >/dev/null 2>&1 && ! systemctl is-active --quiet prometheus-node-exporter 2>/dev/null; then
+    echo "node_exporter not found on $(hostname). Installing..."
+    case "$_os" in
+        Darwin)
+            brew install prometheus-node-exporter && brew services start prometheus-node-exporter
+            ;;
+        Linux)
+            sudo apt update && sudo apt install -y prometheus-node-exporter
+            sudo systemctl enable --now prometheus-node-exporter
+            ;;
+        *)
+            echo "Warning: cannot auto-install node_exporter on $(hostname) — unsupported OS: $_os"
+            ;;
+    esac
+    echo "node_exporter installed and started on $(hostname) (port 9100)"
+else
+    echo "node_exporter already present on $(hostname)"
 fi
 
 if ! install_uv; then

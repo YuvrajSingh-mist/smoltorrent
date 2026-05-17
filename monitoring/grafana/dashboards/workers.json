@@ -38,7 +38,7 @@
       },
       "targets": [
         {
-          "expr": "node_boot_time_seconds{job=\"node\",node=~\"pi4-.*\"}",
+          "expr": "(node_boot_time_seconds{job=\"node\",node=~\"pi4-.*\"}) * 1000",
           "legendFormat": "{{node}}"
         }
       ],
@@ -50,7 +50,8 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "orientation": "horizontal"
+        "orientation": "horizontal",
+        "noValue": "N/A"
       },
       "fieldConfig": {
         "defaults": {

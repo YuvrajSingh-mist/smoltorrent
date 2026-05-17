@@ -1,6 +1,6 @@
 # smoltorrent
 
-Distributed ML checkpoint sharding across a Raspberry Pi cluster, coordinated from a macOS master. Shards `.safetensors` checkpoints across workers over Tailscale, reassembles them on demand, and auto-syncs new checkpoints as they appear.
+Distributed ML checkpoint sharding across a Raspberry Pi cluster, coordinated from a macOS master. Shards `.safetensors` checkpoints across workers over TCP, reassembles them on demand, and auto-syncs new checkpoints as they appear.
 
 ```
 Master (Server)
@@ -8,6 +8,17 @@ Master (Server)
   ├── Watcher daemon   watcher/watch.py         ← auto-syncs new checkpoints
   └── Workers × 4      algorithms/SyncPS/worker.py  ← TCP listener on each Pi
 ```
+
+---
+
+## Tested on
+
+| Node | Hardware | OS | Python | RAM | Storage |
+|---|---|---|---|---|---|
+| Server (master) | Apple Mac mini M4 | macOS 26.2 Tahoe (arm64) | 3.13 | 16 GB | — |
+| pi4-1 … pi4-4 | Raspberry Pi 4 Model B Rev 1.5 | Debian GNU/Linux 13 Trixie (aarch64, kernel 6.12) | 3.13.5 | 4 GB | 64 GB SD card |
+
+Network: ~100 Mbps Ethernet between nodes (tested over Tailscale VPN).
 
 ---
 
@@ -31,38 +42,58 @@ Files detected while still being written go to a **pending list**. A dedicated p
 
 ## Cluster topology
 
+All topology is defined in `configs/config.yaml` — no hostnames or IPs are hardcoded in the code.
+
 | Node | Host | IP | Port | Rank |
 |---|---|---|---|---|
-| Server (master) | localhost | 100.78.120.114 | 8000 (API) | 0 |
-| pi4-1 | pi4-1 | 100.68.124.90 | 5001 | 1 |
-| pi4-2 | pi4-2 | 100.79.150.107 | 5002 | 2 |
-| pi4-3 | pi4-3 | 100.105.164.35 | 5003 | 3 |
-| pi4-4 | pi4-4 | 100.77.162.23 | 8004 | 4 |
+| Server (master) | `localhost` | your server IP | 8000 (API) | 0 |
+| Worker 1 | `<hostname>` | `<ip>` | 5001 | 1 |
+| Worker 2 | `<hostname>` | `<ip>` | 5002 | 2 |
+| … | … | … | … | … |
+| Worker N | `<hostname>` | `<ip>` | 500N | N |
 
-Network: Tailscale VPN over 100 Mbps Ethernet. ~2 min per 942 MB checkpoint per worker (parallel across all 4).
-
----
-
-## Requirements
-
-| Dependency | Where |
-|---|---|
-| Python ≥ 3.13 | All nodes |
-| [uv](https://github.com/astral-sh/uv) | All nodes (auto-installed by launcher) |
-| tmux ≥ 3.0 | All nodes (auto-installed by launcher) |
-| [yq](https://github.com/mikefarah/yq) | Master only |
-| SSH key-based auth | Master → all workers (`~/.ssh/smolcluster_key`) |
-| Tailscale | All nodes |
-
-Platform split:
-- **Master (macOS)** — MLX for tensor ops; converts to torch before sending over wire
-- **Workers (Raspberry Pi / Linux)** — `torch` + `safetensors.torch`; MLX never imported
+Network: nodes must be mutually reachable over TCP — local LAN, VPN, or any other network works. ~2 min per 942 MB checkpoint per worker (parallel across all N).
 
 ---
 
-## Quick start
+## Setup (from scratch)
 
-### 1. Clone and install
+### 1. Prerequisites — Server (macOS)
+
+```bash
+# Homebrew (if not installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Required tools
+brew install yq          # YAML parser used by launch.sh
+brew install uv          # Python package manager (also auto-installed on all nodes by launch.sh)
+
+
+```
+
+### 2. Prerequisites — each Pi
+
+Follow the [Raspberry Pi cluster setup guide](https://www.smolhub.com/posts/raspberry-pi-cluster-setup-guide) to get your Pis networked and SSH-accessible, then run on each Pi:
+
+```bash
+
+
+# Python 3.13
+sudo apt update && sudo apt install -y python3.13 python3.13-venv curl git
+```
+
+> `uv`, `tmux`, and `node_exporter` are installed automatically by `launch.sh` on first run — no need to install them manually on the Pis.
+
+
+> **Important:** the `Host` alias in `~/.ssh/config` must exactly match the `host` field in `configs/config.yaml`. `launch.sh` uses those values directly as SSH targets — if they don't match, SSH will fail. If you followed the [cluster setup guide](https://www.smolhub.com/posts/raspberry-pi-cluster-setup-guide), use the same aliases the guide tells you to set up and mirror them in `config.yaml`.
+
+Verify:
+
+```bash
+ssh pi4-1   # or whatever alias you chose
+```
+
+### 4. Clone and configure
 
 ```bash
 git clone https://github.com/YuvrajSingh-mist/smoltorrent
@@ -70,25 +101,93 @@ cd smoltorrent
 uv sync
 ```
 
-### 2. Configure
+Edit `configs/config.yaml` — set `ckpt_root` and each worker's `host`, `ip`, `port`, and `rank`. **The `host` value must match your `~/.ssh/config` alias exactly.**
 
-Edit `configs/config.yaml` — set `ckpt_root` and worker IPs/ports to match your cluster.
-
-### 3. SSH access
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/smolcluster_key
-ssh-copy-id -i ~/.ssh/smolcluster_key.pub lab-pi4-1@pi4-1
-# repeat for each worker
+```yaml
+devices_config:
+  master:
+    - host: localhost
+      ip: <your-server-ip>
+      rank: 0
+      port: 5000
+  workers:
+    - host: pi4-1          # must match Host alias in ~/.ssh/config
+      ip: <ip>
+      rank: 1
+      port: 5001
+    - host: pi4-2
+      ip: <ip>
+      rank: 2
+      port: 5002
+    # ... one entry per worker
 ```
 
-### 4. Launch
+### 5. Launch the cluster
 
 ```bash
 bash scripts/launch.sh
 ```
 
-This rsyncs the codebase to every Pi, installs dependencies, kills stale tmux sessions, then starts the API, watcher, and all 4 workers.
+This rsyncs the codebase to every Pi, installs `uv` + `tmux` + `node_exporter` on each node, then starts the API, watcher, and all 4 workers in tmux sessions.
+
+### 6. Pi worker auto-start (optional but recommended)
+
+So workers restart automatically if a Pi reboots independently:
+
+```bash
+bash scripts/install_worker_service.sh
+```
+
+### 7. Auto-start on server boot (optional but recommended)
+
+So the entire cluster comes up after a server reboot — no manual intervention:
+
+```bash
+bash scripts/launch.sh --daemons
+```
+
+This registers two system LaunchDaemons that survive reboots:
+- `com.smoltorrent.startup` — waits for network, then runs `launch.sh`
+- `com.node-exporter` — keeps `node_exporter` running for Grafana system stats
+
+### 8. Monitoring (optional)
+
+Prometheus + Grafana + Loki in Docker:
+
+```bash
+# Install Docker via colima (macOS)
+brew install colima docker docker-compose
+colima start
+
+# Copy and fill in credentials
+cp monitoring/.env.example monitoring/.env
+# edit monitoring/.env — set Gmail app password for alert emails
+
+# Start the stack
+cd monitoring && docker-compose up -d
+# Grafana → http://localhost:3000  (admin / smoltorrent)
+```
+
+See [monitoring/README.md](monitoring/README.md) for full setup, alert configuration, and dashboard guide.
+
+---
+
+## Requirements summary
+
+| Dependency | Where | How |
+|---|---|---|
+| Python ≥ 3.13 | All nodes | Manual on Pis; already on macOS |
+| uv | All nodes | Auto-installed by `launch.sh` |
+| tmux ≥ 3.0 | All nodes | Auto-installed by `launch.sh` |
+| yq | Server only | `brew install yq` |
+| node_exporter | All nodes | Auto-installed by `launch.sh` |
+| Network (LAN/VPN) | All nodes | Nodes must reach each other over TCP |
+| SSH key auth | Server → Pis | `ssh-copy-id` (see step 3) |
+| Docker + colima | Server only | For monitoring only |
+
+Platform split:
+- **Server (macOS)** — MLX for tensor ops; converts to torch before sending over wire
+- **Workers (Raspberry Pi OS / Linux)** — `torch` + `safetensors.torch`; MLX never imported
 
 ---
 
@@ -117,7 +216,7 @@ tmux attach -t syncps_api
 tmux attach -t syncps_watcher
 
 # Worker (SSH first)
-ssh pi4-1
+ssh <worker-hostname>
 tmux attach -t syncps_worker_1
 
 # All logs
@@ -139,36 +238,16 @@ tail -f logging/cluster-logs/*.log
 
 ---
 
-## Auto-start on macOS
-
-macOS has three ways to run background scripts automatically:
-
-| Mechanism | Where | Runs as | When |
-|---|---|---|---|
-| **LaunchDaemon** | `/Library/LaunchDaemons/` | root | at boot, before login |
-| **LaunchAgent** | `~/Library/LaunchAgents/` | user | on login |
-| **Login Item (.app)** | System Settings | user | on login |
-
-### macOS 26 Tahoe — what's broken and what works
-
-Tahoe broke the traditional auto-start APIs:
-
-| What you try | What happens |
-|---|---|
-| `launchctl load com.smoltorrent.startup.plist` | SIGABRT exit 134 — API removed |
-| `launchctl bootstrap gui/<UID> ...plist` | error 125 — GUI domain broken in beta |
-| `~/Library/LaunchAgents/` plist | Silently ignored — needs SMAppService from Swift |
-| **`/Library/LaunchDaemons/` + `sudo launchctl enable` + `sudo launchctl bootstrap system`** | **Works** |
-
-**TCC caveat**: macOS blocks system daemons (running as root) from accessing `~/Desktop`, `~/Documents`, and `~/Downloads`. Keep code and checkpoint data outside those directories — that's why everything lives under `~/smoltorrent/` and `~/smolcluster/`.
-
 ### Boot flow
 
 ```
 boot
+ ├── /Library/LaunchDaemons/com.node-exporter.plist         (registered by --daemons)
+ │     └── node_exporter :9100  (always running — Grafana system stats)
+ │
  └── /Library/LaunchDaemons/com.smoltorrent.startup.plist   (registered by --daemons)
        └── /usr/local/bin/smoltorrent_startup.sh
-             → pings pi4-1 every 5s until Tailscale is up (5 min timeout)
+             → pings first worker every 5s until network is up (5 min timeout)
              → bash ~/smoltorrent/scripts/launch.sh
                    → rsync code to all Pis
                    → uv sync on all nodes
@@ -181,15 +260,12 @@ boot
 bash scripts/launch.sh --daemons
 ```
 
-This copies `smoltorrent_startup.sh` to `/usr/local/bin/` (outside TCC-blocked paths), writes the plist below to `/Library/LaunchDaemons/`, then registers it:
+This does **two things** in one go:
 
-```bash
-sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
-sudo launchctl enable system/com.smoltorrent.startup
-```
+1. Registers the smoltorrent startup LaunchDaemon (copies `smoltorrent_startup.sh` to `/usr/local/bin/`, writes plist to `/Library/LaunchDaemons/com.smoltorrent.startup.plist`)
+2. Installs `node_exporter` via Homebrew (if not already installed) and registers it as a separate system LaunchDaemon (`/Library/LaunchDaemons/com.node-exporter.plist`) so Grafana system-stats panels (CPU, disk, memory, boot time) survive reboots
 
-The plist it writes:
+**`/Library/LaunchDaemons/com.smoltorrent.startup.plist`** — runs once at boot, launches the cluster:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -199,7 +275,7 @@ The plist it writes:
     <key>Label</key>
     <string>com.smoltorrent.startup</string>
     <key>UserName</key>
-    <string>yuvrajsingh1</string>
+    <string>YOUR_USERNAME</string>  <!-- filled in automatically by launch.sh -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
@@ -218,37 +294,76 @@ The plist it writes:
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
-        <string>/Users/yuvrajsingh1</string>
+        <string>/Users/YOUR_USERNAME</string>  <!-- filled in automatically by launch.sh -->
     </dict>
 </dict>
 </plist>
 ```
 
-`UserName` makes it run as your user not root. `EnvironmentVariables` ensures Homebrew and uv are on PATH — without it the startup script can't find them.
+`UserName` runs it as your user not root. `EnvironmentVariables` puts Homebrew and uv on PATH — without it the script can't find them.
 
-### Verify it's registered
+**`/Library/LaunchDaemons/com.node-exporter.plist`** — keeps node_exporter alive permanently for Grafana system stats:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.node-exporter</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node_exporter</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/node-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/node-exporter.log</string>
+</dict>
+</plist>
+```
+
+`KeepAlive true` means launchd restarts it automatically if it crashes. Metrics available at `http://localhost:9100/metrics`.
+
+### Verify both are registered
 
 ```bash
 sudo launchctl print system/com.smoltorrent.startup
+sudo launchctl print system/com.node-exporter
+
+# Quick health check
+curl -s http://localhost:9100/metrics | grep node_boot_time_seconds
 ```
 
 ### Remove / uninstall
 
 ```bash
+# smoltorrent startup
 sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
 sudo rm -f /Library/LaunchDaemons/com.smoltorrent.startup.plist
 sudo rm -f /usr/local/bin/smoltorrent_startup.sh
 
-# Verify it's gone
-sudo launchctl print system/com.smoltorrent.startup 2>&1
+# node_exporter
+sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/com.node-exporter.plist
 ```
 
 ### If bootstrap fails with "Bootstrap failed: 5"
 
 ```bash
+# smoltorrent
 sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
 sudo launchctl enable system/com.smoltorrent.startup
+
+# node_exporter
+sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.node-exporter.plist
+sudo launchctl enable system/com.node-exporter
 ```
 
 ### Check if it ran successfully
@@ -260,13 +375,13 @@ cat /tmp/smoltorrent-startup.log
 A successful run looks like:
 
 ```
-[Sat May 16 05:37:31 IST 2026] smoltorrent_startup: waiting for Tailscale (100.68.124.90)...
+[Sat May 16 05:37:31 IST 2026] smoltorrent_startup: waiting for network (<worker-ip>)...
 [Sat May 16 05:37:31 IST 2026] smoltorrent_startup: network ready — launching cluster...
-Project: /Users/yuvrajsingh1/smoltorrent
+Project: /Users/<your-username>/smoltorrent
 ...
 Launched syncps_api on local host localhost
 Launched syncps_watcher on local host localhost
-Launched syncps_worker_1 on remote host pi4-1
+Launched syncps_worker_1 on remote host <worker-1-hostname>
 ...
 Launch complete.
 ```
@@ -291,60 +406,36 @@ docker compose up -d
 # Grafana → http://localhost:3000  (admin / smoltorrent)
 ```
 
-Three dashboards inside the SmolTorrent folder:
+Four dashboard sections — smoltorrent transfer metrics, Server system stats, Pi worker system stats + per-Pi smoltorrent metrics, and API server stats — plus a unified log stream from all nodes.
 
-| Dashboard | What it shows |
-|---|---|
-| **Server** | Transfer metrics + server system stats (CPU, memory, disk, I/O) + cluster logs |
-| **Workers** | Per-Pi system stats (CPU, memory, disk, temp, SD I/O) + Pi smoltorrent metrics (bandwidth, duration percentiles p50/p90/p95/p99, ops, errors) |
-| **API** | API status, ops counters, bandwidth, transfer duration percentiles, latency, errors, process stats |
-
-Metric sources:
-- **Server metrics** — `http://localhost:8000/metrics` (FastAPI + `prometheus_client`)
-- **Pi worker metrics** — `http://<pi>:920{rank}/metrics` (per-worker `prometheus_client` in `worker.py`)
+- **Master metrics** — `http://localhost:8000/metrics` (FastAPI + `prometheus_client`)
+- **Pi worker metrics** — `http://<pi>:920{rank}/metrics` (per-worker `prometheus_client` server in `worker.py`)
 - **System metrics** — `http://<node>:9100/metrics` (node_exporter on all 5 nodes)
 - **Logs** — Promtail → Loki on Server (Docker) and all Pis (systemd)
 
-12 alert rules fire to Gmail on: API down, any worker down, server down, transfer errors, high latency, low bandwidth during active transfer, high CPU (server + Pis), high Pi temperature, low disk (server + Pis).
-
-See [monitoring/README.md](monitoring/README.md) for full setup, metrics reference, and dashboard guide.
+See [monitoring/README.md](monitoring/README.md) for full setup, metrics reference, and dashboard panel guide.
 
 ---
 
-## Pi worker auto-start (systemd)
+## Pi worker systemd service
 
-The master auto-starts via LaunchDaemon (above), which SSHes into each Pi to launch `worker.py`. But if a Pi reboots independently later, its worker process is dead until you re-run `launch.sh`. To fix that, install a systemd service on every Pi:
-
-```bash
-# Install on all 4 workers (run from master)
-bash scripts/install_worker_service.sh
-
-# Specific ranks only
-bash scripts/install_worker_service.sh --workers 1,3
-
-# Custom SSH key
-bash scripts/install_worker_service.sh --ssh-key ~/.ssh/my_key
-```
-
-This installs `/etc/systemd/system/smoltorrent-worker@.service` on each Pi, enables `smoltorrent-worker@<rank>`, and starts it immediately. On reboot the Pi brings up its worker automatically without waiting for the master.
-
-**Useful commands (run from master):**
+`install_worker_service.sh` installs `/etc/systemd/system/smoltorrent-worker@.service` on each Pi, enables `smoltorrent-worker@<rank>`, and starts it. On Pi reboot the worker comes up automatically without waiting for the server.
 
 ```bash
-# Status
-ssh -i ~/.ssh/smolcluster_key pi4-1 'systemctl status smoltorrent-worker@1'
-
-# Live logs
-ssh -i ~/.ssh/smolcluster_key pi4-1 'journalctl -u smoltorrent-worker@1 -f'
-
-# Restart a worker manually
-ssh -i ~/.ssh/smolcluster_key pi4-2 'sudo systemctl restart smoltorrent-worker@2'
-
-# Uninstall from all workers
-bash scripts/install_worker_service.sh --uninstall
+bash scripts/install_worker_service.sh            # all 4 workers
+bash scripts/install_worker_service.sh --workers 1,3   # specific ranks
+bash scripts/install_worker_service.sh --uninstall     # remove from all
 ```
 
-> **Note:** `launch.sh` still kills and re-launches workers via tmux when you run it. The systemd service and the tmux session are independent — if tmux is running the worker, systemd's process will fail to bind the port and restart after 5 s. Run `install_worker_service.sh` when you want systemd as the primary keeper; use `launch.sh` alone when you want manual tmux control.
+**Useful commands:**
+
+```bash
+ssh <worker-1-hostname> 'systemctl status smoltorrent-worker@1'
+ssh <worker-1-hostname> 'journalctl -u smoltorrent-worker@1 -f'
+ssh <worker-2-hostname> 'sudo systemctl restart smoltorrent-worker@2'
+```
+
+> `launch.sh` kills and re-launches workers via tmux on every run regardless — systemd and tmux are independent. If both are running, systemd's process will fail to bind the port and retry after 5 s.
 
 ---
 
@@ -397,7 +488,7 @@ smoltorrent/
 │   └── network_metrics.py   # Send/recv bandwidth and latency tracking
 ├── scripts/
 │   ├── launch.sh                  # Cluster orchestrator (rsync → deps → tmux)
-│   ├── smoltorrent_startup.sh     # Boot wrapper: wait for Tailscale → launch.sh
+│   ├── smoltorrent_startup.sh     # Boot wrapper: wait for network → launch.sh
 │   └── install_worker_service.sh  # Install systemd service on Pi workers for auto-restart
 ├── test/
 │   ├── test_shard_serialization.py       # Unit: shard_to_bytes, checksum, merge (no cluster needed)
@@ -420,7 +511,7 @@ smoltorrent/
 | `ckpt_root` | Root directory the watcher monitors and gather saves into |
 | `num_workers` | Number of Pi workers |
 | `devices_config.master` | Master host, IP, rank (always 0), port |
-| `devices_config.workers` | Per-worker: host, IP, rank (1…N), port |
+| `devices_config.workers` | Per-worker: host, IP, rank (1…N), port — **`host` must match the `Host` alias in `~/.ssh/config`** |
 | `n_chunks` | Shards per checkpoint (should equal `num_workers`) |
 
 ---
