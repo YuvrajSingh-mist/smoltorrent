@@ -45,6 +45,7 @@ services:
       - GF_SMTP_FROM_ADDRESS=${GRAFANA_SMTP_FROM}
       - GF_SMTP_FROM_NAME=SmolTorrent Grafana
       - GF_SMTP_STARTTLS_POLICY=MandatoryStartTLS
+      - GRAFANA_ALERT_EMAIL=${GRAFANA_ALERT_EMAIL}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

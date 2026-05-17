@@ -7,5 +7,5 @@ contactPoints:
       - uid: gmail-receiver
         type: email
         settings:
-          addresses: rajceo2031@gmail.com
+          addresses: ${GRAFANA_ALERT_EMAIL}
           singleEmail: false

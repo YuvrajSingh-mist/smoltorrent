@@ -11,3 +11,6 @@ logging/
 
 # Virtual environments
 .venv
+
+# Secrets
+monitoring/.env

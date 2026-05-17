@@ -291,14 +291,23 @@ docker compose up -d
 # Grafana → http://localhost:3000  (admin / smoltorrent)
 ```
 
-Four dashboard sections — smoltorrent transfer metrics, Server system stats, Pi worker system stats + per-Pi smoltorrent metrics, and API server stats — plus a unified log stream from all nodes.
+Three dashboards inside the SmolTorrent folder:
 
-- **Master metrics** — `http://localhost:8000/metrics` (FastAPI + `prometheus_client`)
-- **Pi worker metrics** — `http://<pi>:920{rank}/metrics` (per-worker `prometheus_client` server in `worker.py`)
+| Dashboard | What it shows |
+|---|---|
+| **Server** | Transfer metrics + server system stats (CPU, memory, disk, I/O) + cluster logs |
+| **Workers** | Per-Pi system stats (CPU, memory, disk, temp, SD I/O) + Pi smoltorrent metrics (bandwidth, duration percentiles p50/p90/p95/p99, ops, errors) |
+| **API** | API status, ops counters, bandwidth, transfer duration percentiles, latency, errors, process stats |
+
+Metric sources:
+- **Server metrics** — `http://localhost:8000/metrics` (FastAPI + `prometheus_client`)
+- **Pi worker metrics** — `http://<pi>:920{rank}/metrics` (per-worker `prometheus_client` in `worker.py`)
 - **System metrics** — `http://<node>:9100/metrics` (node_exporter on all 5 nodes)
 - **Logs** — Promtail → Loki on Server (Docker) and all Pis (systemd)
 
-See [monitoring/README.md](monitoring/README.md) for full setup, metrics reference, and dashboard panel guide.
+12 alert rules fire to Gmail on: API down, any worker down, server down, transfer errors, high latency, low bandwidth during active transfer, high CPU (server + Pis), high Pi temperature, low disk (server + Pis).
+
+See [monitoring/README.md](monitoring/README.md) for full setup, metrics reference, and dashboard guide.
 
 ---
 

@@ -15,7 +15,14 @@ bash scripts/launch_monitoring.sh --down
 ```
 
 Grafana: http://127.0.0.1:3000 — `admin` / `smoltorrent`
-Dashboard: http://127.0.0.1:3000/d/smoltorrent/smoltorrent
+
+Three dashboards inside the **SmolTorrent** folder:
+
+| Dashboard | URL | What it shows |
+|---|---|---|
+| **Server** | `/d/smoltorrent/server` | Transfer metrics + server system stats + cluster logs |
+| **Workers** | `/d/smoltorrent-workers/workers` | Per-Pi system stats + Pi smoltorrent metrics |
+| **API** | `/d/smoltorrent-api/api` | API status, ops, bandwidth, latency, errors, process stats |
 
 Data is persisted in Docker volumes (`prometheus-data`, `loki-data`, `grafana-data`) — dashboards and history survive restarts.
 
@@ -113,32 +120,28 @@ The **Cluster Logs** panel on the dashboard already runs `{job="smoltorrent"}`.
 
 ---
 
-## What's in the dashboard
+## What's in the dashboards
 
-### smoltorrent transfer metrics (top section)
+### Server dashboard
 
 | Panel | What to look for |
 |---|---|
 | **Bandwidth (Mbps)** | Curve that starts fast and decelerates = O(n²) memory copying bug |
-| **Transfer Duration p95** | Rising p95 = slow worker, flaky network, or SD card degrading |
+| **Transfer Duration Percentiles** | p50/p90/p95/p99 send+recv — widening gap between p50 and p99 = occasional very slow transfers |
 | **Transfer Errors by Worker** | A rank that keeps erroring = dead port or Pi rebooted without systemd |
 | **Operations** | Total store + gather completions since API started |
 | **Avg Latency (ms)** | Rolling average send/recv latency per message |
 | **Buffer Size (KB)** | Sudden spike = unusually large checkpoint being transferred |
 | **Bytes Transferred** | Cumulative bytes sent and received over TCP |
-
-### Server — System Stats
-
-| Panel | What to look for |
-|---|---|
 | **CPU Usage %** | Sustained high CPU during transfers or API calls |
-| **Memory Usage** | Active + wired vs 16 GB total |
-| **Disk Free — /** | Available space on the Server SSD |
+| **Memory Usage** | Active + wired memory vs total |
+| **Disk Free — /** | Available space on the server SSD |
 | **Disk I/O MB/s** | Read/write throughput on disk0 |
 | **System Load** | 1/5/15 min load averages |
-| **Swap / Compressed** | Non-zero = memory pressure |
+| **Swap Used** | Non-zero = memory pressure |
+| **Cluster Logs** | Unified log stream from all nodes — filter with `{job="smoltorrent", node="pi4-2"}` etc. |
 
-### Pi Workers — System Stats
+### Workers dashboard
 
 | Panel | What to look for |
 |---|---|
@@ -150,23 +153,27 @@ The **Cluster Logs** panel on the dashboard already runs `{job="smoltorrent"}`.
 | **CPU Temperature per Pi** | Yellow >70°C, red >80°C = throttling |
 | **Bytes Received per Pi** | Cumulative shard bytes written to SD card |
 | **Bytes Sent per Pi** | Cumulative shard bytes served back on gather |
-| **Store Duration p95 per Pi** | Rising = SD card degrading or Pi under load |
-| **Send Duration p95 per Pi** | Rising = network congestion or Pi overloaded |
+| **Store Duration Percentiles per Pi** | p50/p90/p95/p99 — rising tail = SD card degrading |
+| **Send Duration Percentiles per Pi** | p50/p90/p95/p99 — rising tail = network congestion or Pi overloaded |
 | **Store / Send Operations per Pi** | Op counts since worker started |
 | **Store Errors per Pi** | Checksum mismatches or disk write failures |
 
-### API Server Stats
+### API dashboard
 
 | Panel | What to look for |
 |---|---|
 | **API Status** | Green UP / Red DOWN |
-| **API Process Memory** | RSS of the FastAPI process |
-| **API CPU %** | CPU consumed by the API process |
+| **Store / Gather Operations** | Total ops since API started |
+| **Transfer Errors** | Total permanent failures across all ranks |
+| **Process Memory** | RSS of the FastAPI process |
+| **Bandwidth (Mbps)** | Send/recv bandwidth from API perspective |
+| **Transfer Duration Percentiles** | p50/p90/p95/p99 send+recv |
+| **Avg Latency (ms)** | Rolling average per-message latency |
+| **Transfer Errors by Worker** | Per-rank error rate |
+| **Bytes Transferred** | Cumulative sent + received |
+| **Buffer Size (KB)** | Avg and max TCP message buffer |
+| **API CPU %** | CPU consumed by the FastAPI process |
 | **Open File Descriptors** | Rising without bound = FD leak |
-
-### Cluster Logs
-
-Unified log stream from all nodes. Filter with `{job="smoltorrent", node="pi4-2"}` etc.
 
 ---
 
@@ -208,15 +215,24 @@ Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Installed as a syste
 
 ## Alerts (Gmail)
 
-Three alert rules are provisioned automatically and fire to `rajceo2031@gmail.com`.
+12 alert rules are provisioned automatically and fire to the address set in `GRAFANA_ALERT_EMAIL` in `monitoring/.env`.
 
-| Alert | Condition | Meaning |
+| Alert | Fires when | For |
 |---|---|---|
-| **Worker Transfer Errors** | any rank accumulates errors in a 5-min window | Pi down, port dead, or max retries hit |
-| **Transfer p95 Too Slow** | send p95 > 2 minutes for 3 consecutive minutes | Slow SD card, network congestion, Pi under memory pressure |
-| **SmolTorrent API Unreachable** | Prometheus can't scrape `:8000` for 2 minutes | FastAPI crashed or Server went to sleep mid-run |
+| **API Down** | Prometheus can't scrape `:8000` | 2 min |
+| **Pi Worker Down** | any worker metrics endpoint unreachable | 2 min |
+| **Server Down** | server node_exporter unreachable | 2 min |
+| **Worker Transfer Errors** | any rank accumulates transfer errors | 2 min |
+| **Transfer p95 Too Slow** | send p95 > 2 min | 3 min |
+| **Transfer Latency High** | avg send latency > 5 s | 3 min |
+| **Transfer Bandwidth Low** | bandwidth > 0 but < 10 Mbps (active transfer running slow) | 2 min |
+| **Server CPU High** | server CPU > 90% | 5 min |
+| **Server Disk Low** | server root < 5 GB free | 5 min |
+| **Pi CPU High** | any Pi > 90% CPU | 5 min |
+| **Pi Temperature High** | any Pi SoC temp > 80°C | 2 min |
+| **Pi Disk Low** | any Pi root < 2 GB free | 5 min |
 
-Alerts fire after their `for` window (2–3 min) to suppress single-scrape blips. Re-alerts are suppressed for 4 hours once acknowledged.
+Alerts fire after their `for` window to suppress single-scrape blips. Re-alerts are suppressed for 4 hours once acknowledged.
 
 ### One-time Gmail setup
 
@@ -233,6 +249,7 @@ Alerts fire after their `for` window (2–3 min) to suppress single-scrape blips
    GRAFANA_SMTP_USER=you@gmail.com
    GRAFANA_SMTP_PASSWORD=xxxx xxxx xxxx xxxx
    GRAFANA_SMTP_FROM=you@gmail.com
+   GRAFANA_ALERT_EMAIL=you@gmail.com
    ```
    `monitoring/.env` is gitignored — never committed.
 
