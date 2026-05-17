@@ -9,6 +9,11 @@ scrape_configs:
           - host.docker.internal:8000   # FastAPI /metrics on Server
     metrics_path: /metrics/
 
+  - job_name: smoltorrent-watcher
+    static_configs:
+      - targets:
+          - host.docker.internal:8001   # watcher prometheus_client on Server
+
   - job_name: worker-metrics
     static_configs:
       - targets: ["100.68.124.90:9201"]

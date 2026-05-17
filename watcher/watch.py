@@ -21,6 +21,27 @@ from watchdog.observers import Observer
 
 import sys
 sys.path.insert(0, str(Path(__file__).parents[1]))
+
+try:
+    from prometheus_client import Counter, Gauge, start_http_server as _prom_start
+    _PROM_AVAILABLE = True
+except ImportError:
+    _PROM_AVAILABLE = False
+
+_watcher_up          = None
+_watcher_syncs_total = None
+_watcher_last_sync   = None
+
+def _init_watcher_metrics(port: int = 8001) -> None:
+    global _watcher_up, _watcher_syncs_total, _watcher_last_sync
+    if not _PROM_AVAILABLE:
+        return
+    _watcher_up          = Gauge("watcher_up", "1 while the watcher process is running")
+    _watcher_syncs_total = Counter("watcher_syncs_total", "Total completed sync cycles")
+    _watcher_last_sync   = Gauge("watcher_last_sync_timestamp", "Unix timestamp of last completed sync cycle")
+    _watcher_up.set(1)
+    _prom_start(port)
+    logger.info("Watcher Prometheus metrics on port %d", port)
 from networking.send_receive import receive_message, send_message
 from utils.shard_ops import request_store_shards
 
@@ -263,9 +284,10 @@ def _run_transfer_loop(
         else:
             logger.info("[crosscheck] all workers complete.")
 
-       
-        
-        
+        if _PROM_AVAILABLE and _watcher_syncs_total:
+            _watcher_syncs_total.inc()
+            _watcher_last_sync.set(time.time())
+
         # # Re-evaluate pending files
         # with pending_lock:
         #     still_pending, now_stable = [], []
@@ -317,6 +339,7 @@ def main() -> None:
     workers = config["devices_config"]["workers"]
     ckpt_root.mkdir(parents=True, exist_ok=True)
 
+    _init_watcher_metrics()
     trigger = threading.Event()
     pending: list = []
     pending_lock = threading.Lock()

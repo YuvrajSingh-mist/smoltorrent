@@ -1,23 +1,41 @@
 {
   "uid": "smoltorrent-api",
-  "title": "API",
+  "title": "API & Watcher",
   "schemaVersion": 38,
   "version": 1,
   "refresh": "10s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "title": "API Status",
       "description": "Whether Prometheus can reach the FastAPI server. Green = up.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "up{job=\"smoltorrent-api\"}", "legendFormat": "API" }
+        {
+          "expr": "up{job=\"smoltorrent-api\"}",
+          "legendFormat": "API"
+        }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "none",
         "orientation": "auto"
@@ -25,9 +43,33 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
           ],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": 0 }, { "color": "green", "value": 1 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
         }
       }
     },
@@ -36,40 +78,111 @@
       "title": "Store Operations",
       "description": "Total completed store operations since API started.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 4, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "smoltorrent_store_operations_total", "legendFormat": "stores" }
+        {
+          "expr": "smoltorrent_store_operations_total",
+          "legendFormat": "stores"
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "id": 3,
       "title": "Gather Operations",
       "description": "Total completed gather operations since API started.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 9, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 9,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "smoltorrent_gather_operations_total", "legendFormat": "gathers" }
+        {
+          "expr": "smoltorrent_gather_operations_total",
+          "legendFormat": "gathers"
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "id": 4,
       "title": "Transfer Errors (all workers)",
       "description": "Total permanent transfer failures across all ranks.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 14,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "sum(smoltorrent_transfer_errors_total)", "legendFormat": "errors" }
+        {
+          "expr": "sum(smoltorrent_transfer_errors_total)",
+          "legendFormat": "errors"
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 1 }] },
-          "color": { "mode": "thresholds" }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
@@ -78,121 +191,502 @@
       "title": "Process Memory (MB)",
       "description": "Resident memory of the FastAPI process.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "process_resident_memory_bytes{job=\"smoltorrent-api\"} / 1024 / 1024", "legendFormat": "RSS MB" }
+        {
+          "expr": "process_resident_memory_bytes{job=\"smoltorrent-api\"} / 1024 / 1024",
+          "legendFormat": "RSS MB"
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
-      "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes"
+        }
+      }
     },
     {
       "id": 10,
       "title": "Bandwidth (Mbps)",
-      "description": "Send and receive bandwidth over TCP. Deceleration = O(n²) copy bug.",
+      "description": "Send and receive bandwidth over TCP. Deceleration = O(n\u00b2) copy bug.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "smoltorrent_send_bandwidth_mbps", "legendFormat": "send Mbps" },
-        { "expr": "smoltorrent_recv_bandwidth_mbps", "legendFormat": "recv Mbps" }
+        {
+          "expr": "smoltorrent_send_bandwidth_mbps",
+          "legendFormat": "send Mbps"
+        },
+        {
+          "expr": "smoltorrent_recv_bandwidth_mbps",
+          "legendFormat": "recv Mbps"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "none", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 11,
       "title": "Transfer Duration Percentiles (seconds)",
       "description": "p50 / p90 / p95 / p99 send and recv duration. Rising tail = slow worker or network issue.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.50, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p50" },
-        { "expr": "histogram_quantile(0.90, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p90" },
-        { "expr": "histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p95" },
-        { "expr": "histogram_quantile(0.99, rate(smoltorrent_send_duration_seconds_bucket[5m]))", "legendFormat": "send p99" },
-        { "expr": "histogram_quantile(0.50, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p50" },
-        { "expr": "histogram_quantile(0.90, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p90" },
-        { "expr": "histogram_quantile(0.95, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p95" },
-        { "expr": "histogram_quantile(0.99, rate(smoltorrent_recv_duration_seconds_bucket[5m]))", "legendFormat": "recv p99" }
+        {
+          "expr": "histogram_quantile(0.50, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
+          "legendFormat": "send p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
+          "legendFormat": "send p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
+          "legendFormat": "send p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
+          "legendFormat": "send p99"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
+          "legendFormat": "recv p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
+          "legendFormat": "recv p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
+          "legendFormat": "recv p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
+          "legendFormat": "recv p99"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 12,
       "title": "Avg Latency (ms)",
       "description": "Rolling average send and receive latency per message.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "smoltorrent_avg_send_latency_ms", "legendFormat": "send avg ms" },
-        { "expr": "smoltorrent_avg_recv_latency_ms", "legendFormat": "recv avg ms" }
+        {
+          "expr": "smoltorrent_avg_send_latency_ms",
+          "legendFormat": "send avg ms"
+        },
+        {
+          "expr": "smoltorrent_avg_recv_latency_ms",
+          "legendFormat": "recv avg ms"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 13,
       "title": "Transfer Errors by Worker",
       "description": "Error rate per worker rank.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "rate(smoltorrent_transfer_errors_total[5m])", "legendFormat": "rank {{rank}}" }
+        {
+          "expr": "rate(smoltorrent_transfer_errors_total[5m])",
+          "legendFormat": "rank {{rank}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 14,
       "title": "Bytes Transferred",
       "description": "Cumulative bytes sent and received over TCP.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "smoltorrent_bytes_sent_total / 1024 / 1024", "legendFormat": "sent MB" },
-        { "expr": "smoltorrent_bytes_recv_total / 1024 / 1024", "legendFormat": "recv MB" }
+        {
+          "expr": "smoltorrent_bytes_sent_total / 1024 / 1024",
+          "legendFormat": "sent MB"
+        },
+        {
+          "expr": "smoltorrent_bytes_recv_total / 1024 / 1024",
+          "legendFormat": "recv MB"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 15,
       "title": "Buffer Size (KB)",
       "description": "Average and max TCP message buffer size. Spike = large checkpoint.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "smoltorrent_avg_buffer_size_kb", "legendFormat": "avg buf KB" },
-        { "expr": "smoltorrent_max_buffer_size_kb", "legendFormat": "max buf KB" }
+        {
+          "expr": "smoltorrent_avg_buffer_size_kb",
+          "legendFormat": "avg buf KB"
+        },
+        {
+          "expr": "smoltorrent_max_buffer_size_kb",
+          "legendFormat": "max buf KB"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "kbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 16,
       "title": "API CPU Usage (%)",
       "description": "CPU consumed by the FastAPI process.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 28 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "rate(process_cpu_seconds_total{job=\"smoltorrent-api\"}[1m]) * 100", "legendFormat": "CPU %" }
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"smoltorrent-api\"}[1m]) * 100",
+          "legendFormat": "CPU %"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 17,
       "title": "Open File Descriptors",
       "description": "Open FDs on the API process. Rising without bound = FD leak.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 28 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "process_open_fds{job=\"smoltorrent-api\"}", "legendFormat": "open FDs" },
-        { "expr": "process_max_fds{job=\"smoltorrent-api\"}", "legendFormat": "max FDs" }
+        {
+          "expr": "process_open_fds{job=\"smoltorrent-api\"}",
+          "legendFormat": "open FDs"
+        },
+        {
+          "expr": "process_max_fds{job=\"smoltorrent-api\"}",
+          "legendFormat": "max FDs"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 50,
+      "title": "Watcher",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "collapsed": false
+    },
+    {
+      "id": 51,
+      "title": "Watcher Status",
+      "description": "UP while the watcher process is running and being scraped by Prometheus.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"smoltorrent-watcher\"}",
+          "legendFormat": "watcher"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
+    },
+    {
+      "id": 52,
+      "title": "Last Sync",
+      "description": "Timestamp of the last completed watcher sync cycle.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 4,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "watcher_last_sync_timestamp",
+          "legendFormat": "last sync"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal"
+        }
+      }
+    },
+    {
+      "id": 53,
+      "title": "Sync Cycles Total",
+      "description": "Cumulative sync cycles completed since watcher started.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "watcher_syncs_total",
+          "legendFormat": "syncs"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 54,
+      "title": "Watcher Logs",
+      "description": "Live watcher log stream. Shows sync cycles, crosscheck results, pending file promotions.",
+      "type": "logs",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"smoltorrent\",node=\"master\"} |= \"watcher\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
     }
   ]
 }

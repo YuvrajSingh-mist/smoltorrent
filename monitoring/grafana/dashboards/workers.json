@@ -4,90 +4,268 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "10s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 200,
       "title": "Pi Workers",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false
     },
     {
+      "id": 201,
+      "title": "Pi Last Boot",
+      "description": "Timestamp of the last reboot for each Pi worker, from node_exporter.",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "node_boot_time_seconds{job=\"node\",node=~\"pi4-.*\"}",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        }
+      }
+    },
+    {
       "id": 31,
-      "title": "CPU Usage % — per Pi",
+      "title": "CPU Usage % \u2014 per Pi",
       "description": "Per-worker CPU utilisation. All cores averaged per node.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "100 - (avg by (node) (rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\",node=~\"pi4-.*\"}[1m])) * 100)", "legendFormat": "{{node}}" }
+        {
+          "expr": "100 - (avg by (node) (rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\",node=~\"pi4-.*\"}[1m])) * 100)",
+          "legendFormat": "{{node}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 32,
-      "title": "Memory Usage — per Pi",
+      "title": "Memory Usage \u2014 per Pi",
       "description": "Active + buffered memory vs total per worker.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "(node_memory_MemTotal_bytes{job=\"node\",node=~\"pi4-.*\"} - node_memory_MemAvailable_bytes{job=\"node\",node=~\"pi4-.*\"}) / 1024 / 1024 / 1024", "legendFormat": "{{node}} used GB" },
-        { "expr": "node_memory_MemTotal_bytes{job=\"node\",node=~\"pi4-.*\"} / 1024 / 1024 / 1024", "legendFormat": "{{node}} total GB" }
+        {
+          "expr": "(node_memory_MemTotal_bytes{job=\"node\",node=~\"pi4-.*\"} - node_memory_MemAvailable_bytes{job=\"node\",node=~\"pi4-.*\"}) / 1024 / 1024 / 1024",
+          "legendFormat": "{{node}} used GB"
+        },
+        {
+          "expr": "node_memory_MemTotal_bytes{job=\"node\",node=~\"pi4-.*\"} / 1024 / 1024 / 1024",
+          "legendFormat": "{{node}} total GB"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decgbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decgbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 33,
-      "title": "Disk Free — per Pi",
+      "title": "Disk Free \u2014 per Pi",
       "description": "Available bytes on / (root) of each Pi SD card.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "node_filesystem_avail_bytes{job=\"node\",node=~\"pi4-.*\",mountpoint=\"/\"} / 1024 / 1024 / 1024", "legendFormat": "{{node}} free GB" }
+        {
+          "expr": "node_filesystem_avail_bytes{job=\"node\",node=~\"pi4-.*\",mountpoint=\"/\"} / 1024 / 1024 / 1024",
+          "legendFormat": "{{node}} free GB"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decgbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decgbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 34,
-      "title": "System Load — per Pi",
+      "title": "System Load \u2014 per Pi",
       "description": "1-minute load average per worker. Above 4 on a Pi 4 (4 cores) means saturation.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "node_load1{job=\"node\",node=~\"pi4-.*\"}", "legendFormat": "{{node}} load1" }
+        {
+          "expr": "node_load1{job=\"node\",node=~\"pi4-.*\"}",
+          "legendFormat": "{{node}} load1"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 35,
-      "title": "SD Card I/O — per Pi",
+      "title": "SD Card I/O \u2014 per Pi",
       "description": "Read/write throughput on mmcblk0 (SD card) per worker.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "rate(node_disk_read_bytes_total{job=\"node\",node=~\"pi4-.*\",device=\"mmcblk0\"}[1m]) / 1024 / 1024", "legendFormat": "{{node}} read MB/s" },
-        { "expr": "rate(node_disk_written_bytes_total{job=\"node\",node=~\"pi4-.*\",device=\"mmcblk0\"}[1m]) / 1024 / 1024", "legendFormat": "{{node}} write MB/s" }
+        {
+          "expr": "rate(node_disk_read_bytes_total{job=\"node\",node=~\"pi4-.*\",device=\"mmcblk0\"}[1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} read MB/s"
+        },
+        {
+          "expr": "rate(node_disk_written_bytes_total{job=\"node\",node=~\"pi4-.*\",device=\"mmcblk0\"}[1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} write MB/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 36,
-      "title": "CPU Temperature — per Pi",
-      "description": "SoC temperature from thermal zone 0. Above 80°C = throttling likely.",
+      "title": "CPU Temperature \u2014 per Pi",
+      "description": "SoC temperature from thermal zone 0. Above 80\u00b0C = throttling likely.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "node_thermal_zone_temp{job=\"node\",node=~\"pi4-.*\",zone=\"0\"}", "legendFormat": "{{node}} °C" }
+        {
+          "expr": "node_thermal_zone_temp{job=\"node\",node=~\"pi4-.*\",zone=\"0\"}",
+          "legendFormat": "{{node}} \u00b0C"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "celsius", "custom": { "lineWidth": 2 },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 80 }] }
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
         }
       }
     },
@@ -96,79 +274,209 @@
       "title": "Bytes Received per Pi (store_shard)",
       "description": "Cumulative bytes written to disk per worker rank.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 22 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "worker_bytes_recv_total{job=\"worker-metrics\"} / 1024 / 1024", "legendFormat": "{{node}} recv MB" }
+        {
+          "expr": "worker_bytes_recv_total{job=\"worker-metrics\"} / 1024 / 1024",
+          "legendFormat": "{{node}} recv MB"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 41,
       "title": "Bytes Sent per Pi (send_shard)",
       "description": "Cumulative bytes sent back to master on gather.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 22 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "worker_bytes_sent_total{job=\"worker-metrics\"} / 1024 / 1024", "legendFormat": "{{node}} sent MB" }
+        {
+          "expr": "worker_bytes_sent_total{job=\"worker-metrics\"} / 1024 / 1024",
+          "legendFormat": "{{node}} sent MB"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 42,
       "title": "Store Duration Percentiles per Pi (seconds)",
       "description": "p50 / p90 / p95 / p99 time to write a shard to SD card per worker. Rising tail = SD card degrading.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 29 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.50, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p50" },
-        { "expr": "histogram_quantile(0.90, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p90" },
-        { "expr": "histogram_quantile(0.95, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p95" },
-        { "expr": "histogram_quantile(0.99, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p99" }
+        {
+          "expr": "histogram_quantile(0.50, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p99"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 43,
       "title": "Send Duration Percentiles per Pi (seconds)",
       "description": "p50 / p90 / p95 / p99 time to serve a shard back to master per worker. Rising tail = network congestion or Pi overloaded.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 29 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.50, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p50" },
-        { "expr": "histogram_quantile(0.90, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p90" },
-        { "expr": "histogram_quantile(0.95, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p95" },
-        { "expr": "histogram_quantile(0.99, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))", "legendFormat": "{{node}} p99" }
+        {
+          "expr": "histogram_quantile(0.50, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{node}} p99"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     },
     {
       "id": 44,
       "title": "Store / Send Operations per Pi",
       "description": "Completed store and send ops since worker started.",
       "type": "stat",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 36 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "worker_store_ops_total{job=\"worker-metrics\"}", "legendFormat": "{{node}} stores" },
-        { "expr": "worker_send_ops_total{job=\"worker-metrics\"}", "legendFormat": "{{node}} sends" }
+        {
+          "expr": "worker_store_ops_total{job=\"worker-metrics\"}",
+          "legendFormat": "{{node}} stores"
+        },
+        {
+          "expr": "worker_send_ops_total{job=\"worker-metrics\"}",
+          "legendFormat": "{{node}} sends"
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "orientation": "auto" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "orientation": "auto"
+      }
     },
     {
       "id": 45,
       "title": "Store Errors per Pi",
       "description": "Failed store_shard ops (checksum mismatch or disk error). Any non-zero value is worth investigating.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 36 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "rate(worker_store_errors_total{job=\"worker-metrics\"}[5m])", "legendFormat": "{{node}} errors/s" }
+        {
+          "expr": "rate(worker_store_errors_total{job=\"worker-metrics\"}[5m])",
+          "legendFormat": "{{node}} errors/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
     }
   ]
 }
