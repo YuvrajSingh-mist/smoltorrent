@@ -17,6 +17,7 @@ from utils.common_utils import compute_checksum, load_tensors, save_received_dat
 from utils.log_utils import setup_cluster_logging
 from utils.network_metrics import log_metrics
 from utils.metrics import init_worker_metrics, WorkerMetrics
+from discovery import advertise_worker
 
 _metrics: WorkerMetrics | None = None
 
@@ -251,7 +252,16 @@ def run_worker(worker_rank: int, hostname: str) -> None:
     ).start()
 
     logger.info(f"Worker {worker_rank} ready — listening on port {my_port}")
-    threading.Event().wait()  # block forever; shard listener runs as daemon threads
+
+    # Advertise this worker over mDNS so the master can discover it automatically.
+    # Runs for the lifetime of the process; close() is called on normal exit.
+    _advertiser = advertise_worker(rank=worker_rank, port=my_port, hostname=hostname)
+    logger.info(f"Worker {worker_rank} advertising on mDNS as smoltorrent-rank-{worker_rank}")
+
+    try:
+        threading.Event().wait()  # block forever; shard listener runs as daemon threads
+    finally:
+        _advertiser.close()
 
 def main() -> None:
     """CLI entry-point. Expects ``<worker_rank>`` and ``<hostname>`` as positional args."""

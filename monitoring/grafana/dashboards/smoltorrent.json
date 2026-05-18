@@ -24,10 +24,10 @@
     {
       "id": 101,
       "title": "Server Last Boot",
-      "description": "Timestamp of the last server boot, from node_exporter.",
-      "type": "stat",
+      "description": "Boot time history \u2014 flat line jumps on reboot.",
+      "type": "timeseries",
       "gridPos": {
-        "h": 3,
+        "h": 6,
         "w": 12,
         "x": 0,
         "y": 1
@@ -38,19 +38,18 @@
       },
       "targets": [
         {
-          "expr": "(node_boot_time_seconds{job=\"node\",node=\"master\"}) * 1000",
+          "expr": "node_boot_time_seconds{job=\"node\",node=\"master\"} * 1000",
           "legendFormat": "last boot"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "tooltip": {
+          "mode": "multi"
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "noValue": "N/A"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -58,17 +57,24 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "blue"
-          }
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true,
+            "drawStyle": "line"
+          },
+          "noValue": "N/A"
         }
       }
     },
     {
       "id": 102,
       "title": "API Process Last Start",
-      "description": "Timestamp of the last FastAPI process start, from prometheus_client.",
-      "type": "stat",
+      "description": "API process start time \u2014 flat line jumps each time the API restarts.",
+      "type": "timeseries",
       "gridPos": {
-        "h": 3,
+        "h": 6,
         "w": 12,
         "x": 12,
         "y": 1
@@ -79,19 +85,18 @@
       },
       "targets": [
         {
-          "expr": "(process_start_time_seconds{job=\"smoltorrent-api\"}) * 1000",
+          "expr": "process_start_time_seconds{job=\"smoltorrent-api\"} * 1000",
           "legendFormat": "API started"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "tooltip": {
+          "mode": "multi"
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "noValue": "N/A"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -99,7 +104,14 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "green"
-          }
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true,
+            "drawStyle": "line"
+          },
+          "noValue": "N/A"
         }
       }
     },
@@ -228,8 +240,8 @@
     {
       "id": 4,
       "title": "Operations",
-      "description": "Total store and gather operations completed.",
-      "type": "stat",
+      "description": "Cumulative store and gather operations (counter — never resets).",
+      "type": "timeseries",
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -242,22 +254,32 @@
       },
       "targets": [
         {
-          "expr": "increase(smoltorrent_store_operations_total[$__range])",
+          "expr": "smoltorrent_store_operations_total",
           "legendFormat": "stores"
         },
         {
-          "expr": "increase(smoltorrent_gather_operations_total[$__range])",
+          "expr": "smoltorrent_gather_operations_total",
           "legendFormat": "gathers"
         }
       ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "tooltip": {
+          "mode": "multi"
         },
-        "orientation": "auto",
-        "colorMode": "value"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {

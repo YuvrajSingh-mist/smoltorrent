@@ -24,10 +24,10 @@
     {
       "id": 201,
       "title": "Pi Last Boot",
-      "description": "Timestamp of the last reboot for each Pi worker, from node_exporter.",
-      "type": "stat",
+      "description": "Boot time per Pi \u2014 flat line jumps on reboot. One series per Pi.",
+      "type": "timeseries",
       "gridPos": {
-        "h": 3,
+        "h": 6,
         "w": 24,
         "x": 0,
         "y": 1
@@ -38,28 +38,32 @@
       },
       "targets": [
         {
-          "expr": "(node_boot_time_seconds{job=\"node\",node=~\"pi4-.*\"}) * 1000",
+          "expr": "node_boot_time_seconds{job=\"node\",node=~\"pi4-.*\"} * 1000",
           "legendFormat": "{{node}}"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "tooltip": {
+          "mode": "multi"
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "orientation": "horizontal",
-        "noValue": "N/A"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "dateTimeAsLocal",
           "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          }
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true,
+            "drawStyle": "line"
+          },
+          "noValue": "N/A"
         }
       }
     },
@@ -417,8 +421,8 @@
     {
       "id": 44,
       "title": "Store / Send Operations per Pi",
-      "description": "Completed store and send ops since worker started.",
-      "type": "stat",
+      "description": "Cumulative store and send ops per worker (counter — never resets).",
+      "type": "timeseries",
       "gridPos": {
         "h": 7,
         "w": 12,
@@ -439,14 +443,24 @@
           "legendFormat": "{{node}} sends"
         }
       ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "tooltip": {
+          "mode": "multi"
         },
-        "colorMode": "value",
-        "orientation": "auto"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {

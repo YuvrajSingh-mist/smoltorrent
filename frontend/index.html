@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>smoltorrent — Distributed ML Checkpoint Sharding</title>
+  <meta name="description" content="smoltorrent: Distributed ML checkpoint sharding across any cluster of Linux/macOS nodes. Shards .safetensors checkpoints over TCP with SHA-256 verification, replication factor 2, and automatic watcher sync.">
+  <meta name="keywords" content="smoltorrent, distributed ML, checkpoint sharding, safetensors, distributed training, MLX, PyTorch, parameter server, checkpoint storage, linux cluster">
+  <meta name="author" content="Yuvraj Singh">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#000000">
+
+  <link rel="canonical" href="https://yuvrajsingh-mist.github.io/smoltorrent/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://yuvrajsingh-mist.github.io/smoltorrent/">
+  <meta property="og:title" content="smoltorrent — Distributed ML Checkpoint Sharding">
+  <meta property="og:description" content="Shards .safetensors checkpoints across worker nodes over TCP with SHA-256 checksums, replication factor 2, auto watcher sync, and mDNS discovery.">
+
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:title" content="smoltorrent — Distributed ML Checkpoint Sharding">
+  <meta property="twitter:description" content="Shards .safetensors checkpoints across worker nodes over TCP with SHA-256 checksums, replication factor 2, auto watcher sync, and mDNS discovery.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-menu">
+    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
+      <a class="navbar-item" href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">
+        <span class="icon"><i class="fab fa-github"></i></span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">smoltorrent</h1>
+          <div class="is-size-5 publication-authors" style="margin-bottom: 1rem;">
+            <span class="author-block">
+              Shards <code>.safetensors</code> checkpoints across worker nodes over TCP — with SHA-256 verification, replication, and automatic sync.
+            </span>
+          </div>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <span class="link-block">
+                <a href="https://github.com/YuvrajSingh-mist/smoltorrent"
+                   class="external-link button is-normal is-rounded is-dark"
+                   target="_blank" rel="noopener noreferrer">
+                  <span class="icon"><i class="fab fa-github"></i></span>
+                  <span>GitHub</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="./setup.html"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fas fa-terminal"></i></span>
+                  <span>Setup Guide</span>
+                </a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Overview</h2>
+        <div class="content has-text-justified">
+          <p>
+            <strong>smoltorrent</strong> is a distributed checkpoint storage system that shards <code>.safetensors</code> ML model
+            checkpoints across a cluster of worker nodes, coordinated from a central coordinator machine. Each shard is stored on
+            <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. A watcher daemon
+            monitors your checkpoint directory and pushes new files automatically — no manual intervention needed.
+          </p>
+          <p>
+            The coordinator handles tensor splitting and shard distribution; workers store and serve shards over TCP.
+            The wire format is <code>.safetensors</code> only. The coordinator currently uses MLX (Apple Silicon) for tensor ops
+            and converts to torch before sending — workers only need torch and safetensors, with no platform restriction.
+          </p>
+          <p style="color: #666; font-size: 0.9rem; margin-top: 0.5rem;">
+            <strong>Our setup (as an example):</strong> Mac mini M4 as the coordinator, 4× Raspberry Pi 4 as workers — but any Linux/macOS machine can fill either role.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="columns is-centered has-text-centered" style="margin-top: 1rem;">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Cluster Architecture</h2>
+        <pre class="arch">Coordinator (any macOS / Linux machine)
+  ├── FastAPI server   backend/api.py          ← /store-shard, /gather-shards, /discover
+  ├── Watcher daemon   watcher/watch.py         ← auto-syncs new checkpoints
+  ├── Discovery        discovery/               ← mDNS + AirDrop device discovery
+  └── Workers × N      algorithms/SyncPS/worker.py  ← TCP listener on each worker node
+
+Replication (factor 2):
+  Shard 0  →  Worker 1 (primary)  +  Worker 2 (replica)
+  Shard 1  →  Worker 2 (primary)  +  Worker 3 (replica)
+  Shard 2  →  Worker 3 (primary)  +  Worker 4 (replica)
+  Shard 3  →  Worker 4 (primary)  +  Worker 1 (replica)
+
+Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscale)</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">How It Works</h2>
+        <div class="content has-text-justified">
+
+          <h3 class="title is-4">Store</h3>
+          <p>
+            The API loads a checkpoint, splits tensors evenly into N shards (one per worker), computes a SHA-256 checksum per shard,
+            and sends each over TCP. Workers verify the checksum and write the shard to disk with a <code>.checksum</code> sidecar.
+            Failed sends retry with exponential backoff. Each shard is then mirrored to a second worker (replication round), so any
+            single node failure loses no data.
+          </p>
+
+          <h3 class="title is-4">Gather</h3>
+          <p>
+            The API pulls each shard from its primary worker. If the primary is unreachable, it automatically falls back to the replica
+            on the next worker. All shards are merged back into one <code>.safetensors</code> file written as <code>merged.safetensors</code>
+            next to the original checkpoint.
+          </p>
+
+          <h3 class="title is-4">Watcher</h3>
+          <p>
+            Monitors <code>ckpt_root</code> for new <code>.safetensors</code> files. On each trigger: <strong>file_sync</strong> →
+            <strong>checksum_sync</strong> (startup only) → <strong>transfer</strong> → <strong>crosscheck</strong>.
+            Files detected while still being written go to a pending list and are re-evaluated every 10&nbsp;s.
+          </p>
+
+          <h3 class="title is-4">Discovery</h3>
+          <p>
+            Workers advertise themselves over mDNS (<code>_smoltorrent._tcp.local.</code>) on startup. The coordinator scans the
+            network and finds all workers without any hardcoded IPs — useful for initial setup or when DHCP reassigns addresses.
+            On macOS, AirDrop/AWDL discovery runs in parallel for Mac-to-Mac scenarios.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Key Features</h2>
+        <div class="content has-text-justified">
+          <ul>
+            <li><strong>Replication factor 2</strong> — each shard lives on two nodes; single-node failure loses no data, gather falls back to replica automatically.</li>
+            <li><strong>SHA-256 checksums</strong> — every shard has a <code>.checksum</code> sidecar; corruption detected at store and re-verified on gather.</li>
+            <li><strong>Watcher daemon</strong> — inotify/watchdog triggers on new files; pending loop handles files still being written.</li>
+            <li><strong>mDNS discovery</strong> — zero-config worker discovery via Zeroconf on all platforms; AirDrop/AWDL on macOS for Mac-to-Mac.</li>
+            <li><strong>Auto-start</strong> — macOS LaunchDaemons bring the cluster up after coordinator reboot; systemd service restarts workers after node reboot.</li>
+            <li><strong>Monitoring</strong> — Prometheus + Grafana + Loki in Docker on the coordinator; no SSH required. Workers expose metrics on <code>9200+rank</code>.</li>
+            <li><strong>Fully config-driven</strong> — all topology in <code>configs/config.yaml</code>; no IPs hardcoded anywhere.</li>
+          </ul>
+
+          <div style="margin-top: 1rem;">
+            <span class="tag-pill">safetensors</span>
+            <span class="tag-pill">MLX</span>
+            <span class="tag-pill">PyTorch</span>
+            <span class="tag-pill">FastAPI</span>
+            <span class="tag-pill">Prometheus</span>
+            <span class="tag-pill">Grafana</span>
+            <span class="tag-pill">Loki</span>
+            <span class="tag-pill">mDNS / Zeroconf</span>
+            <span class="tag-pill">macOS</span>
+            <span class="tag-pill">Linux</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Usage</h2>
+        <div class="content has-text-justified">
+          <pre class="arch"># Store a checkpoint across worker nodes
+python main.py store --ckpt-path /path/to/checkpoints/model.safetensors
+
+# Reassemble from shards → merged.safetensors written next to original
+python main.py gather --ckpt-path /path/to/checkpoints/model.safetensors
+
+# Discover workers on the network (mDNS scan)
+curl http://&lt;coordinator-ip&gt;:8000/discover</pre>
+        </div>
+        <a href="./setup.html"
+           class="external-link button is-normal is-rounded is-dark"
+           style="margin-top: 1rem;">
+          <span class="icon"><i class="fas fa-terminal"></i></span>
+          <span>Full Setup Guide</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Our Setup</h2>
+        <div class="content">
+          <p style="color: #555; margin-bottom: 1rem;">Any macOS or Linux machine can act as coordinator or worker. Here's what we tested with:</p>
+          <table class="table is-bordered is-striped is-fullwidth">
+            <thead>
+              <tr><th>Role</th><th>Hardware</th><th>OS</th><th>Python</th><th>RAM</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Coordinator</td>
+                <td>Apple Mac mini M4 <em>(e.g.)</em></td>
+                <td>macOS 26.2 Tahoe (arm64)</td>
+                <td>3.13</td>
+                <td>16 GB</td>
+              </tr>
+              <tr>
+                <td>Workers × 4</td>
+                <td>Raspberry Pi 4 Model B Rev 1.5 <em>(e.g.)</em></td>
+                <td>Debian 13 Trixie (aarch64, kernel 6.12)</td>
+                <td>3.13.5</td>
+                <td>4 GB</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style="color: #666; font-size: 0.9rem;">~100 Mbps Ethernet between nodes (tested over Tailscale VPN). ~2 min per 942 MB checkpoint per worker, parallel across all N workers.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">License</h2>
+        <div class="content">
+          <p>smoltorrent is released under the MIT License.</p>
+          <p>Contributions welcome — visit the <a href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub repository</a>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="content has-text-centered">
+      <a class="icon-link"
+         href="https://github.com/YuvrajSingh-mist/smoltorrent"
+         aria-label="Visit smoltorrent GitHub repository"
+         target="_blank" rel="noopener noreferrer">
+        <i class="fab fa-github"></i>
+      </a>
+    </div>
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content has-text-centered">
+          <p><strong>smoltorrent</strong> — Distributed ML Checkpoint Sharding</p>
+          <p><small>MIT License · <a href="https://github.com/YuvrajSingh-mist/smoltorrent">github.com/YuvrajSingh-mist/smoltorrent</a></small></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

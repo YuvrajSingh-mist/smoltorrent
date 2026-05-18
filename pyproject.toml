@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "watchdog>=6.0.0",
     "prometheus-client>=0.20.0",
+    "zeroconf>=0.149.4",
 ]
 
 [dependency-groups]
@@ -31,4 +32,5 @@ markers = [
     "integration: end-to-end tests that require model weights and a full cluster environment",
     "ssh: tests that SSH into live Pi workers via Fabric (requires cluster reachable)",
     "api: tests that hit the real FastAPI server at API_BASE (requires server running)",
+    "discovery: tests that require network interfaces (mDNS loopback)",
 ]

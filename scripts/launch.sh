@@ -365,6 +365,16 @@ fi
 
 echo "Running remote uv sync on $(hostname)..."
 uv sync
+
+# zeroconf — needed for mDNS worker discovery (uv pip installs into the project venv)
+if ! .venv/bin/python -c "import zeroconf" 2>/dev/null; then
+    echo "Installing zeroconf into venv on $(hostname)..."
+    export PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+    uv pip install -q zeroconf
+    echo "zeroconf installed on $(hostname)"
+else
+    echo "zeroconf already present on $(hostname)"
+fi
 EOF
 }
 

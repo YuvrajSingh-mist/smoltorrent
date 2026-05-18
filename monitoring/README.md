@@ -211,29 +211,43 @@ Exposed by `algorithms/SyncPS/worker.py` via `prometheus_client`. Each Pi expose
 
 Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Powers the CPU, disk, memory, temperature, and boot-time panels in all dashboards.
 
-`launch.sh` installs and registers `node_exporter` automatically on first run. If you need to set it up manually:
+`bash scripts/launch.sh --daemons` installs and registers `node_exporter` automatically. If you need to do it manually:
 
-**Server (macOS — run once in your terminal):**
+**Server (macOS):**
 
 ```bash
 brew install node_exporter
+```
 
-# Register as a system LaunchDaemon (survives reboots — brew services is broken on macOS 26 Tahoe)
-sudo tee /Library/LaunchDaemons/com.node-exporter.plist > /dev/null <<'EOF'
+Then register it as a system LaunchDaemon — `brew services` is broken on macOS 26 Tahoe so this must be done manually:
+
+```xml
+<!-- /Library/LaunchDaemons/com.node-exporter.plist -->
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.node-exporter</string>
+    <key>Label</key>
+    <string>com.node-exporter</string>
     <key>ProgramArguments</key>
-    <array><string>/opt/homebrew/bin/node_exporter</string></array>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>/tmp/node-exporter.log</string>
-    <key>StandardErrorPath</key><string>/tmp/node-exporter.log</string>
+    <array>
+        <string>/opt/homebrew/bin/node_exporter</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/node-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/node-exporter.log</string>
 </dict>
 </plist>
-EOF
+```
+
+`KeepAlive true` means launchd restarts it if it crashes. Then load it:
+
+```bash
 sudo chmod 644 /Library/LaunchDaemons/com.node-exporter.plist
 sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.node-exporter.plist
