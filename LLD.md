@@ -95,6 +95,137 @@ Called after every transfer batch (crosscheck phase). Unlike `sync` which return
 
 ---
 
+## Redundancy — store (`backend/api.py` → `REDUNDANCY = 2`)
+
+Shards are pre-computed once, then sent in two independent rounds:
+
+```python
+shards = []
+for i in range(num_workers):
+    sb = shard_to_bytes(chunks[i])
+    shards.append((sb, compute_checksum(sb)))
+
+for round_idx in range(REDUNDANCY):   # 0, 1
+    jobs = [
+        (workers[(i + round_idx) % num_workers], sb, cs)
+        for i, (sb, cs) in enumerate(shards)
+    ]
+    # send all N jobs in parallel
+```
+
+Round 0: `shard i → workers[i]`. Round 1: `shard i → workers[(i+1) % N]`. Every shard lands on exactly two workers. Serialization happens once per shard, before any threads start — MLX arrays are not thread-safe.
+
+Success message: `"Done: {2N}/{2N} sends (2x replicated)"`.
+
+---
+
+## Redundancy — gather with replica fallback (`backend/api.py` → `/gather-shards`)
+
+```python
+shards_by_index: dict[int, bytes] = {}
+
+for i, worker in enumerate(workers):
+    ok, err, result = _gather_and_save(worker, shard_index=i)
+    if not ok and REDUNDANCY > 1:
+        replica = workers[(i + 1) % num_workers]
+        yield _log(f"  ↻ rank {rank} failed — trying replica rank {replica['rank']}")
+        ok, err, result = _gather_and_save(replica, shard_index=i)
+    if ok:
+        shards_by_index[i] = received_shard
+
+merge_shards([shards_by_index[i] for i in range(num_workers)])
+```
+
+`shards_by_index` is keyed by shard index (0..N-1), not worker rank. If shard 0 falls back to rank 2, it still lands in slot 0 — merge order is always correct regardless of which physical worker served the shard.
+
+---
+
+## Device discovery (`discovery/`)
+
+### mDNS (`discovery/grove/_mdns.py`)
+
+Workers register a `_smoltorrent._tcp.local.` service via zeroconf on startup:
+
+```python
+ServiceInfo(
+    type_="_smoltorrent._tcp.local.",
+    name=f"smoltorrent-rank-{rank}._smoltorrent._tcp.local.",
+    addresses=[socket.inet_aton(ip)],
+    port=port,
+    properties={b"rank": str(rank).encode(), b"hostname": hostname.encode()},
+)
+```
+
+Properties use `bytes` keys — zeroconf's DNS-SD TXT record format requires it.
+
+The master discovers with `ServiceBrowser` + `time.sleep(timeout)`, collecting `ServiceStateChange.Added` events.
+
+`_get_local_ip()` uses a UDP connect to `8.8.8.8:80` (no packet sent) to determine the active LAN interface IP — avoids returning `127.0.0.1`.
+
+### AirDrop/AWDL (`discovery/grove/transport/p2p.py`)
+
+Swift helper compiled on demand (`discovery/grove/swift/compile.py`). Broadcasts over AWDL (Apple Wireless Direct Link) — works Mac-to-Mac without a router, even on separate subnets.
+
+### Public API (`discovery/__init__.py`)
+
+`discover_workers(timeout)` runs both transports in parallel threads, merges by rank (mDNS wins on collision since it carries real IP/port), returns sorted by rank.
+
+### `/discover` endpoint (`backend/api.py`)
+
+```
+GET /discover?timeout=10
+→ {"workers": [{"ip": "...", "port": N, "rank": N, "hostname": "..."}, ...]}
+```
+
+Thin wrapper over `discover_workers()`.
+
+---
+
+## Node picker TUI (`discovery/grove/tui.py`)
+
+`WorkerPickerApp` is a [Textual](https://github.com/Textualize/textual) `App` (copied from smolcluster grove, same patterns as `JoinApp`):
+
+```
+┌─ smoltorrent  select nodes to add to cluster ──────────────────────────┐
+│   Rank  Hostname   IP               Port                               │
+│ ✓ 1     pi4-1      192.168.1.101    5001                               │
+│   2     pi4-2      192.168.1.102    5002                               │
+│ ✓ 3     pi4-3      192.168.1.103    5003                               │
+│   ↑↓ move   space select   a all/none   enter confirm   q quit         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+Key bindings: `↑↓` move cursor, `space` toggle ✓, `a` select/deselect all, `enter` confirm, `q` abort.
+
+**Important:** The internal node list is stored as `self._smolt_nodes` (not `_workers` or `_nodes`) — both names are used by textual 8.x internally (`WorkerManager` and the DOM node list respectively) and would silently corrupt the app if overwritten.
+
+After the TUI exits, `main.py` prompts for SSH username and identity file in the restored terminal, then calls `networking/ssh_manager.write_ssh_block()`.
+
+---
+
+## SSH config manager (`networking/ssh_manager.py`)
+
+Writes or replaces a fenced block in `~/.ssh/config`:
+
+```
+### BEGIN SMOLTORRENT MANAGED — do not edit this block ###
+# This block is auto-managed by smoltorrent.
+# Auto-managed by smoltorrent. Manual edits will be overwritten.
+
+Host pi4-1
+    HostName 192.168.1.101
+    User pi
+    IdentityFile ~/.ssh/id_rsa
+
+Host pi4-2
+    ...
+### END SMOLTORRENT MANAGED ###
+```
+
+`write_ssh_block()` strips any existing managed block from the file, appends the new block, and sets permissions to `0o600`. Everything outside the sentinels is preserved. `remove_ssh_block()` strips the block and returns `True` if one was found.
+
+---
+
 ## Serialization path (`utils/common_utils.py`)
 
 ### Server → bytes (`shard_to_bytes`)
@@ -138,23 +269,18 @@ Worker `i` always gets the same subset of keys for the same checkpoint — deter
 ```
 load_tensors(ckpt_path)
 chunk_data(tensors, n_workers)
-for each chunk:
-    shard_bytes = shard_to_bytes(chunk)     # serialize once
-    checksum    = compute_checksum(shard_bytes)
+serialize all shards upfront (before spawning threads — MLX arrays not thread-safe)
 
-ThreadPoolExecutor(max_workers=n_workers):
-    for each worker: _send_shard_to_worker(worker, shard_bytes, checksum, rel_path)
-        → ("store_shard", rank, shard_bytes, checksum, rel_path)
-        ← ("store_shard_done", ...) or failure
+for round_idx in 0, 1:
+    ThreadPoolExecutor(max_workers=n_workers):
+        for each (worker, shard, checksum): _send_shard_to_worker(...)
+            → ("store_shard", rank, shard_bytes, checksum, rel_path)
+            ← ("store_shard_done", ...) or failure
+    failed sends → retry_queue (daemon thread, 2^attempt sec backoff, 6 max retries)
 
-failed sends → retry_queue (daemon thread, 2^attempt sec backoff, 6 max retries)
-store_queue.join()    ← single wait point
+store_queue.join()    ← single wait point per round
 stream log lines as text/plain
 ```
-
-Why serialize before spawning threads: serializing inside the thread would race on the MLX array (not thread-safe). Serializing all shards up front also means if shard 3 fails to serialize, shards 1 and 2 were never sent — cleaner error state.
-
-Why streaming response: transfers take minutes. A non-streaming response would timeout at the client. One log line per event keeps the connection alive and gives the caller progress.
 
 ---
 
@@ -163,14 +289,15 @@ Why streaming response: transfers take minutes. A non-streaming response would t
 ```
 rel_path = ckpt_path.parent.relative_to(ckpt_root)
 
-for each worker (parallel):
+for each worker[i] (sequential with replica fallback):
     → ("send_shard", rank, rel_path)
     ← shard_bytes
+    if failed: try workers[(i+1) % N]
     shard_from_bytes(shard_bytes)
     save to SHARDS_ROOT/worker_{rank}/{rel_path}/shard.safetensors  ← on arrival
 
 gather_queue.join()
-merge_shards(shards_by_rank.values())
+merge_shards([shards_by_index[i] for i in range(N)])
 save_merged_model → ckpt_root/{rel_path}/merged.safetensors
 ```
 
@@ -224,8 +351,6 @@ while True:
         request_store_shards(ckpt_path=str(path), log_fn=logger.info)
 
     # Phase 4: crosscheck
-    # checksum=True merges presence check + integrity validation in one pass (startup);
-    # checksum=False (default) skips re-hashing on file-event triggers.
     crosscheck_retry = _crosscheck_all_workers(workers, local_paths, ckpt_root)
     for path in crosscheck_retry:
         request_store_shards(ckpt_path=str(path), log_fn=logger.info)
@@ -234,21 +359,18 @@ while True:
 Pending re-evaluation is handled by a **separate thread** (`_run_pending_loop`), not inside the transfer loop:
 
 ```python
-# _run_pending_loop (daemon thread)
 while True:
     time.sleep(10)
     with pending_lock:
-        snapshot = list(pending)         # snapshot outside stability check
+        snapshot = list(pending)
     still_pending, now_stable = [], []
     for path in snapshot:
         (now_stable if _is_stable(path) else still_pending).append(path)
     with pending_lock:
-        pending[:] = still_pending       # write back only confirmed unstable
+        pending[:] = still_pending
     if now_stable:
         trigger.set()
 ```
-
-The lock is held only for the snapshot read and the write-back. `_is_stable` (1 s sleep per file) runs outside the lock so `on_created` can append to `pending` without blocking.
 
 ### Why intersection for phase 1, not union
 
@@ -280,6 +402,8 @@ Server (merged output):
 
 `rel_path` = `ckpt_file.parent.relative_to(ckpt_root)`, e.g. `Qwen2.5/run1/latest`. It's the same on both Server and Pi — the master uses it as the storage key, and the worker uses it as the directory name under its `shards/worker_{rank}/` root.
 
+With REDUNDANCY=2, `shard.safetensors` for shard `i` lives on `worker_{i}` (round 0) **and** `worker_{(i+1) % N}` (round 1). The replica is indistinguishable on disk from the primary — same filename, same content.
+
 ---
 
 ## Auto-start
@@ -305,4 +429,4 @@ Restart=on-failure
 RestartSec=5
 ```
 
-`%i` is the rank, injected by systemd when starting `smoltorrent-worker@1.service`. One unit file covers all ranks. `Restart=on-failure` brings the worker back automatically after a crash.
+`%i` is the rank, injected by systemd when starting `smoltorrent-worker@1.service`. One unit file covers all ranks. `Restart=on-failure` brings the worker back automatically after a crash. On restart, the worker re-registers its mDNS advertisement automatically.

@@ -218,14 +218,20 @@ Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscal
       <div class="column is-four-fifths">
         <h2 class="title is-3">Usage</h2>
         <div class="content has-text-justified">
-          <pre class="arch"># Store a checkpoint across worker nodes
-python main.py store --ckpt-path /path/to/checkpoints/model.safetensors
+          <pre class="arch"># Master: advertise and wait for N workers to join
+grove start -n 4
 
-# Reassemble from shards → merged.safetensors written next to original
-python main.py gather --ckpt-path /path/to/checkpoints/model.safetensors
+# Worker (each Pi or Mac): find master via TUI, register, start worker
+grove join
 
-# Discover workers on the network (mDNS scan)
-curl http://&lt;coordinator-ip&gt;:8000/discover</pre>
+# Store a checkpoint across workers with 2× replication (manual)
+grove store --ckpt-path /path/to/checkpoints/model.safetensors
+
+# Reassemble from shards → merged.safetensors (replica fallback if a worker is down)
+grove gather --ckpt-path /path/to/checkpoints/model.safetensors
+
+# Discover live workers on the network (mDNS)
+curl http://&lt;master-ip&gt;:8000/discover</pre>
         </div>
         <a href="./setup.html"
            class="external-link button is-normal is-rounded is-dark"

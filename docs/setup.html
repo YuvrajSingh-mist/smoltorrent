@@ -301,12 +301,7 @@ brew install uv       <span style="color:#6e7781"># Python package manager</span
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <div class="callout warn">
-          <span class="icon">⚠️</span>
-          <span>The <code>Host</code> alias in <code>~/.ssh/config</code> must exactly match the <code>host</code> field in <code>configs/config.yaml</code>. <code>launch.sh</code> uses those values directly as SSH targets.</span>
-        </div>
-
-        <p class="desc">Verify SSH access from the server:</p>
+        <p class="desc">Verify SSH access from the server (needed by <code>launch.sh</code> to rsync code to Pis):</p>
         <div class="code-block">
           <pre>ssh pi4-1   <span style="color:#6e7781"># or whatever alias you chose</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -328,33 +323,16 @@ uv sync</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">Edit <code>configs/config.yaml</code> — set <code>ckpt_root</code> and each worker's <code>host</code>, <code>ip</code>, <code>port</code>, and <code>rank</code>:</p>
-        <div class="yaml-block">
-<span class="yaml-key">ckpt_root</span>: <span class="yaml-val">/Users/you/smolcluster/checkpoints</span>
-<span class="yaml-key">num_workers</span>: <span class="yaml-val">4</span>
-<span class="yaml-key">n_chunks</span>: <span class="yaml-val">4</span>
-
-<span class="yaml-key">devices_config</span>:
-  <span class="yaml-key">master</span>:
-    - <span class="yaml-key">host</span>: <span class="yaml-val">localhost</span>
-      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;your-server-ip&gt;</span>
-      <span class="yaml-key">rank</span>: <span class="yaml-val">0</span>
-      <span class="yaml-key">port</span>: <span class="yaml-val">5000</span>
-  <span class="yaml-key">workers</span>:
-    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-1</span>    <span class="yaml-comment"># must match Host alias in ~/.ssh/config</span>
-      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;ip&gt;</span>
-      <span class="yaml-key">rank</span>: <span class="yaml-val">1</span>
-      <span class="yaml-key">port</span>: <span class="yaml-val">5001</span>
-    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-2</span>
-      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;ip&gt;</span>
-      <span class="yaml-key">rank</span>: <span class="yaml-val">2</span>
-      <span class="yaml-key">port</span>: <span class="yaml-val">5002</span>
-    <span class="yaml-comment"># ... one entry per worker</span>
+        <p class="desc">Add the <code>grove</code> command to your shell (one time):</p>
+        <div class="code-block">
+          <pre>echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <div class="callout info">
-          <span class="icon">ℹ️</span>
-          <span>Don't know a Pi's IP yet? Run <code>curl http://localhost:8000/discover</code> after launching — mDNS discovery will find all workers on the network automatically.</span>
+        <div class="callout tip">
+          <span class="icon">💡</span>
+          <span>Only <code>ckpt_root</code> in <code>configs/config.yaml</code> needs to be set manually. Worker IPs, ranks, and ports are filled in automatically when workers join.</span>
         </div>
       </section>
 
@@ -362,23 +340,34 @@ uv sync</pre>
       <section class="step-section" id="launch">
         <div class="step-header">
           <div class="step-badge">4</div>
-          <h2 class="step-title">Launch the cluster</h2>
+          <h2 class="step-title">Start the cluster</h2>
         </div>
 
-        <p class="desc">One command rsyncs the codebase to every Pi, installs deps, and starts everything in tmux:</p>
+        <p class="desc"><strong>On the master</strong> — advertise over mDNS and wait for workers to join:</p>
         <div class="code-block">
-          <pre>bash scripts/launch.sh</pre>
+          <pre>grove start -n 4   <span style="color:#6e7781"># wait for 4 workers</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">This starts:</p>
+        <p class="desc"><strong>On each worker node</strong> (Pi or Mac mini on the same network) — open the TUI, select the master, press Enter:</p>
+        <div class="code-block">
+          <pre>grove join</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <p class="desc">Once all N workers have joined, the master writes <code>configs/config.yaml</code> automatically and runs <code>launch.sh</code>, which starts:</p>
         <ul style="font-size:14px; color: var(--ink-2); line-height:2; margin: 0 0 14px 18px;">
           <li><code>syncps_api</code> — FastAPI server on the master (port 8000)</li>
           <li><code>syncps_watcher</code> — Watcher daemon on the master</li>
           <li><code>syncps_worker_N</code> — TCP worker on each Pi (port 5001+)</li>
         </ul>
 
-        <h3 class="sub-title">Useful launch flags</h3>
+        <div class="callout info">
+          <span class="icon">ℹ️</span>
+          <span>No SSH config or static IPs required. Workers discover the master over mDNS and self-register. Mac minis and Pis on the same network both use <code>grove join</code>.</span>
+        </div>
+
+        <h3 class="sub-title">Useful launch flags (passed to launch.sh)</h3>
         <table class="req-table">
           <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
           <tbody>

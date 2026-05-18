@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "smoltorrent"
 version = "0.1.0"
@@ -18,7 +22,14 @@ dependencies = [
     "watchdog>=6.0.0",
     "prometheus-client>=0.20.0",
     "zeroconf>=0.149.4",
+    "textual>=0.80.0",
 ]
+
+[project.scripts]
+grove = "smoltorrent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["smoltorrent*"]
 
 [dependency-groups]
 dev = [

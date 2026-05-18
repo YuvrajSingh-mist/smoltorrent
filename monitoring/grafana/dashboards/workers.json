@@ -421,7 +421,7 @@
     {
       "id": 44,
       "title": "Store / Send Operations per Pi",
-      "description": "Cumulative store and send ops per worker (counter — never resets).",
+      "description": "Cumulative store and send ops per worker (counter \u2014 never resets).",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -493,5 +493,6 @@
         }
       }
     }
-  ]
+  ],
+  "timezone": "browser"
 }

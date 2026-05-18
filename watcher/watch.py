@@ -173,7 +173,7 @@ def _scan_local(ckpt_root: Path, extensions: list[str]) -> list[Path]:
     for ext in extensions:
         paths.extend(ckpt_root.rglob(f"*{ext}"))
     return paths
-and all th
+
 def _run_pending_loop(pending: list, pending_lock: threading.Lock, trigger: threading.Event) -> None:
     
     """Pending loop: wakes every 10s to re-check pending files for stability."""
