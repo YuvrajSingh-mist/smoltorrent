@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -28,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger("smoltorrent")
 
 _CONFIG_PATH = Path(__file__).parent / "configs" / "config.yaml"
-_LAUNCH_SCRIPT = Path(__file__).parent / "scripts" / "launch.sh"
+_LAUNCH_SCRIPT = Path(__file__).parent / "scripts" / "grove_launch.sh"
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +52,7 @@ def _cmd_start(n: int) -> None:
                 body["rank"] = rank
                 body.setdefault("port", 5000 + rank)
                 registered.append(body)
-            print(f"  ✓ {body['hostname']} ({body['ip']}:{body['port']}) → rank {rank}  [{len(registered)}/{n}]")
+            print(f"  ✓ {body['user']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}/{n}]")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -81,7 +82,7 @@ def _cmd_start(n: int) -> None:
         cfg = yaml.safe_load(f)
     cfg["num_workers"] = len(registered)
     cfg["devices_config"]["workers"] = [
-        {"host": w["hostname"], "ip": w["ip"], "rank": w["rank"], "port": w["port"]}
+        {"host": f"{w['user']}@{w['ip']}", "ip": w["ip"], "rank": w["rank"], "port": w["port"]}
         for w in registered
     ]
     with _CONFIG_PATH.open("w") as f:
@@ -118,11 +119,12 @@ def _cmd_join() -> None:
     master_port = selected["port"]
     my_ip = _get_local_ip()
     my_hostname = socket.gethostname()
+    my_user = os.environ.get("USER") or os.environ.get("LOGNAME") or my_hostname
 
     print(f"\n  Registering with master at {master_ip}:{master_port}…")
     resp = httpx.post(
         f"http://{master_ip}:{master_port}",
-        json={"hostname": my_hostname, "ip": my_ip},
+        json={"hostname": my_hostname, "ip": my_ip, "user": my_user},
         timeout=10,
     )
     resp.raise_for_status()

@@ -23,6 +23,7 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "zeroconf>=0.149.4",
     "textual>=0.80.0",
+    "matplotlib>=3.10.9",
 ]
 
 [project.scripts]

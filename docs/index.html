@@ -97,23 +97,45 @@
         <div class="content has-text-justified">
           <p>
             <strong>smoltorrent</strong> is a distributed checkpoint storage system that shards <code>.safetensors</code> ML model
-            checkpoints across a cluster of worker nodes, coordinated from a central coordinator machine. Each shard is stored on
-            <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. A watcher daemon
-            monitors your checkpoint directory and pushes new files automatically — no manual intervention needed.
-          </p>
-          <p>
-            The coordinator handles tensor splitting and shard distribution; workers store and serve shards over TCP.
-            The wire format is <code>.safetensors</code> only. The coordinator currently uses MLX (Apple Silicon) for tensor ops
-            and converts to torch before sending — workers only need torch and safetensors, with no platform restriction.
-          </p>
-          <p style="color: #666; font-size: 0.9rem; margin-top: 0.5rem;">
-            <strong>Our setup (as an example):</strong> Mac mini M4 as the coordinator, 4× Raspberry Pi 4 as workers — but any Linux/macOS machine can fill either role.
+            checkpoints across a cluster of worker nodes over <strong>raw TCP</strong>, coordinated from a central machine. Each shard
+            is stored on <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. Workers are
+            discovered automatically via <strong>mDNS</strong> — no hardcoded IPs. On macOS, peer-to-peer <strong>AirDrop / AWDL</strong>
+            discovery runs in parallel for router-free Mac-to-Mac networking. A watcher daemon monitors your checkpoint directory and
+            pushes new files automatically — no manual intervention needed.
           </p>
         </div>
       </div>
     </div>
 
-    <div class="columns is-centered has-text-centered" style="margin-top: 1rem;">
+    <div class="columns is-centered has-text-centered" style="margin-top: 1.5rem;">
+      <div class="column is-four-fifths">
+        <figure>
+          <img src="./img/my-pi-cluster.jpeg"
+               alt="4× Raspberry Pi 4 in a rack enclosure connected to a TP-Link PoE switch"
+               style="width:100%; border-radius:12px; box-shadow:0 4px 28px rgba(0,0,0,0.13);">
+          <figcaption style="margin-top:0.6rem; font-size:0.82rem; color:#888;">
+            The worker cluster — 4× Raspberry Pi 4 (4 GB) in a rack enclosure, connected over Ethernet via a TP-Link LS110P PoE switch. Each Pi runs one smoltorrent worker process.
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="columns is-centered has-text-centered" style="margin-top: 2rem;">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Pipeline Workflow</h2>
+        <p style="max-width:760px; margin:0 auto 1.25rem; color:#555; font-size:0.92rem;">
+          End-to-end flow for <strong>store</strong> (left) and <strong>gather</strong> (right). The watcher daemon auto-triggers
+          store on new checkpoint files; gather is invoked via CLI or API. Dashed arrows indicate optional or fallback paths.
+        </p>
+        <div style="overflow-x:auto; border-radius:12px; box-shadow:0 4px 28px rgba(0,0,0,0.10); background:#f8f9fa;">
+          <img src="./img/workflow-flowchart.svg"
+               alt="SmolTorrent pipeline workflow — store and gather flows"
+               style="width:100%; min-width:600px; display:block;">
+        </div>
+      </div>
+    </div>
+
+    <div class="columns is-centered has-text-centered" style="margin-top: 2rem;">
       <div class="column is-four-fifths">
         <h2 class="title is-3">Cluster Architecture</h2>
         <pre class="arch">Coordinator (any macOS / Linux machine)
@@ -139,23 +161,8 @@ Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscal
   <div class="container is-max-desktop">
     <div class="columns is-centered">
       <div class="column is-full-width">
-        <h2 class="title is-3">How It Works</h2>
+        <h2 class="title is-3">Watcher &amp; Discovery</h2>
         <div class="content has-text-justified">
-
-          <h3 class="title is-4">Store</h3>
-          <p>
-            The API loads a checkpoint, splits tensors evenly into N shards (one per worker), computes a SHA-256 checksum per shard,
-            and sends each over TCP. Workers verify the checksum and write the shard to disk with a <code>.checksum</code> sidecar.
-            Failed sends retry with exponential backoff. Each shard is then mirrored to a second worker (replication round), so any
-            single node failure loses no data.
-          </p>
-
-          <h3 class="title is-4">Gather</h3>
-          <p>
-            The API pulls each shard from its primary worker. If the primary is unreachable, it automatically falls back to the replica
-            on the next worker. All shards are merged back into one <code>.safetensors</code> file written as <code>merged.safetensors</code>
-            next to the original checkpoint.
-          </p>
 
           <h3 class="title is-4">Watcher</h3>
           <p>
@@ -218,19 +225,26 @@ Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscal
       <div class="column is-four-fifths">
         <h2 class="title is-3">Usage</h2>
         <div class="content has-text-justified">
+          <p style="font-size:14px; color:#555; margin-bottom:0.75rem;">
+            <strong>Quick start / testing</strong> — no SSH config needed. Workers discover the master over mDNS and self-register:
+          </p>
           <pre class="arch"># Master: advertise and wait for N workers to join
 grove start -n 4
 
-# Worker (each Pi or Mac): find master via TUI, register, start worker
-grove join
+# Worker (each Pi or Mac on the same network): TUI → select master → Enter
+grove join</pre>
 
-# Store a checkpoint across workers with 2× replication (manual)
+          <p style="font-size:14px; color:#555; margin-top:1rem; margin-bottom:0.75rem;">
+            <strong>Production / serious runs</strong> — SSH-based setup with rsync, tmux, and full cluster management:
+          </p>
+          <pre class="arch"># Edit configs/config.yaml with worker SSH aliases + IPs, then:
+bash scripts/launch.sh
+
+# Store / gather manually (watcher handles this automatically)
 grove store --ckpt-path /path/to/checkpoints/model.safetensors
-
-# Reassemble from shards → merged.safetensors (replica fallback if a worker is down)
 grove gather --ckpt-path /path/to/checkpoints/model.safetensors
 
-# Discover live workers on the network (mDNS)
+# Discover live workers (mDNS)
 curl http://&lt;master-ip&gt;:8000/discover</pre>
         </div>
         <a href="./setup.html"
@@ -249,31 +263,69 @@ curl http://&lt;master-ip&gt;:8000/discover</pre>
   <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <div class="column is-four-fifths">
-        <h2 class="title is-3">Our Setup</h2>
+        <h2 class="title is-3">Tested On</h2>
         <div class="content">
-          <p style="color: #555; margin-bottom: 1rem;">Any macOS or Linux machine can act as coordinator or worker. Here's what we tested with:</p>
-          <table class="table is-bordered is-striped is-fullwidth">
+          <p style="color: #555; margin-bottom: 1rem;">Any macOS or Linux machine can act as coordinator or worker. This is the exact setup we developed and tested on:</p>
+          <table class="table is-bordered is-striped is-fullwidth" style="font-size: 0.9rem;">
             <thead>
-              <tr><th>Role</th><th>Hardware</th><th>OS</th><th>Python</th><th>RAM</th></tr>
+              <tr><th>Role</th><th>Hardware</th><th>Chip</th><th>OS</th><th>Python</th><th>RAM</th><th>Storage</th></tr>
             </thead>
             <tbody>
               <tr>
-                <td>Coordinator</td>
-                <td>Apple Mac mini M4 <em>(e.g.)</em></td>
-                <td>macOS 26.2 Tahoe (arm64)</td>
-                <td>3.13</td>
+                <td><strong>Coordinator</strong></td>
+                <td>Apple Mac mini M4</td>
+                <td>Apple M4 (arm64)</td>
+                <td>macOS 26.2 Tahoe</td>
+                <td>3.13.3</td>
                 <td>16 GB</td>
+                <td>256 GB SSD</td>
               </tr>
               <tr>
-                <td>Workers × 4</td>
-                <td>Raspberry Pi 4 Model B Rev 1.5 <em>(e.g.)</em></td>
-                <td>Debian 13 Trixie (aarch64, kernel 6.12)</td>
+                <td><strong>Workers × 4</strong></td>
+                <td>Raspberry Pi 4 Model B Rev 1.5</td>
+                <td>BCM2711 Cortex-A72 (aarch64)</td>
+                <td>Debian 13 Trixie (kernel 6.12)</td>
                 <td>3.13.5</td>
                 <td>4 GB</td>
+                <td>64 GB microSD</td>
               </tr>
             </tbody>
           </table>
-          <p style="color: #666; font-size: 0.9rem;">~100 Mbps Ethernet between nodes (tested over Tailscale VPN). ~2 min per 942 MB checkpoint per worker, parallel across all N workers.</p>
+
+          <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 1rem 0 0.5rem;">
+            <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">Network: ~100 Mbps Ethernet + Tailscale VPN</span>
+            <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">~2 min / 942 MB checkpoint (per worker, parallel)</span>
+            <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">uv 0.9 · safetensors 0.7 · PyTorch 2.11 · MLX 0.31</span>
+          </div>
+
+          <p style="color: #888; font-size: 0.82rem; margin-top: 0.5rem;">Workers can be any Linux or macOS machine — not Pi-specific. Coordinator requires Apple Silicon for MLX tensor ops; workers are platform-agnostic (PyTorch only).</p>
+
+          <h3 class="title is-5" style="margin-top: 2rem; margin-bottom: 0.75rem;">Performance Results</h3>
+          <p style="font-size: 0.88rem; color: #555; margin-bottom: 1.25rem;">
+            3 runs per operation &middot; 4 workers &middot; 2&times; replication &middot; ~100&nbsp;Mbps Ethernet.
+            Watcher traffic excluded from timing (isolated runs).
+          </p>
+          <div style="display:flex; flex-wrap:wrap; gap:1.5rem; justify-content:center; margin-bottom:1.5rem;">
+            <figure style="margin:0; text-align:center;">
+              <img src="img/benchmark_wall_time.png" alt="Store &amp; Gather Wall-Clock Time" style="max-width:420px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Wall-clock time per operation</figcaption>
+            </figure>
+            <figure style="margin:0; text-align:center;">
+              <img src="img/benchmark_throughput.png" alt="Aggregate Throughput" style="max-width:420px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Aggregate throughput (MB/s)</figcaption>
+            </figure>
+          </div>
+          <div style="display:flex; justify-content:center; margin-bottom:1rem;">
+            <figure style="margin:0; text-align:center;">
+              <img src="img/benchmark_speedup.png" alt="Parallel Speedup vs Sequential" style="max-width:480px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Speedup vs. old sequential implementation</figcaption>
+            </figure>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:0.5rem;">
+            <span style="background:#e8f4fd; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#2c6fad;">Qwen 942 MB store: ~191 s &nbsp;·&nbsp; gather: ~115 s</span>
+            <span style="background:#e8f4fd; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#2c6fad;">LFM 676 MB store: ~133 s &nbsp;·&nbsp; gather: ~75 s</span>
+            <span style="background:#eaf7ef; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#27864a;">~2&times; faster store &nbsp;·&nbsp; ~2.3&times; faster gather vs sequential</span>
+          </div>
         </div>
       </div>
     </div>

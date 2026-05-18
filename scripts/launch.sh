@@ -182,6 +182,49 @@ PLIST
         info "Logs:    tail -f /tmp/node-exporter.log"
     fi
 
+    # ── boot_exporter LaunchDaemon ────────────────────────────────────────────
+    BOOT_EXP_PLIST="/Library/LaunchDaemons/com.smoltorrent.boot-exporter.plist"
+    BOOT_EXP_LABEL="com.smoltorrent.boot-exporter"
+    BOOT_EXP_SCRIPT="$PROJECT_DIR/utils/boot_exporter.py"
+    BOOT_EXP_UV="$(command -v uv || echo /opt/homebrew/bin/uv)"
+
+    info "Registering boot_exporter LaunchDaemon → $BOOT_EXP_PLIST"
+    sudo tee "$BOOT_EXP_PLIST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${BOOT_EXP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${BOOT_EXP_UV}</string>
+        <string>run</string>
+        <string>${BOOT_EXP_SCRIPT}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${PROJECT_DIR}</string>
+    <key>UserName</key>
+    <string>$(whoami)</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/smoltorrent-boot-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/smoltorrent-boot-exporter.log</string>
+</dict>
+</plist>
+PLIST
+    sudo chmod 644 "$BOOT_EXP_PLIST"
+    sudo launchctl bootout system/"$BOOT_EXP_LABEL" 2>/dev/null || true
+    sudo launchctl bootstrap system "$BOOT_EXP_PLIST"
+    sudo launchctl enable system/"$BOOT_EXP_LABEL"
+    ok "boot_exporter LaunchDaemon registered — boot time metric on port 9101 survives reboots."
+    info "Verify:  curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms"
+    info "Logs:    tail -f /tmp/smoltorrent-boot-exporter.log"
+
     exit 0
 fi
 
@@ -375,6 +418,29 @@ if ! .venv/bin/python -c "import zeroconf" 2>/dev/null; then
 else
     echo "zeroconf already present on $(hostname)"
 fi
+
+# boot_exporter systemd service
+BOOT_SERVICE="/etc/systemd/system/smoltorrent-boot-exporter.service"
+UV_BIN="$(command -v uv || echo $HOME/.local/bin/uv)"
+cat <<SERVICE | sudo tee "$BOOT_SERVICE" > /dev/null
+[Unit]
+Description=smoltorrent boot time exporter (port 9101)
+After=network.target
+
+[Service]
+Type=simple
+User=$(whoami)
+WorkingDirectory=$resolved_project_dir
+ExecStart=$UV_BIN run $resolved_project_dir/utils/boot_exporter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+sudo systemctl daemon-reload
+sudo systemctl enable --now smoltorrent-boot-exporter
+echo "boot_exporter systemd service registered on $(hostname) (port 9101)"
 EOF
 }
 

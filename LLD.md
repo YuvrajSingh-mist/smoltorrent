@@ -97,7 +97,7 @@ Called after every transfer batch (crosscheck phase). Unlike `sync` which return
 
 ## Redundancy — store (`backend/api.py` → `REDUNDANCY = 2`)
 
-Shards are pre-computed once, then sent in two independent rounds:
+Shards are pre-computed once, then all primary + replica sends fire simultaneously in one pool:
 
 ```python
 shards = []
@@ -105,15 +105,21 @@ for i in range(num_workers):
     sb = shard_to_bytes(chunks[i])
     shards.append((sb, compute_checksum(sb)))
 
-for round_idx in range(REDUNDANCY):   # 0, 1
-    jobs = [
-        (workers[(i + round_idx) % num_workers], sb, cs)
-        for i, (sb, cs) in enumerate(shards)
-    ]
-    # send all N jobs in parallel
+# build all N×REDUNDANCY jobs upfront, both rounds in one flat list
+jobs = []
+for round_idx in range(REDUNDANCY):          # 0 = primary, 1 = replica
+    for i, (sb, cs) in enumerate(shards):
+        jobs.append((workers[(i + round_idx) % num_workers], sb, cs, round_idx))
+
+with ThreadPoolExecutor(max_workers=num_workers * REDUNDANCY) as pool:
+    future_to_job = {
+        pool.submit(_send_shard_to_worker, w, sb, cs, rel_path): (w, sb, cs, round_idx)
+        for w, sb, cs, round_idx in jobs
+    }
+    # as_completed yields futures as they finish; round_idx tracked per-future
 ```
 
-Round 0: `shard i → workers[i]`. Round 1: `shard i → workers[(i+1) % N]`. Every shard lands on exactly two workers. Serialization happens once per shard, before any threads start — MLX arrays are not thread-safe.
+Round 0: `shard i → workers[i]`. Round 1: `shard i → workers[(i+1) % N]`. All 2N sends fire in parallel — wall time is `max(individual send times)` not the sequential sum. Serialization happens once per shard, before any threads start — MLX arrays are not thread-safe.
 
 Success message: `"Done: {2N}/{2N} sends (2x replicated)"`.
 
@@ -121,22 +127,28 @@ Success message: `"Done: {2N}/{2N} sends (2x replicated)"`.
 
 ## Redundancy — gather with replica fallback (`backend/api.py` → `/gather-shards`)
 
+All workers are queried in parallel. Replica fallback happens inside each worker's future:
+
 ```python
 shards_by_index: dict[int, bytes] = {}
 
-for i, worker in enumerate(workers):
+def _gather_one(i, worker):
     ok, err, result = _gather_and_save(worker, shard_index=i)
     if not ok and REDUNDANCY > 1:
         replica = workers[(i + 1) % num_workers]
-        yield _log(f"  ↻ rank {rank} failed — trying replica rank {replica['rank']}")
         ok, err, result = _gather_and_save(replica, shard_index=i)
-    if ok:
-        shards_by_index[i] = received_shard
+    return i, rank, host, ok, err, result
+
+with ThreadPoolExecutor(max_workers=num_workers) as pool:
+    future_to_idx = {pool.submit(_gather_one, i, w): i for i, w in enumerate(workers)}
+    for future in as_completed(future_to_idx):
+        i, rank, host, ok, err, result = future.result()
+        # on ok: shards_by_index[i] already written inside _gather_and_save
 
 merge_shards([shards_by_index[i] for i in range(num_workers)])
 ```
 
-`shards_by_index` is keyed by shard index (0..N-1), not worker rank. If shard 0 falls back to rank 2, it still lands in slot 0 — merge order is always correct regardless of which physical worker served the shard.
+`shards_by_index` is keyed by shard index (0..N-1), not worker rank. If shard 0 falls back to rank 2, it still lands in slot 0 — merge order is always correct regardless of which physical worker served it. Each shard is saved to disk on arrival (not buffered until all shards arrive).
 
 ---
 
@@ -144,7 +156,7 @@ merge_shards([shards_by_index[i] for i in range(num_workers)])
 
 ### mDNS (`discovery/grove/_mdns.py`)
 
-Workers register a `_smoltorrent._tcp.local.` service via zeroconf on startup:
+Workers register a `_smoltorrent._tcp.local.` service via zeroconf on startup. The master registration server uses `_smolt-master._tcp.local.` (name ≤15 bytes — zeroconf limit):
 
 ```python
 ServiceInfo(
@@ -271,16 +283,19 @@ load_tensors(ckpt_path)
 chunk_data(tensors, n_workers)
 serialize all shards upfront (before spawning threads — MLX arrays not thread-safe)
 
-for round_idx in 0, 1:
-    ThreadPoolExecutor(max_workers=n_workers):
-        for each (worker, shard, checksum): _send_shard_to_worker(...)
-            → ("store_shard", rank, shard_bytes, checksum, rel_path)
-            ← ("store_shard_done", ...) or failure
-    failed sends → retry_queue (daemon thread, 2^attempt sec backoff, 6 max retries)
+build jobs: for round in 0,1: for each shard i: (workers[(i+round)%N], sb, cs, round)
+ThreadPoolExecutor(max_workers=n_workers * REDUNDANCY):
+    submit all 2N jobs simultaneously
+    for future in as_completed:
+        → ("store_shard", rank, shard_bytes, checksum, rel_path)
+        ← ("store_shard_done", ...) or failure
+        failed sends → retry_queue (daemon thread, 2^attempt sec backoff, 6 max retries)
 
-store_queue.join()    ← single wait point per round
+store_queue.join()    ← single wait point after all sends complete
 stream log lines as text/plain
 ```
+
+Socket: connect timeout 5s, then `settimeout(None)` for data transfer — large shards need no deadline.
 
 ---
 
@@ -289,19 +304,21 @@ stream log lines as text/plain
 ```
 rel_path = ckpt_path.parent.relative_to(ckpt_root)
 
-for each worker[i] (sequential with replica fallback):
-    → ("send_shard", rank, rel_path)
-    ← shard_bytes
-    if failed: try workers[(i+1) % N]
-    shard_from_bytes(shard_bytes)
-    save to SHARDS_ROOT/worker_{rank}/{rel_path}/shard.safetensors  ← on arrival
+ThreadPoolExecutor(max_workers=n_workers):
+    for each worker[i] in parallel:
+        → ("send_shard", rank, rel_path)
+        ← shard_bytes
+        if failed: immediately try workers[(i+1) % N]  ← replica fallback
+        shard_from_bytes(shard_bytes)
+        save to SHARDS_ROOT/worker_{rank}/{rel_path}/shard.safetensors  ← on arrival
+        shards_by_index[i] = shard
 
 gather_queue.join()
 merge_shards([shards_by_index[i] for i in range(N)])
 save_merged_model → ckpt_root/{rel_path}/merged.safetensors
 ```
 
-Save-on-arrival (not buffer-then-save): a mid-gather failure previously discarded all shards received so far. Now each shard hits disk as soon as it arrives.
+Save-on-arrival: each shard hits disk as soon as it arrives, not buffered until all shards complete.
 
 ---
 

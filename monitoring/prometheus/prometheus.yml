@@ -3,6 +3,29 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  - job_name: boot-exporter
+    static_configs:
+      - targets:
+          - host.docker.internal:9101
+        labels:
+          node: master
+      - targets:
+          - 100.68.124.90:9101
+        labels:
+          node: pi4-1
+      - targets:
+          - 100.79.150.107:9101
+        labels:
+          node: pi4-2
+      - targets:
+          - 100.105.164.35:9101
+        labels:
+          node: pi4-3
+      - targets:
+          - 100.77.162.23:9101
+        labels:
+          node: pi4-4
+
   - job_name: smoltorrent-api
     static_configs:
       - targets:

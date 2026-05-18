@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 340" font-family="'Noto Sans',Arial,sans-serif">
+  <rect width="680" height="340" fill="#f8f9fa"/>
+
+  <!-- Title -->
+  <text x="340" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e1e1e">Replication Factor 2 — Shard Assignment</text>
+
+  <!-- Coordinator -->
+  <rect x="265" y="44" width="150" height="46" rx="8" fill="#ffa8a8" stroke="#c92a2a" stroke-width="2.5"/>
+  <text x="340" y="63" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e1e1e">Coordinator</text>
+  <text x="340" y="79" text-anchor="middle" font-size="11" fill="#555">(Mac mini M4)</text>
+
+  <!-- Vertical stem from coordinator -->
+  <line x1="340" y1="90" x2="340" y2="114" stroke="#aaa" stroke-width="1.5"/>
+
+  <!-- Horizontal bar -->
+  <line x1="90" y1="114" x2="590" y2="114" stroke="#aaa" stroke-width="1.5"/>
+
+  <!-- Drop lines to shard boxes -->
+  <line x1="90"  y1="114" x2="90"  y2="138" stroke="#aaa" stroke-width="1.5"/>
+  <line x1="257" y1="114" x2="257" y2="138" stroke="#aaa" stroke-width="1.5"/>
+  <line x1="423" y1="114" x2="423" y2="138" stroke="#aaa" stroke-width="1.5"/>
+  <line x1="590" y1="114" x2="590" y2="138" stroke="#aaa" stroke-width="1.5"/>
+
+  <!-- Shard labels -->
+  <text x="90"  y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#7048e8">Shard 0</text>
+  <text x="257" y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#7048e8">Shard 1</text>
+  <text x="423" y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#7048e8">Shard 2</text>
+  <text x="590" y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#7048e8">Shard 3</text>
+
+  <!-- Pi Workers (bottom row) -->
+  <!-- Pi 1 -->
+  <rect x="28" y="215" width="100" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="78" y="237" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e1e1e">Pi 1</text>
+  <text x="78" y="252" text-anchor="middle" font-size="10" fill="#555">rank 1 · :5001</text>
+
+  <!-- Pi 2 -->
+  <rect x="195" y="215" width="100" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="245" y="237" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e1e1e">Pi 2</text>
+  <text x="245" y="252" text-anchor="middle" font-size="10" fill="#555">rank 2 · :5002</text>
+
+  <!-- Pi 3 -->
+  <rect x="362" y="215" width="100" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="412" y="237" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e1e1e">Pi 3</text>
+  <text x="412" y="252" text-anchor="middle" font-size="10" fill="#555">rank 3 · :5003</text>
+
+  <!-- Pi 4 -->
+  <rect x="529" y="215" width="100" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="579" y="237" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e1e1e">Pi 4</text>
+  <text x="579" y="252" text-anchor="middle" font-size="10" fill="#555">rank 4 · :5004</text>
+
+  <!-- Shard 0: primary→Pi1, replica→Pi2 -->
+  <line x1="90" y1="138" x2="78" y2="215" stroke="#2f9e44" stroke-width="2" marker-end="url(#arr-g)"/>
+  <text x="58" y="182" font-size="9" fill="#2f9e44">primary</text>
+  <line x1="90" y1="155" x2="245" y2="215" stroke="#f08c00" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-o)"/>
+  <text x="140" y="185" font-size="9" fill="#f08c00">replica</text>
+
+  <!-- Shard 1: primary→Pi2, replica→Pi3 -->
+  <line x1="257" y1="138" x2="245" y2="215" stroke="#2f9e44" stroke-width="2" marker-end="url(#arr-g)"/>
+  <text x="222" y="182" font-size="9" fill="#2f9e44">primary</text>
+  <line x1="257" y1="155" x2="412" y2="215" stroke="#f08c00" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-o)"/>
+  <text x="305" y="185" font-size="9" fill="#f08c00">replica</text>
+
+  <!-- Shard 2: primary→Pi3, replica→Pi4 -->
+  <line x1="423" y1="138" x2="412" y2="215" stroke="#2f9e44" stroke-width="2" marker-end="url(#arr-g)"/>
+  <text x="390" y="182" font-size="9" fill="#2f9e44">primary</text>
+  <line x1="423" y1="155" x2="579" y2="215" stroke="#f08c00" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-o)"/>
+  <text x="472" y="185" font-size="9" fill="#f08c00">replica</text>
+
+  <!-- Shard 3: primary→Pi4, replica→Pi1 (wraps) -->
+  <line x1="590" y1="138" x2="579" y2="215" stroke="#2f9e44" stroke-width="2" marker-end="url(#arr-g)"/>
+  <text x="558" y="182" font-size="9" fill="#2f9e44">primary</text>
+  <!-- Wrap-around replica arrow: Pi4 → Pi1, goes below -->
+  <path d="M 590 162 L 590 290 L 78 290 L 78 270" stroke="#f08c00" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#arr-o)"/>
+  <text x="340" y="308" text-anchor="middle" font-size="9" fill="#f08c00">replica (wraps → Pi 1)</text>
+
+  <!-- Legend -->
+  <line x1="28"  y1="328" x2="60"  y2="328" stroke="#2f9e44" stroke-width="2"/>
+  <text x="66"  y="332" font-size="10" fill="#555">primary copy</text>
+  <line x1="155" y1="328" x2="187" y2="328" stroke="#f08c00" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="193" y="332" font-size="10" fill="#555">replica copy  (workers[(i+1) % N])</text>
+
+  <defs>
+    <marker id="arr-g" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#2f9e44"/>
+    </marker>
+    <marker id="arr-o" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#f08c00"/>
+    </marker>
+  </defs>
+</svg>

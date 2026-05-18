@@ -32,35 +32,72 @@ echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-### 2. Each Pi
+---
 
-Follow the [cluster setup guide](https://www.smolhub.com/posts/raspberry-pi-cluster-setup-guide) to get SSH access, then:
+### Option A — Quick start / testing (no SSH setup needed)
+
+Workers discover the master over mDNS and self-register. No `config.yaml` editing, no SSH config required.
+
+**Each worker** (Pi or Mac mini) — clone and install once:
 
 ```bash
-sudo apt update && sudo apt install -y python3.13 python3.13-venv curl git
+git clone https://github.com/YuvrajSingh-mist/smoltorrent
+cd smoltorrent && uv pip install -e .
 ```
 
-> `uv`, `tmux`, `zeroconf`, and `node_exporter` are installed automatically on Pis by `launch.sh`.
-
-### 3. Start the cluster
-
-**On the master** — advertise and wait for N workers to join:
-
+**Master:**
 ```bash
 grove start -n 4
 ```
 
-This opens a registration server and advertises over mDNS. The terminal prints each worker as it joins.
-
-**On each worker node** (Pi or Mac mini on the same network):
-
+**Each worker:**
 ```bash
 grove join
 ```
 
-This opens an interactive TUI that shows all discovered masters. Select the cluster, press Enter — the worker registers with the master and starts `worker.py` automatically. Once all N workers have joined, the master writes `configs/config.yaml` and runs `launch.sh`.
+Workers find the master via mDNS TUI, register, and start automatically. The master writes `configs/config.yaml` and launches the API + watcher when all N workers have joined.
 
-> No SSH config or static IPs needed. Workers find the master over mDNS automatically.
+---
+
+### Option B — Production / serious runs (SSH-based)
+
+Full cluster management via `launch.sh` — rsyncs code to all Pis, installs deps, starts everything in tmux.
+
+**Prerequisites:** SSH key access to each Pi. Add aliases to `~/.ssh/config`:
+
+```
+Host pi4-1
+    HostName <pi-ip>
+    User <pi-user>
+    IdentityFile ~/.ssh/<your-key>
+    IdentitiesOnly yes
+```
+
+**Edit `configs/config.yaml`** — set `ckpt_root` and one entry per worker (the `host` must match your SSH alias exactly):
+
+```yaml
+ckpt_root: /path/to/checkpoints
+devices_config:
+  master:
+    - host: localhost
+      ip: <server-ip>
+      rank: 0
+      port: 5000
+  workers:
+    - host: pi4-1        # must match Host alias in ~/.ssh/config
+      ip: <pi-ip>
+      rank: 1
+      port: 5001
+    # ... one entry per worker
+```
+
+**Launch:**
+
+```bash
+bash scripts/launch.sh
+```
+
+Rsyncs code to all Pis, installs deps, starts API + watcher + workers in tmux.
 
 ---
 

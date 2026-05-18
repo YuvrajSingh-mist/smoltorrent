@@ -179,6 +179,16 @@ The **Cluster Logs** panel on the dashboard already runs `{job="smoltorrent"}`.
 
 ## Metrics reference
 
+### Boot exporter (`http://<node>:9101/metrics`)
+
+Runs on all 5 nodes. Source: `utils/boot_exporter.py`.
+
+| Metric | Type | Description |
+|---|---|---|
+| `smoltorrent_boot_time_ms` | Gauge | Unix timestamp of last OS boot in milliseconds |
+
+---
+
 ### Master API (`http://localhost:8000/metrics/`)
 
 | Metric | Type | Description |
@@ -209,7 +219,7 @@ Exposed by `algorithms/SyncPS/worker.py` via `prometheus_client`. Each Pi expose
 
 ### System metrics (`http://<node>:9100/metrics`)
 
-Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Powers the CPU, disk, memory, temperature, and boot-time panels in all dashboards.
+Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Powers the CPU, disk, memory, temperature panels in all dashboards.
 
 `bash scripts/launch.sh --daemons` installs and registers `node_exporter` automatically. If you need to do it manually:
 
@@ -217,56 +227,73 @@ Exposed by `node_exporter` on all 5 nodes (Server + 4 Pis). Powers the CPU, disk
 
 ```bash
 brew install node_exporter
-```
-
-Then register it as a system LaunchDaemon — `brew services` is broken on macOS 26 Tahoe so this must be done manually:
-
-```xml
-<!-- /Library/LaunchDaemons/com.node-exporter.plist -->
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.node-exporter</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/node_exporter</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/node-exporter.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/node-exporter.log</string>
-</dict>
-</plist>
-```
-
-`KeepAlive true` means launchd restarts it if it crashes. Then load it:
-
-```bash
 sudo chmod 644 /Library/LaunchDaemons/com.node-exporter.plist
 sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.node-exporter.plist
 sudo launchctl enable system/com.node-exporter
 ```
 
-Verify: `curl http://localhost:9100/metrics | grep node_boot_time_seconds`
-
-**Pis (Linux/Raspberry Pi OS — handled automatically by `launch.sh`):**
+**Pis (Linux — handled automatically by `launch.sh`):**
 
 ```bash
 sudo apt update && sudo apt install -y prometheus-node-exporter
 sudo systemctl enable --now prometheus-node-exporter
 ```
 
-All 4 Pis use systemd — the service starts at boot automatically. Verify on a Pi:
+Verify: `curl http://<node>:9100/metrics | grep node_boot`
+
+---
+
+### Boot time metric (`http://<node>:9101/metrics`)
+
+`utils/boot_exporter.py` — a tiny cross-platform Prometheus exporter that reads the OS boot timestamp directly (`sysctl kern.boottime` on macOS, `/proc/stat` on Linux) and exposes it as `smoltorrent_boot_time_ms`. This powers the **Server Last Boot** and **API Process Last Start** panels.
+
+It runs on port 9101 on all 5 nodes and is registered to survive reboots automatically.
+
+**Server (macOS) — registered by `launch.sh --daemons`:**
 
 ```bash
-systemctl is-active node_exporter   # → active
+sudo bash scripts/launch.sh --daemons
+```
+
+Registers `com.smoltorrent.boot-exporter` as a system LaunchDaemon. Verify:
+
+```bash
+curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
+tail -f /tmp/smoltorrent-boot-exporter.log
+```
+
+**Pis (Linux) — deployed by `launch.sh` via SSH:**
+
+`launch.sh` SSHes into each Pi, writes `/etc/systemd/system/smoltorrent-boot-exporter.service`, and enables it. To install manually on a Pi:
+
+```bash
+# On the Pi
+cat <<EOF | sudo tee /etc/systemd/system/smoltorrent-boot-exporter.service
+[Unit]
+Description=smoltorrent boot time exporter (port 9101)
+After=network.target
+
+[Service]
+Type=simple
+User=$(whoami)
+WorkingDirectory=$HOME/Desktop/smoltorrent
+ExecStart=$HOME/.local/bin/uv run $HOME/Desktop/smoltorrent/utils/boot_exporter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now smoltorrent-boot-exporter
+```
+
+Verify on any Pi:
+
+```bash
+systemctl is-active smoltorrent-boot-exporter   # → active
+curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
 ```
 
 ---

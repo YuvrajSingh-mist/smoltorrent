@@ -14,23 +14,23 @@
       "title": "Server",
       "type": "row",
       "gridPos": {
-        "h": 1,
-        "w": 24,
+        "y": 0,
         "x": 0,
-        "y": 0
+        "w": 24,
+        "h": 1
       },
       "collapsed": false
     },
     {
-      "id": 101,
-      "title": "Server Last Boot",
-      "description": "Time the OS last booted. Jumps forward on reboot.",
-      "type": "stat",
+      "id": 30,
+      "title": "Operation Wall-Clock Time (seconds)",
+      "description": "End-to-end wall time for each /store-shard and /gather-shards call. p50 = typical run; p95/p99 = slowest outliers. Rising values indicate network congestion or slow workers.",
+      "type": "timeseries",
       "gridPos": {
-        "h": 4,
-        "w": 12,
+        "y": 7,
         "x": 0,
-        "y": 1
+        "w": 12,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -38,39 +38,141 @@
       },
       "targets": [
         {
-          "expr": "node_boot_time_seconds{job=\"node\",node=\"master\"} * 1000",
-          "legendFormat": "last boot",
-          "instant": true
+          "expr": "histogram_quantile(0.50, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
+          "legendFormat": "store p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
+          "legendFormat": "store p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
+          "legendFormat": "store p99"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
+          "legendFormat": "gather p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
+          "legendFormat": "gather p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
+          "legendFormat": "gather p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "store p50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gather p50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 101,
+      "title": "Server Uptime (hours)",
+      "description": "Hours since last OS boot. Drops to 0 on reboot.",
+      "type": "timeseries",
+      "gridPos": {
+        "y": 1,
+        "x": 0,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "(time() - node_boot_time_seconds{job=\"node\",node=\"master\"}) / 3600",
+          "legendFormat": "uptime"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "tooltip": {
+          "mode": "single"
         },
-        "colorMode": "none",
-        "graphMode": "none",
-        "textMode": "value",
-        "orientation": "auto"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "dateTimeAsLocal",
+          "unit": "h",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line",
+            "axisLabel": "uptime (h)"
+          },
           "noValue": "N/A"
         }
       }
     },
     {
       "id": 102,
-      "title": "API Process Last Start",
-      "description": "Time the API process last started. Jumps on each restart.",
-      "type": "stat",
+      "title": "API Process Uptime (hours)",
+      "description": "Hours since API process last started. Drops to 0 on each restart.",
+      "type": "timeseries",
       "gridPos": {
-        "h": 4,
-        "w": 12,
+        "y": 1,
         "x": 12,
-        "y": 1
+        "w": 12,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -78,25 +180,34 @@
       },
       "targets": [
         {
-          "expr": "process_start_time_seconds{job=\"smoltorrent-api\"} * 1000",
-          "legendFormat": "API started",
-          "instant": true
+          "expr": "(time() - process_start_time_seconds{job=\"smoltorrent-api\"}) / 3600",
+          "legendFormat": "API uptime"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "tooltip": {
+          "mode": "single"
         },
-        "colorMode": "none",
-        "graphMode": "none",
-        "textMode": "value",
-        "orientation": "auto"
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "dateTimeAsLocal",
+          "unit": "h",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line",
+            "axisLabel": "uptime (h)"
+          },
           "noValue": "N/A"
         }
       }
@@ -107,10 +218,10 @@
       "description": "Send and receive bandwidth as reported directly by the API. A curve that starts fast and decelerates exponentially = O(n\u00b2) copying bug.",
       "type": "timeseries",
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "y": 15,
         "x": 0,
-        "y": 4
+        "w": 12,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -141,10 +252,10 @@
       "description": "p50 / p90 / p95 / p99 send and recv duration. Rising tail = slow worker or network issue.",
       "type": "timeseries",
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "y": 7,
         "x": 12,
-        "y": 4
+        "w": 12,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -199,10 +310,10 @@
       "description": "API up = Prometheus can scrape port 8000; Watcher up = port 8001 reachable. Both must be 1 for the cluster to be fully operational.",
       "type": "stat",
       "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 7
+        "y": 15,
+        "x": 12,
+        "w": 12,
+        "h": 4
       },
       "datasource": {
         "type": "prometheus",
@@ -276,10 +387,10 @@
       "description": "Error rate per worker rank. A rank that keeps erroring = flaky Pi or dead port.",
       "type": "timeseries",
       "gridPos": {
-        "h": 7,
-        "w": 8,
+        "y": 23,
         "x": 0,
-        "y": 16
+        "w": 8,
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -306,10 +417,10 @@
       "description": "Cumulative store and gather operations (counter \u2014 never resets).",
       "type": "timeseries",
       "gridPos": {
-        "h": 7,
-        "w": 8,
+        "y": 23,
         "x": 8,
-        "y": 16
+        "w": 8,
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -351,10 +462,10 @@
       "description": "Rolling average send and receive latency per message.",
       "type": "timeseries",
       "gridPos": {
-        "h": 7,
-        "w": 8,
+        "y": 23,
         "x": 16,
-        "y": 16
+        "w": 8,
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -385,10 +496,10 @@
       "description": "Average and max TCP message buffer size. Sudden spike = unusually large checkpoint.",
       "type": "timeseries",
       "gridPos": {
-        "h": 7,
-        "w": 12,
+        "y": 30,
         "x": 0,
-        "y": 23
+        "w": 12,
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -419,10 +530,10 @@
       "description": "Cumulative bytes sent and received over TCP.",
       "type": "timeseries",
       "gridPos": {
-        "h": 7,
-        "w": 12,
+        "y": 30,
         "x": 12,
-        "y": 23
+        "w": 12,
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -453,10 +564,10 @@
       "description": "Overall CPU utilisation across all cores (100% = 1 core fully busy).",
       "type": "timeseries",
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "y": 37,
         "x": 0,
-        "y": 30
+        "w": 8,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -485,10 +596,10 @@
       "description": "Active + wired memory vs total. macOS does not report a single 'used' counter; active+wired is the closest equivalent.",
       "type": "timeseries",
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "y": 37,
         "x": 8,
-        "y": 30
+        "w": 8,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -519,10 +630,10 @@
       "description": "Available bytes on the root APFS volume.",
       "type": "timeseries",
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "y": 37,
         "x": 16,
-        "y": 30
+        "w": 8,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -553,10 +664,10 @@
       "description": "Read and write throughput on disk0.",
       "type": "timeseries",
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "y": 43,
         "x": 0,
-        "y": 36
+        "w": 8,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -587,10 +698,10 @@
       "description": "1 / 5 / 15 minute load average.",
       "type": "timeseries",
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "y": 43,
         "x": 8,
-        "y": 36
+        "w": 8,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -625,10 +736,10 @@
       "description": "macOS swap usage. Non-zero means memory pressure is causing pages to be compressed/swapped.",
       "type": "timeseries",
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "y": 43,
         "x": 16,
-        "y": 36
+        "w": 8,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -659,10 +770,10 @@
       "description": "All logs from master (API, watcher) and Pi workers in one stream.",
       "type": "logs",
       "gridPos": {
-        "h": 10,
-        "w": 24,
+        "y": 49,
         "x": 0,
-        "y": 42
+        "w": 24,
+        "h": 10
       },
       "datasource": {
         "type": "loki",

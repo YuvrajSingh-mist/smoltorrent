@@ -40,7 +40,7 @@ class WorkerAdvertiser:
                 b"hostname": host.encode(),
             },
         )
-        self._zc.register_service(self._info)
+        self._zc.register_service(self._info, allow_name_change=True)
 
     def close(self) -> None:
         self._zc.unregister_service(self._info)
@@ -127,7 +127,7 @@ class MasterAdvertiser:
                 b"started": str(time.time()).encode(),
             },
         )
-        self._zc.register_service(self._info)
+        self._zc.register_service(self._info, allow_name_change=True)
 
     def close(self) -> None:
         self._zc.unregister_service(self._info)

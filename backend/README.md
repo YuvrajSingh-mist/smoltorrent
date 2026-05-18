@@ -6,7 +6,7 @@ FastAPI REST API that runs on the master node (port 8000). Launched via `bash sc
 
 ### `POST /store-shard`
 
-Loads a checkpoint from disk, splits tensors evenly into N shards (one per worker), computes a SHA-256 checksum per shard, and sends each over TCP to its ranked Pi worker. Workers verify the checksum and write the shard + `.checksum` sidecar to disk.
+Loads a checkpoint from disk, splits tensors evenly into N shards (one per worker), serializes all shards upfront, then fires all N×REDUNDANCY sends simultaneously in one thread pool. Each send carries a SHA-256 checksum; workers verify and write the shard + `.checksum` sidecar to disk.
 
 | Query param | Type | Required | Description |
 |---|---|---|---|
@@ -16,20 +16,26 @@ Loads a checkpoint from disk, splits tensors evenly into N shards (one per worke
 
 ```
 Loaded 290 tensors (942.3 MB) from Qwen2.5-0.5B/gaming/latest — chunking into 4 shards
-  ✓ rank 1 (pi4-1)
-  ✓ rank 2 (pi4-2)
-  ✓ rank 3 (pi4-3)
-  ✓ rank 4 (pi4-4)
-Done: 4/4 shards stored → Qwen2.5-0.5B/gaming/latest
+  ✓ rank 1 (pi4-1) [round 0]
+  ✓ rank 2 (pi4-2) [round 0]
+  ✓ rank 3 (pi4-3) [round 0]
+  ✓ rank 4 (pi4-4) [round 0]
+  ✓ rank 2 (pi4-2) [round 1]
+  ✓ rank 3 (pi4-3) [round 1]
+  ✓ rank 4 (pi4-4) [round 1]
+  ✓ rank 1 (pi4-1) [round 1]
+Done: 8/8 sends (2x replicated) → Qwen2.5-0.5B/gaming/latest
 ```
 
-On partial failure: failed ranks emit `↻ rank N (host) failed — queuing retry: <reason>`. Retried with exponential backoff (`2^attempt` seconds, up to `MAX_RETRIES=6`). Permanently failed shards emit `✗ rank N permanently failed` and the final line is `ERROR: N/M shards failed`.
+Round 0 = primary (shard i → workers[i]). Round 1 = replica (shard i → workers[(i+1) % N]). Both rounds fire in parallel — order of completion is non-deterministic.
+
+On partial failure: failed ranks emit `↻ rank N (host) failed — queuing retry: <reason>`. Retried with exponential backoff (`2^attempt` seconds, up to `MAX_RETRIES=6`). Permanently failed shards emit `✗ rank N permanently failed` and the final line is `ERROR: N/M sends failed`.
 
 ---
 
 ### `POST /gather-shards`
 
-Connects to every configured worker via TCP, pulls each shard, saves it locally, then merges all shards into one `.safetensors` file written as `merged.safetensors` next to the original checkpoint.
+Connects to all workers in parallel via TCP, pulls each shard simultaneously (falling back to the replica worker if the primary is unreachable), saves each shard on arrival, then merges all shards into one `.safetensors` file written as `merged.safetensors` next to the original checkpoint.
 
 | Query param | Type | Required | Description |
 |---|---|---|---|
@@ -95,9 +101,13 @@ Merged output:
 uv run uvicorn backend.api:app --host 0.0.0.0 --port 8000
 ```
 
-Or via the cluster launcher (recommended):
+Or via the cluster launchers:
 
 ```bash
-bash scripts/launch.sh            # starts API + watcher + all workers
-bash scripts/launch.sh --api-only # starts API only (workers must already be running)
+# SSH setup (production) — rsyncs code, starts API + watcher + workers on all Pis
+bash scripts/launch.sh
+bash scripts/launch.sh --api-only  # API only (workers must already be running)
+
+# grove flow (testing) — workers already running via grove join; starts API + watcher only
+bash scripts/grove_launch.sh
 ```

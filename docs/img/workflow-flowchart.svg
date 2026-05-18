@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1450" font-family="'Noto Sans','Google Sans',Arial,sans-serif">
+
+  <defs>
+    <marker id="arr"   markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#495057"/></marker>
+    <marker id="arr-r" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#c92a2a"/></marker>
+    <marker id="arr-g" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2f9e44"/></marker>
+    <marker id="arr-o" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#e8590c"/></marker>
+    <marker id="arr-y" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fab005"/></marker>
+  </defs>
+
+  <!-- Canvas background -->
+  <rect width="1100" height="1450" fill="#f8f9fa"/>
+
+  <!-- Title -->
+  <text x="550" y="30" text-anchor="middle" font-size="19" font-weight="bold" fill="#1e1e1e">SmolTorrent — Pipeline Workflow</text>
+
+  <!-- ── BACKGROUND GROUPS ── -->
+  <rect x="48"  y="44" width="545" height="1390" rx="10" fill="none" stroke="#7048e8" stroke-width="2" stroke-dasharray="8,4"/>
+  <text x="62"  y="60" font-size="11" font-weight="bold" fill="#7048e8">STORE FLOW</text>
+
+  <rect x="610" y="44" width="468" height="1062" rx="10" fill="none" stroke="#2f9e44" stroke-width="2" stroke-dasharray="8,4"/>
+  <text x="624" y="60" font-size="11" font-weight="bold" fill="#2f9e44">GATHER FLOW</text>
+
+  <!-- Worker sub-groups -->
+  <rect x="358" y="957" width="222" height="410" rx="8" fill="#f4fce3" stroke="#2f9e44" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="469" y="971" text-anchor="middle" font-size="10" fill="#2f9e44">Pi Workers (TCP)</text>
+
+  <rect x="862" y="343" width="208" height="198" rx="8" fill="#f4fce3" stroke="#2f9e44" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="963" y="357" text-anchor="middle" font-size="10" fill="#2f9e44">Pi Workers (TCP)</text>
+
+  <!-- ══════════════════════════════════════
+       STORE FLOW — shapes
+       ══════════════════════════════════════ -->
+
+  <!-- s1: Training Script -->
+  <ellipse cx="165" cy="155" rx="85" ry="27" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+  <text x="165" y="149" text-anchor="middle" font-size="12" fill="#1e1e1e">Training Script</text>
+  <text x="165" y="164" text-anchor="middle" font-size="12" fill="#1e1e1e">writes checkpoint</text>
+
+  <!-- s2: Watcher Detects -->
+  <rect x="80" y="243" width="170" height="55" rx="8" fill="#d0bfff" stroke="#7048e8" stroke-width="2"/>
+  <text x="165" y="265" text-anchor="middle" font-size="12" fill="#1e1e1e">Watcher Detects</text>
+  <text x="165" y="280" text-anchor="middle" font-size="12" fill="#1e1e1e">File Creation</text>
+
+  <!-- s3: File Stable? (decision, dashed orange) -->
+  <rect x="80" y="358" width="170" height="55" rx="8" fill="#ffd8a8" stroke="#e8590c" stroke-width="2" stroke-dasharray="6,3"/>
+  <text x="165" y="380" text-anchor="middle" font-size="12" fill="#1e1e1e">File Stable?</text>
+  <text x="165" y="395" text-anchor="middle" font-size="11" fill="#1e1e1e">(size unchanged 1s)</text>
+
+  <!-- s4: Pending Queue (right branch) -->
+  <rect x="313" y="358" width="155" height="55" rx="8" fill="#fff3bf" stroke="#fab005" stroke-width="2"/>
+  <text x="390" y="380" text-anchor="middle" font-size="12" fill="#1e1e1e">Pending Queue</text>
+  <text x="390" y="395" text-anchor="middle" font-size="11" fill="#1e1e1e">(10s re-poll)</text>
+
+  <!-- s5: POST /store-shard -->
+  <rect x="80" y="473" width="170" height="55" rx="8" fill="#d0bfff" stroke="#7048e8" stroke-width="2"/>
+  <text x="165" y="495" text-anchor="middle" font-size="12" fill="#1e1e1e">POST /store-shard</text>
+  <text x="165" y="510" text-anchor="middle" font-size="12" fill="#1e1e1e">(HTTP API)</text>
+
+  <!-- s6: Load Tensors -->
+  <rect x="80" y="578" width="170" height="55" rx="8" fill="#e599f7" stroke="#9c36b5" stroke-width="2"/>
+  <text x="165" y="600" text-anchor="middle" font-size="12" fill="#1e1e1e">Load Tensors</text>
+  <text x="165" y="615" text-anchor="middle" font-size="11" fill="#1e1e1e">(MLX / torch)</text>
+
+  <!-- s7: Chunk N Shards -->
+  <rect x="80" y="683" width="170" height="55" rx="8" fill="#e599f7" stroke="#9c36b5" stroke-width="2"/>
+  <text x="165" y="705" text-anchor="middle" font-size="12" fill="#1e1e1e">Chunk N Shards</text>
+  <text x="165" y="720" text-anchor="middle" font-size="11" fill="#1e1e1e">(deterministic split)</text>
+
+  <!-- s8: Serialize + SHA-256 -->
+  <rect x="80" y="788" width="170" height="55" rx="8" fill="#e599f7" stroke="#9c36b5" stroke-width="2"/>
+  <text x="165" y="810" text-anchor="middle" font-size="12" fill="#1e1e1e">Serialize + SHA-256</text>
+  <text x="165" y="825" text-anchor="middle" font-size="11" fill="#1e1e1e">(shard_to_bytes, once)</text>
+
+  <!-- s9: Build Jobs -->
+  <rect x="80" y="893" width="170" height="55" rx="8" fill="#d0bfff" stroke="#7048e8" stroke-width="2"/>
+  <text x="165" y="915" text-anchor="middle" font-size="12" fill="#1e1e1e">Build N×Redundancy Jobs</text>
+  <text x="165" y="930" text-anchor="middle" font-size="11" fill="#1e1e1e">(primary + replica rounds)</text>
+
+  <!-- s10: ThreadPool Dispatch (coral orchestrator) -->
+  <rect x="70" y="1003" width="200" height="65" rx="8" fill="#ffa8a8" stroke="#c92a2a" stroke-width="3"/>
+  <text x="170" y="1029" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e1e1e">ThreadPool Dispatch</text>
+  <text x="170" y="1046" text-anchor="middle" font-size="11" fill="#1e1e1e">(N×2 parallel sends)</text>
+
+  <!-- s11: Retry Queue -->
+  <rect x="80" y="1130" width="170" height="55" rx="8" fill="#fff3bf" stroke="#fab005" stroke-width="2"/>
+  <text x="165" y="1152" text-anchor="middle" font-size="12" fill="#1e1e1e">Retry Queue</text>
+  <text x="165" y="1167" text-anchor="middle" font-size="11" fill="#1e1e1e">(exp backoff, 6 max)</text>
+
+  <!-- s12: Crosscheck -->
+  <rect x="80" y="1245" width="170" height="55" rx="8" fill="#d0bfff" stroke="#7048e8" stroke-width="2"/>
+  <text x="165" y="1267" text-anchor="middle" font-size="12" fill="#1e1e1e">Crosscheck Workers</text>
+  <text x="165" y="1282" text-anchor="middle" font-size="11" fill="#1e1e1e">(all_shards_present)</text>
+
+  <!-- s13: STORE DONE -->
+  <ellipse cx="165" cy="1386" rx="85" ry="27" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+  <text x="165" y="1390" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="bold" fill="#1e1e1e">STORE DONE</text>
+
+  <!-- ── Store Workers ── -->
+  <rect x="372" y="1003" width="170" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="457" y="1025" text-anchor="middle" font-size="12" fill="#1e1e1e">Receive store_shard</text>
+  <text x="457" y="1040" text-anchor="middle" font-size="11" fill="#1e1e1e">(TCP + pickle frame)</text>
+
+  <rect x="372" y="1105" width="170" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="457" y="1127" text-anchor="middle" font-size="12" fill="#1e1e1e">Verify SHA-256</text>
+  <text x="457" y="1142" text-anchor="middle" font-size="12" fill="#1e1e1e">Checksum</text>
+
+  <rect x="372" y="1205" width="170" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="457" y="1227" text-anchor="middle" font-size="12" fill="#1e1e1e">Write shard.safetensors</text>
+  <text x="457" y="1242" text-anchor="middle" font-size="12" fill="#1e1e1e">to disk</text>
+
+  <rect x="372" y="1305" width="170" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="457" y="1327" text-anchor="middle" font-size="12" fill="#1e1e1e">Write .checksum</text>
+  <text x="457" y="1342" text-anchor="middle" font-size="12" fill="#1e1e1e">Sidecar (SHA-256)</text>
+
+  <!-- ══════════════════════════════════════
+       GATHER FLOW — shapes
+       ══════════════════════════════════════ -->
+
+  <!-- g1: User gather CLI -->
+  <ellipse cx="710" cy="155" rx="85" ry="27" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+  <text x="710" y="149" text-anchor="middle" font-size="12" fill="#1e1e1e">User: gather CLI</text>
+  <text x="710" y="164" text-anchor="middle" font-size="12" fill="#1e1e1e">(main.py gather)</text>
+
+  <!-- g2: POST /gather-shards -->
+  <rect x="625" y="243" width="170" height="55" rx="8" fill="#d0bfff" stroke="#7048e8" stroke-width="2"/>
+  <text x="710" y="265" text-anchor="middle" font-size="12" fill="#1e1e1e">POST /gather-shards</text>
+  <text x="710" y="280" text-anchor="middle" font-size="12" fill="#1e1e1e">(HTTP API)</text>
+
+  <!-- g3: ThreadPool Gather (coral orchestrator) -->
+  <rect x="615" y="358" width="200" height="65" rx="8" fill="#ffa8a8" stroke="#c92a2a" stroke-width="3"/>
+  <text x="715" y="384" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e1e1e">ThreadPool Gather</text>
+  <text x="715" y="400" text-anchor="middle" font-size="11" fill="#1e1e1e">(N parallel queries)</text>
+
+  <!-- g4: Master Receives -->
+  <rect x="625" y="485" width="170" height="55" rx="8" fill="#d0bfff" stroke="#7048e8" stroke-width="2"/>
+  <text x="710" y="507" text-anchor="middle" font-size="12" fill="#1e1e1e">Master Receives Shard</text>
+  <text x="710" y="522" text-anchor="middle" font-size="11" fill="#1e1e1e">(save immediately)</text>
+
+  <!-- g5: Deserialize + Index -->
+  <rect x="625" y="590" width="170" height="55" rx="8" fill="#e599f7" stroke="#9c36b5" stroke-width="2"/>
+  <text x="710" y="612" text-anchor="middle" font-size="12" fill="#1e1e1e">Deserialize + Index</text>
+  <text x="710" y="627" text-anchor="middle" font-size="11" fill="#1e1e1e">(keyed by shard index)</text>
+
+  <!-- g6: Merge Shards -->
+  <rect x="625" y="705" width="170" height="55" rx="8" fill="#e599f7" stroke="#9c36b5" stroke-width="2"/>
+  <text x="710" y="727" text-anchor="middle" font-size="12" fill="#1e1e1e">Merge Shards</text>
+  <text x="710" y="742" text-anchor="middle" font-size="12" fill="#1e1e1e">(union of all keys)</text>
+
+  <!-- g7: Save merged.safetensors -->
+  <rect x="625" y="810" width="170" height="55" rx="8" fill="#ffec99" stroke="#f08c00" stroke-width="2"/>
+  <text x="710" y="832" text-anchor="middle" font-size="12" fill="#1e1e1e">Save merged.safetensors</text>
+  <text x="710" y="847" text-anchor="middle" font-size="12" fill="#1e1e1e">to disk</text>
+
+  <!-- g8: Hub Metadata (optional, dashed) -->
+  <rect x="625" y="915" width="170" height="55" rx="8" fill="#ffe8cc" stroke="#fd7e14" stroke-width="2" stroke-dasharray="6,3"/>
+  <text x="710" y="937" text-anchor="middle" font-size="12" fill="#1e1e1e">[opt] Hub Metadata</text>
+  <text x="710" y="952" text-anchor="middle" font-size="11" fill="#1e1e1e">(tokenizer, config)</text>
+
+  <!-- g9: GATHER DONE -->
+  <ellipse cx="710" cy="1057" rx="85" ry="27" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+  <text x="710" y="1061" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="bold" fill="#1e1e1e">GATHER DONE</text>
+
+  <!-- ── Gather Workers ── -->
+  <rect x="878" y="363" width="170" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="963" y="385" text-anchor="middle" font-size="12" fill="#1e1e1e">Worker: Load Shard</text>
+  <text x="963" y="400" text-anchor="middle" font-size="12" fill="#1e1e1e">from disk</text>
+
+  <rect x="878" y="463" width="170" height="55" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+  <text x="963" y="485" text-anchor="middle" font-size="12" fill="#1e1e1e">Worker: Serialize</text>
+  <text x="963" y="500" text-anchor="middle" font-size="12" fill="#1e1e1e">&amp; Send Bytes</text>
+
+  <!-- ══════════════════════════════════════
+       STORE ARROWS
+       ══════════════════════════════════════ -->
+
+  <!-- s1 → s2 -->
+  <path d="M 165 183 L 165 243" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <!-- s2 → s3 -->
+  <path d="M 165 298 L 165 358" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- s3 → s4 (not stable, right branch) -->
+  <path d="M 250 386 L 313 386" stroke="#e8590c" stroke-width="2" fill="none" marker-end="url(#arr-o)"/>
+  <text x="271" y="377" text-anchor="middle" font-size="10" fill="#e8590c">not stable</text>
+
+  <!-- s3 → s5 (stable, down) -->
+  <path d="M 165 413 L 165 473" stroke="#2f9e44" stroke-width="2" fill="none" marker-end="url(#arr-g)"/>
+  <text x="183" y="430" font-size="10" fill="#2f9e44">stable</text>
+
+  <!-- s5 → s6 → s7 → s8 → s9 -->
+  <path d="M 165 528 L 165 578" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 165 633 L 165 683" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 165 738 L 165 788" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 165 843 L 165 893" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- s9 → s10 (ThreadPool) -->
+  <path d="M 165 948 L 165 1003" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- s10 → Workers (dispatch) -->
+  <path d="M 270 1036 L 372 1036" stroke="#c92a2a" stroke-width="2" fill="none" marker-end="url(#arr-r)"/>
+  <text x="315" y="1026" text-anchor="middle" font-size="10" fill="#c92a2a">dispatch</text>
+
+  <!-- Worker chain -->
+  <path d="M 457 1058 L 457 1105" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 457 1160 L 457 1205" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 457 1260 L 457 1305" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- s10 → s11 (failure / retry path) -->
+  <path d="M 170 1068 L 170 1130" stroke="#fab005" stroke-width="2" fill="none" marker-end="url(#arr-y)"/>
+  <text x="184" y="1087" font-size="10" fill="#fab005">on failure</text>
+
+  <!-- s11 → s12 (after queue.join) -->
+  <path d="M 165 1185 L 165 1245" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <text x="183" y="1204" font-size="10" fill="#495057">queue.join()</text>
+
+  <!-- s12 → s13 -->
+  <path d="M 165 1300 L 165 1358" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- ══════════════════════════════════════
+       GATHER ARROWS
+       ══════════════════════════════════════ -->
+
+  <!-- g1 → g2 → g3 -->
+  <path d="M 710 183 L 710 243" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 710 298 L 710 358" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- g3 → workers (send_shard) -->
+  <path d="M 815 391 L 878 391" stroke="#c92a2a" stroke-width="2" fill="none" marker-end="url(#arr-r)"/>
+  <text x="843" y="381" text-anchor="middle" font-size="10" fill="#c92a2a">send_shard</text>
+
+  <!-- gw1 → gw2 -->
+  <path d="M 963 418 L 963 463" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- gw2 → g4 (bytes back to master, elbow) -->
+  <path d="M 878 491 L 795 491 L 795 512" stroke="#2f9e44" stroke-width="2" fill="none" marker-end="url(#arr-g)" stroke-dasharray="5,3"/>
+  <text x="843" y="481" text-anchor="middle" font-size="10" fill="#2f9e44">bytes back</text>
+
+  <!-- g3 → g4 (orchestration: after all workers done) -->
+  <path d="M 715 423 L 710 485" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- g4 → g5 → g6 → g7 → g8 → g9 -->
+  <path d="M 710 540 L 710 590" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 710 645 L 710 705" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 710 760 L 710 810" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 710 865 L 710 915" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 710 970 L 710 1030" stroke="#495057" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- ── Legend ── -->
+  <rect x="62" y="1410" width="980" height="32" rx="6" fill="#fff" stroke="#dee2e6" stroke-width="1"/>
+  <rect x="74"  y="1420" width="12" height="12" rx="2" fill="#ffa8a8" stroke="#c92a2a" stroke-width="1.5"/>
+  <text x="92"  y="1430" font-size="10" fill="#555">Orchestrator</text>
+  <rect x="160" y="1420" width="12" height="12" rx="2" fill="#d0bfff" stroke="#7048e8" stroke-width="1.5"/>
+  <text x="178" y="1430" font-size="10" fill="#555">API / Control</text>
+  <rect x="260" y="1420" width="12" height="12" rx="2" fill="#e599f7" stroke="#9c36b5" stroke-width="1.5"/>
+  <text x="278" y="1430" font-size="10" fill="#555">Tensor Ops</text>
+  <rect x="352" y="1420" width="12" height="12" rx="2" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1.5"/>
+  <text x="370" y="1430" font-size="10" fill="#555">Worker (Pi)</text>
+  <rect x="438" y="1420" width="12" height="12" rx="2" fill="#fff3bf" stroke="#fab005" stroke-width="1.5"/>
+  <text x="456" y="1430" font-size="10" fill="#555">Queue / Retry</text>
+  <rect x="534" y="1420" width="12" height="12" rx="2" fill="#ffd8a8" stroke="#e8590c" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="552" y="1430" font-size="10" fill="#555">Decision</text>
+  <rect x="612" y="1420" width="12" height="12" rx="2" fill="#ffec99" stroke="#f08c00" stroke-width="1.5"/>
+  <text x="630" y="1430" font-size="10" fill="#555">Storage</text>
+  <rect x="690" y="1420" width="12" height="12" rx="2" fill="#ffe8cc" stroke="#fd7e14" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="708" y="1430" font-size="10" fill="#555">Optional</text>
+  <rect x="768" y="1420" width="12" height="12" rx="2" fill="#e7f5ff" stroke="#1971c2" stroke-width="1.5"/>
+  <text x="786" y="1430" font-size="10" fill="#555">Start / End</text>
+
+</svg>

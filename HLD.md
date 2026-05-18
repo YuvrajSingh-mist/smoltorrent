@@ -43,9 +43,10 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 
 | Operation | Trigger | What happens |
 |---|---|---|
-| **Discover** | `grove start -n N  // master; grove join  // each worker` | TUI scans network, user picks nodes, SSH config + config.yaml written, cluster launched |
-| **Store** | `grove store --ckpt-path <path>` or watcher auto-detect | Split checkpoint → push shards to all workers × 2 rounds |
-| **Gather** | `grove gather --ckpt-path <path>` | Pull shards from workers (replica fallback) → merge → `merged.safetensors` |
+| **Discover (grove)** | `grove start -n N` on master; `grove join` on each worker | Workers find master via mDNS TUI, POST to registration server, receive rank; master writes config.yaml and launches API + watcher |
+| **Discover (SSH)** | `bash scripts/launch.sh` | rsync code to Pis, install deps, start API + watcher + workers in tmux |
+| **Store** | `grove store --ckpt-path <path>` or watcher auto-detect | Split checkpoint → serialize shards once → push all N×REDUNDANCY sends in parallel |
+| **Gather** | `grove gather --ckpt-path <path>` | Pull all shards in parallel (replica fallback per shard) → merge → `merged.safetensors` |
 | **Watch** | `watcher/watch.py` daemon (always running) | Auto-detect new checkpoints, store them, crosscheck all workers |
 
 ---
@@ -65,25 +66,38 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 | `discovery/grove/transport/p2p.py` | Server (macOS) | AirDrop/AWDL peer discovery via Swift helper |
 | `utils/common_utils.py` | Both | Tensor ops: chunk, serialize, deserialize, merge |
 | `utils/shard_ops.py` | Server | HTTP client wrappers that call the API |
-| `scripts/launch.sh` | Server (run manually or via `discover`) | rsync → deps → start all processes in tmux |
+| `scripts/launch.sh` | Server (SSH setup) | rsync → deps → start all processes in tmux |
+| `scripts/grove_launch.sh` | Server (grove flow) | Start API + watcher in tmux only; workers already up via `grove join` |
 | `scripts/install_worker_service.sh` | Server (run once) | Install systemd auto-restart service on each Pi |
+| `utils/boot_exporter.py` | All nodes | Prometheus exporter on port 9101 — exposes `smoltorrent_boot_time_ms` |
 
 ---
 
 ## Discover flow (high level)
 
+### grove flow (no SSH)
 ```
-grove start -n N  // master; grove join  // each worker
-  → discover_workers(timeout=10)
-      mDNS scan (all platforms) + AirDrop scan (macOS) run in parallel threads
-      results merged by rank; mDNS wins on collision
-  → WorkerPickerApp (Textual TUI)
-      user picks nodes with space/enter
-  → ssh_manager.write_ssh_block()
-      writes ### BEGIN SMOLTORRENT MANAGED ### block to ~/.ssh/config
-  → updates configs/config.yaml (workers section + num_workers)
+grove start -n N                              // master
+  → MasterAdvertiser: registers _smolt-master._tcp.local. via mDNS
+  → HTTPServer on port 5999: waits for N worker POSTs
+
+grove join                                    // each worker (TUI)
+  → MasterBrowser: scans for _smolt-master._tcp.local.
+  → JoinApp (Textual TUI): user selects master
+  → POST {hostname, ip, user} → master:5999
+  → master assigns rank, replies {rank, port}
+  → worker starts algorithms/SyncPS/worker.py directly (no SSH)
+
+  once N workers registered:
+  → master writes configs/config.yaml (workers section + num_workers)
+  → master runs grove_launch.sh: starts API + watcher in tmux
+```
+
+### SSH flow (production)
+```
+  → edit configs/config.yaml manually (hosts must match ~/.ssh/config aliases)
   → bash scripts/launch.sh
-      rsyncs code, installs zeroconf, starts API + watcher + workers in tmux
+      rsyncs code to all Pis, installs deps, starts API + watcher + workers in tmux
 ```
 
 ---
@@ -94,10 +108,11 @@ grove start -n N  // master; grove join  // each worker
 Training writes checkpoint
   → watcher detects it
   → watcher calls POST /store-shard
-  → API loads tensors, splits into N chunks, serializes each once
-  → Round 0: shard i → workers[i]          (parallel, N threads)
-  → Round 1: shard i → workers[(i+1) % N]  (parallel, N threads)
+  → API loads tensors, splits into N chunks, serializes each once (MLX not thread-safe)
+  → builds N×REDUNDANCY jobs: shard i → workers[(i+round) % N] for round in 0,1
+  → all 2N sends fire simultaneously in one ThreadPoolExecutor
   → each Pi writes shard.safetensors + shard.checksum to disk
+  → failed sends → retry queue (daemon thread, exponential backoff, 6 retries max)
   → API streams "Done: 2N/2N sends (2x replicated)" → watcher crosschecks
 ```
 
@@ -106,11 +121,12 @@ Training writes checkpoint
 ```
 User runs: grove gather --ckpt-path <path>
   → calls POST /gather-shards
-  → for each worker[i] (parallel):
+  → all N workers queried in parallel (ThreadPoolExecutor):
       → ("send_shard", rank, rel_path)
       ← shard_bytes
       if failed and REDUNDANCY > 1:
-          retry against workers[(i+1) % N]  ← replica fallback
+          immediately retry against workers[(i+1) % N]  ← replica fallback
+      shard saved to disk on arrival (not buffered)
   → merge_shards([shards_by_index[i] for i in range(N)])
   → save → ckpt_root/{rel_path}/merged.safetensors
 ```
@@ -145,8 +161,9 @@ Prometheus + Grafana + Loki run in Docker on the Server. Three metric sources fe
 | Master API | `localhost:8000/metrics/` | Transfer bytes, duration histograms, op counts, errors by rank |
 | Pi workers | `<pi-ip>:920{rank}/metrics` | Per-worker store/send bytes, duration, op counts, errors |
 | node_exporter | `<node>:9100/metrics` | CPU, memory, disk, load, temperature (all 5 nodes) |
+| boot_exporter | `<node>:9101/metrics` | `smoltorrent_boot_time_ms` — OS boot timestamp (macOS + Linux) |
 
-node_exporter runs as a systemd service on each Pi and is started at boot via `smoltorrent_startup.sh` on the Server. See [monitoring/README.md](monitoring/README.md) for setup and the full metrics reference.
+node_exporter and boot_exporter run on all 5 nodes. On the Server, both are registered as LaunchDaemons by `bash scripts/launch.sh --daemons`. On Pis, both are deployed as systemd units by `launch.sh` via SSH. See [monitoring/README.md](monitoring/README.md) for setup and the full metrics reference.
 
 ---
 

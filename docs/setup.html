@@ -99,6 +99,61 @@
     .sidebar nav a.active .step-num {
       background: var(--teal); color: #fff;
     }
+    .sidebar-group-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--ink-3);
+      padding: 12px 10px 4px;
+      border-top: 1px solid var(--line);
+      margin-top: 8px;
+    }
+    .sidebar-group-label:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+    .sidebar nav a.grove-link .step-num {
+      background: #e8f9ef; color: var(--green);
+    }
+    .sidebar nav a.grove-link.active .step-num {
+      background: var(--green); color: #fff;
+    }
+    .sidebar nav a.grove-link:hover, .sidebar nav a.grove-link.active {
+      color: var(--green);
+    }
+    .grove-badge {
+      background: var(--green) !important;
+    }
+    .grove-section {
+      background: #f4fdf8;
+      border: 1px solid #b2dfcb;
+      border-radius: var(--r);
+      padding: 32px 36px;
+      margin-bottom: 16px;
+    }
+    .grove-section .step-badge { background: var(--green); }
+    .grove-section-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 10px;
+    }
+    .grove-tag {
+      display: inline-block;
+      background: var(--green); color: #fff;
+      font-size: 10px; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; padding: 3px 9px; border-radius: 20px;
+      margin-bottom: 14px;
+    }
+    .grove-sub-step {
+      background: rgba(255,255,255,0.75);
+      border: 1px solid #c8eedd;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 14px 0;
+    }
+    .grove-sub-step h3 {
+      font-size: 13px; font-weight: 700; color: var(--green);
+      margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .grove-sub-step h3 .who {
+      background: var(--green); color: #fff;
+      font-size: 10px; padding: 2px 7px; border-radius: 10px;
+      font-weight: 700; letter-spacing: .05em;
+    }
 
     /* ─── Main content ─────────────────────────────────────────────────── */
     .setup-main {
@@ -246,20 +301,122 @@
 
     <!-- ─── Sidebar ───────────────────────────────────────────────────── -->
     <aside class="sidebar">
-      <div class="sidebar-title">Setup Steps</div>
+      <div class="sidebar-title">Setup Guide</div>
       <nav>
+        <div class="sidebar-group-label">Quick start</div>
+        <a href="#grove-quickstart" class="grove-link"><span class="step-num">⚡</span>grove start / join</a>
+
+        <div class="sidebar-group-label">SSH Setup (production)</div>
         <a href="#prereqs-server"><span class="step-num">1</span>Server prerequisites</a>
         <a href="#prereqs-pi"><span class="step-num">2</span>Pi prerequisites</a>
         <a href="#clone"><span class="step-num">3</span>Clone &amp; configure</a>
         <a href="#launch"><span class="step-num">4</span>Launch cluster</a>
-        <a href="#pi-autostart"><span class="step-num">5</span>Pi auto-start <small style="opacity:.6">(opt)</small></a>
-        <a href="#server-autostart"><span class="step-num">6</span>Server auto-start <small style="opacity:.6">(opt)</small></a>
-        <a href="#monitoring"><span class="step-num">7</span>Monitoring <small style="opacity:.6">(opt)</small></a>
+
+        <div class="sidebar-group-label">Optional</div>
+        <a href="#pi-autostart"><span class="step-num">5</span>Pi auto-start</a>
+        <a href="#server-autostart"><span class="step-num">6</span>Server auto-start</a>
+        <a href="#monitoring"><span class="step-num">7</span>Monitoring</a>
       </nav>
     </aside>
 
     <!-- ─── Main ──────────────────────────────────────────────────────── -->
-    <main class="setup-main">
+    <main>
+
+      <!-- Grove quick-start (standalone — no SSH) -->
+      <section class="grove-section step-section" id="grove-quickstart">
+        <div class="grove-tag">Quick start — no SSH required</div>
+        <div class="step-header">
+          <div class="step-badge grove-badge">⚡</div>
+          <h2 class="step-title">grove start / join</h2>
+        </div>
+
+        <p class="desc">Workers discover the master over mDNS and self-register. No SSH config, no manual <code>config.yaml</code> editing — the master writes it automatically once all workers have joined. Good for testing and same-network setups.</p>
+
+        <div class="callout warn">
+          <span class="icon">⚠️</span>
+          <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS multicast to reach them. For production runs over complex networks, use the SSH setup below.</span>
+        </div>
+
+        <!-- Sub-step A: Server install -->
+        <div class="grove-sub-step">
+          <h3><span class="who">Master</span> Install once</h3>
+          <div class="code-block">
+            <pre>brew install uv   <span style="color:#6e7781"># if not already installed</span>
+git clone https://github.com/YuvrajSingh-mist/smoltorrent
+cd smoltorrent && uv sync
+
+<span style="color:#6e7781"># Add grove to your PATH (one time)</span>
+echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc</pre>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+        </div>
+
+        <!-- Sub-step B: Worker install -->
+        <div class="grove-sub-step">
+          <h3><span class="who">Each worker</span> Install once (Pi or any Linux/macOS)</h3>
+          <div class="code-block">
+            <pre><span style="color:#6e7781"># Install uv first if not present</span>
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env   <span style="color:#6e7781"># or open a new shell</span>
+
+git clone https://github.com/YuvrajSingh-mist/smoltorrent
+cd smoltorrent && uv pip install -e .</pre>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+        </div>
+
+        <!-- Sub-step C: Start master -->
+        <div class="grove-sub-step">
+          <h3><span class="who">Master</span> Advertise and wait for workers</h3>
+          <div class="code-block">
+            <pre><span style="color:#6e7781"># Run from inside the smoltorrent directory</span>
+cd smoltorrent
+grove start -n 4   <span style="color:#6e7781"># replace 4 with your worker count</span></pre>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <p style="font-size:13px; color:var(--ink-2); margin-top:6px;">The master advertises itself over mDNS and opens a registration server on port&nbsp;5999. It will wait until all <code>N</code> workers have joined before launching.</p>
+        </div>
+
+        <!-- Sub-step D: Workers join -->
+        <div class="grove-sub-step">
+          <h3><span class="who">Each worker</span> Find the master and join</h3>
+          <div class="code-block">
+            <pre><span style="color:#6e7781"># Run from inside the smoltorrent directory on the worker</span>
+cd smoltorrent
+grove join</pre>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <p style="font-size:13px; color:var(--ink-2); margin-top:6px;">A TUI lists all smoltorrent masters found on the network. Select yours and press Enter. The worker registers, receives its rank, and starts the TCP listener immediately — no manual config needed.</p>
+        </div>
+
+        <!-- What happens next -->
+        <div class="callout tip" style="margin-top:16px;">
+          <span class="icon">✅</span>
+          <div>
+            <strong>Once all N workers have joined:</strong>
+            <ul style="margin: 6px 0 0 16px; font-size:13px; line-height:1.9;">
+              <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
+              <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
+              <li>Cluster is ready — drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout info" style="margin-top:10px;">
+          <span class="icon">ℹ️</span>
+          <span>Set <code>ckpt_root</code> in <code>configs/config.yaml</code> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
+        </div>
+      </section>
+
+      <!-- Divider -->
+      <div style="display:flex; align-items:center; gap:12px; margin:8px 0 16px;">
+        <hr style="flex:1; border:none; border-top:1px solid var(--line);">
+        <span style="font-size:11px; font-weight:700; color:var(--ink-3); letter-spacing:.08em; text-transform:uppercase; white-space:nowrap;">SSH Setup — production / serious runs</span>
+        <hr style="flex:1; border:none; border-top:1px solid var(--line);">
+      </div>
+
+      <div class="setup-main">
 
       <!-- Step 1: Server prerequisites -->
       <section class="step-section" id="prereqs-server">
@@ -275,7 +432,8 @@
 
 <span style="color:#6e7781"># Required tools</span>
 brew install yq       <span style="color:#6e7781"># YAML parser used by launch.sh</span>
-brew install uv       <span style="color:#6e7781"># Python package manager</span></pre>
+brew install uv       <span style="color:#6e7781"># Python package manager</span>
+brew install tmux     <span style="color:#6e7781"># launch.sh starts everything in tmux sessions</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
@@ -294,14 +452,49 @@ brew install uv       <span style="color:#6e7781"># Python package manager</span
 
         <p class="desc">
           Follow the <a href="https://www.smolhub.com/posts/raspberry-pi-cluster-setup-guide" target="_blank" rel="noopener noreferrer">Raspberry Pi cluster setup guide</a>
-          to get your Pis networked and SSH-accessible. Then on each Pi:
+          to get your Pis networked. Then on each Pi:
         </p>
         <div class="code-block">
           <pre>sudo apt update && sudo apt install -y python3.13 python3.13-venv curl git</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">Verify SSH access from the server (needed by <code>launch.sh</code> to rsync code to Pis):</p>
+        <h3 class="sub-title">Set up SSH key auth (server → each Pi)</h3>
+        <p class="desc">Generate a key on the server (skip if you already have one) and copy it to each Pi:</p>
+        <div class="code-block">
+          <pre><span style="color:#6e7781"># On the server — generate key if needed</span>
+ssh-keygen -t ed25519 -C "smoltorrent"
+
+<span style="color:#6e7781"># Copy to each Pi (repeat for each)</span>
+ssh-copy-id &lt;pi-user&gt;@&lt;pi-ip&gt;</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <p class="desc">Add an alias for each Pi in <code>~/.ssh/config</code> on the server. The alias must exactly match the <code>host</code> field you'll set in <code>configs/config.yaml</code>:</p>
+        <div class="code-block">
+          <pre><span style="color:#6e7781"># Append to ~/.ssh/config on the server</span>
+Host pi4-1
+    HostName &lt;pi-ip&gt;
+    User &lt;pi-user&gt;
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
+Host pi4-2
+    HostName &lt;pi-ip&gt;
+    User &lt;pi-user&gt;
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
+<span style="color:#6e7781"># ... one block per Pi</span></pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <div class="callout warn">
+          <span class="icon">⚠️</span>
+          <span><code>launch.sh</code> uses the <code>host</code> value from <code>config.yaml</code> as a literal SSH target — it must exactly match the <code>Host</code> alias above. If they don't match, rsync and remote starts will fail.</span>
+        </div>
+
+        <p class="desc">Verify SSH access from the server (should connect without a password prompt):</p>
         <div class="code-block">
           <pre>ssh pi4-1   <span style="color:#6e7781"># or whatever alias you chose</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -323,16 +516,34 @@ uv sync</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">Add the <code>grove</code> command to your shell (one time):</p>
-        <div class="code-block">
-          <pre>echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc</pre>
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <p class="desc">Edit <code>configs/config.yaml</code> — set <code>ckpt_root</code>, the server's own IP, and each worker's <code>host</code>, <code>ip</code>, <code>port</code>, and <code>rank</code>:</p>
+
+        <div class="callout info" style="margin-bottom:10px;">
+          <span class="icon">ℹ️</span>
+          <span>To find your server's IP on macOS: <code>ipconfig getifaddr en0</code> (Ethernet) or <code>ipconfig getifaddr en1</code> (Wi-Fi). Find each Pi's IP from your router's DHCP table, or run <code>arp -a</code>.</span>
         </div>
 
-        <div class="callout tip">
-          <span class="icon">💡</span>
-          <span>Only <code>ckpt_root</code> in <code>configs/config.yaml</code> needs to be set manually. Worker IPs, ranks, and ports are filled in automatically when workers join.</span>
+        <div class="yaml-block">
+<span class="yaml-key">ckpt_root</span>: <span class="yaml-val">/Users/you/smolcluster/checkpoints</span>
+<span class="yaml-key">num_workers</span>: <span class="yaml-val">4</span>
+<span class="yaml-key">n_chunks</span>: <span class="yaml-val">4</span>
+
+<span class="yaml-key">devices_config</span>:
+  <span class="yaml-key">master</span>:
+    - <span class="yaml-key">host</span>: <span class="yaml-val">localhost</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;your-server-ip&gt;</span>
+      <span class="yaml-key">rank</span>: <span class="yaml-val">0</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5000</span>
+  <span class="yaml-key">workers</span>:
+    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-1</span>    <span class="yaml-comment"># must match Host alias in ~/.ssh/config exactly</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;pi-ip&gt;</span>
+      <span class="yaml-key">rank</span>: <span class="yaml-val">1</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5001</span>
+    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-2</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;pi-ip&gt;</span>
+      <span class="yaml-key">rank</span>: <span class="yaml-val">2</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5002</span>
+    <span class="yaml-comment"># ... one entry per worker</span>
         </div>
       </section>
 
@@ -340,34 +551,28 @@ source ~/.zshrc</pre>
       <section class="step-section" id="launch">
         <div class="step-header">
           <div class="step-badge">4</div>
-          <h2 class="step-title">Start the cluster</h2>
+          <h2 class="step-title">Launch the cluster</h2>
         </div>
 
-        <p class="desc"><strong>On the master</strong> — advertise over mDNS and wait for workers to join:</p>
+        <div class="callout tip">
+          <span class="icon">💡</span>
+          <span><strong>Testing / quick start?</strong> Skip SSH setup and use <code>grove start -n N</code> on the master and <code>grove join</code> on each worker instead. Workers discover the master over mDNS and self-register — no config.yaml editing needed. For production runs, use the SSH flow below.</span>
+        </div>
+
+        <p class="desc">One command rsyncs the codebase to every Pi, installs deps, and starts everything in tmux:</p>
         <div class="code-block">
-          <pre>grove start -n 4   <span style="color:#6e7781"># wait for 4 workers</span></pre>
+          <pre>bash scripts/launch.sh</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc"><strong>On each worker node</strong> (Pi or Mac mini on the same network) — open the TUI, select the master, press Enter:</p>
-        <div class="code-block">
-          <pre>grove join</pre>
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        </div>
-
-        <p class="desc">Once all N workers have joined, the master writes <code>configs/config.yaml</code> automatically and runs <code>launch.sh</code>, which starts:</p>
+        <p class="desc">This starts:</p>
         <ul style="font-size:14px; color: var(--ink-2); line-height:2; margin: 0 0 14px 18px;">
           <li><code>syncps_api</code> — FastAPI server on the master (port 8000)</li>
           <li><code>syncps_watcher</code> — Watcher daemon on the master</li>
           <li><code>syncps_worker_N</code> — TCP worker on each Pi (port 5001+)</li>
         </ul>
 
-        <div class="callout info">
-          <span class="icon">ℹ️</span>
-          <span>No SSH config or static IPs required. Workers discover the master over mDNS and self-register. Mac minis and Pis on the same network both use <code>grove join</code>.</span>
-        </div>
-
-        <h3 class="sub-title">Useful launch flags (passed to launch.sh)</h3>
+        <h3 class="sub-title">Useful launch flags</h3>
         <table class="req-table">
           <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
           <tbody>
@@ -380,14 +585,14 @@ source ~/.zshrc</pre>
 
         <h3 class="sub-title">Watch logs</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># API / watcher</span>
+          <pre><span style="color:#6e7781"># API / watcher (on server)</span>
 tmux attach -t syncps_api
 tmux attach -t syncps_watcher
 
-<span style="color:#6e7781"># Worker (SSH first)</span>
-ssh pi4-1 && tmux attach -t syncps_worker_1
+<span style="color:#6e7781"># Worker logs (SSH into Pi, then attach)</span>
+ssh -t pi4-1 tmux attach -t syncps_worker_1
 
-<span style="color:#6e7781"># All logs</span>
+<span style="color:#6e7781"># All logs tailed locally</span>
 tail -f logging/cluster-logs/*.log</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
@@ -426,26 +631,29 @@ bash scripts/install_worker_service.sh --uninstall</pre>
           <h2 class="step-title">Server auto-start at boot</h2>
         </div>
 
-        <p class="desc">Register macOS LaunchDaemons so the entire cluster comes up after a server reboot — no manual intervention:</p>
+        <p class="desc">Register macOS LaunchDaemons so the entire cluster comes up after a server reboot — no manual intervention. Run from the <code>smoltorrent</code> directory:</p>
         <div class="code-block">
-          <pre>bash scripts/launch.sh --daemons</pre>
+          <pre>sudo bash scripts/launch.sh --daemons</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">This registers two system daemons:</p>
+        <p class="desc">This registers three system daemons:</p>
         <ul style="font-size:14px; color: var(--ink-2); line-height:2; margin: 0 0 14px 18px;">
           <li><code>com.smoltorrent.startup</code> — waits for network (pings first worker every 5&nbsp;s), then runs <code>launch.sh</code></li>
           <li><code>com.node-exporter</code> — keeps <code>node_exporter</code> running for Grafana system stats</li>
+          <li><code>com.smoltorrent.boot-exporter</code> — exposes boot time metric on port 9101 for Grafana</li>
         </ul>
 
         <h3 class="sub-title">Verify &amp; check logs</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Check both are registered</span>
+          <pre><span style="color:#6e7781"># Check all three are registered</span>
 sudo launchctl print system/com.smoltorrent.startup
 sudo launchctl print system/com.node-exporter
+sudo launchctl print system/com.smoltorrent.boot-exporter
 
 <span style="color:#6e7781"># Startup log (after reboot)</span>
-cat /tmp/smoltorrent-startup.log</pre>
+cat /tmp/smoltorrent-startup.log
+cat /tmp/smoltorrent-boot-exporter.log</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
@@ -454,15 +662,91 @@ cat /tmp/smoltorrent-startup.log</pre>
           <span><code>launchctl print</code> may show <code>last exit code = 1</code> and <code>state = not running</code> — this is expected. The daemon runs once at boot, launches everything into tmux, then exits. The cluster keeps running in tmux independently.</span>
         </div>
 
-        <h3 class="sub-title">Remove / uninstall</h3>
+        <h3 class="sub-title">Remove / uninstall all daemons</h3>
         <div class="code-block">
-          <pre>sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
+          <pre><span style="color:#6e7781"># Cluster startup daemon</span>
+sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
 sudo rm -f /Library/LaunchDaemons/com.smoltorrent.startup.plist
 sudo rm -f /usr/local/bin/smoltorrent_startup.sh
 
+<span style="color:#6e7781"># node_exporter (system stats)</span>
 sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
-sudo rm -f /Library/LaunchDaemons/com.node-exporter.plist</pre>
+sudo rm -f /Library/LaunchDaemons/com.node-exporter.plist
+
+<span style="color:#6e7781"># Boot time exporter</span>
+sudo launchctl bootout system/com.smoltorrent.boot-exporter 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/com.smoltorrent.boot-exporter.plist</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+      </section>
+
+      <!-- Step 6b: Boot exporter -->
+      <section class="step-section" id="boot-exporter">
+        <div class="step-header">
+          <div class="step-badge optional">OPT</div>
+          <h2 class="step-title">Boot time exporter</h2>
+        </div>
+
+        <p class="desc"><code>utils/boot_exporter.py</code> exposes <code>smoltorrent_boot_time_ms</code> on port 9101 — the metric that powers the <strong>Server Last Boot</strong> panel in Grafana. It reads the OS boot timestamp directly (<code>sysctl kern.boottime</code> on macOS, <code>/proc/stat</code> on Linux) so the value is always accurate regardless of timezone or Prometheus scrape timing.</p>
+
+        <p class="desc"><strong>Server (macOS)</strong> — registered automatically by <code>--daemons</code> (see Step 6 above). Nothing extra needed.</p>
+        <p class="desc">Registers <code>com.smoltorrent.boot-exporter</code> as a system LaunchDaemon that starts on every boot. Verify:</p>
+        <div class="code-block">
+          <pre>curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
+tail -f /tmp/smoltorrent-boot-exporter.log</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <p class="desc"><strong>Pi workers (Linux)</strong> — deployed automatically by <code>launch.sh</code> via SSH. To install manually on a Pi (SSH in first, then run):</p>
+        <div class="code-block">
+          <pre><span style="color:#6e7781"># SSH into the Pi first, then run — adjust REPO_DIR to where you cloned smoltorrent</span>
+REPO_DIR="$HOME/Desktop/smoltorrent"   <span style="color:#6e7781"># change this if you cloned elsewhere</span>
+
+sudo tee /etc/systemd/system/smoltorrent-boot-exporter.service &lt;&lt;EOF
+[Unit]
+Description=smoltorrent boot time exporter (port 9101)
+After=network.target
+
+[Service]
+Type=simple
+User=$(whoami)
+WorkingDirectory=$REPO_DIR
+ExecStart=$HOME/.local/bin/uv run $REPO_DIR/utils/boot_exporter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now smoltorrent-boot-exporter
+
+<span style="color:#6e7781"># Verify</span>
+systemctl is-active smoltorrent-boot-exporter
+curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <h3 class="sub-title">Disable / uninstall</h3>
+        <p class="desc"><strong>Server (macOS):</strong></p>
+        <div class="code-block">
+          <pre>sudo launchctl bootout system/com.smoltorrent.boot-exporter 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/com.smoltorrent.boot-exporter.plist</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <p class="desc"><strong>Pi workers (Linux):</strong></p>
+        <div class="code-block">
+          <pre><span style="color:#6e7781"># Stop, disable, and remove the unit on a Pi</span>
+sudo systemctl disable --now smoltorrent-boot-exporter
+sudo rm -f /etc/systemd/system/smoltorrent-boot-exporter.service
+sudo systemctl daemon-reload</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">ℹ️</span>
+          <span>Prometheus scrapes all 5 nodes on port 9101. The Grafana panel queries <code>smoltorrent_boot_time_ms{node="master"}</code> — no <code>* 1000</code> conversion needed since the exporter already emits milliseconds.</span>
         </div>
       </section>
 
@@ -481,20 +765,38 @@ sudo rm -f /Library/LaunchDaemons/com.node-exporter.plist</pre>
         <h3 class="sub-title">1. Install Docker (via colima on macOS)</h3>
         <div class="code-block">
           <pre>brew install colima docker docker-compose
-colima start</pre>
+colima start   <span style="color:#6e7781"># must be running before any docker commands</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">ℹ️</span>
+          <span>After a Mac reboot, colima does not start automatically by default. Run <code>colima start</code> again before using Docker, or install the colima LaunchAgent: <code>brew services start colima</code>.</span>
         </div>
 
         <h3 class="sub-title">2. Configure &amp; start the stack</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Copy and fill in credentials</span>
+          <pre><span style="color:#6e7781"># Copy and fill in credentials (from the smoltorrent directory)</span>
 cp monitoring/.env.example monitoring/.env
 <span style="color:#6e7781"># Edit monitoring/.env — set Gmail app password for alert emails</span>
 
 <span style="color:#6e7781"># Start Prometheus + Grafana + Loki</span>
-cd monitoring && docker compose up -d
+cd monitoring && docker compose up -d</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
 
-<span style="color:#6e7781"># Grafana → http://&lt;master-ip&gt;:3000  (admin / smoltorrent)</span></pre>
+        <div class="callout tip">
+          <span class="icon">✅</span>
+          <span>Grafana opens at <strong>http://&lt;master-ip&gt;:3000</strong> — login with <strong>admin / smoltorrent</strong>. Dashboards load automatically under the SmolTorrent folder.</span>
+        </div>
+
+        <h3 class="sub-title">Stop / restart</h3>
+        <div class="code-block">
+          <pre><span style="color:#6e7781"># Stop (volumes and history preserved)</span>
+cd monitoring && docker compose down
+
+<span style="color:#6e7781"># Restart after stopping</span>
+cd monitoring && docker compose up -d</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
@@ -537,6 +839,7 @@ cd monitoring && docker compose up -d
         </table>
       </section>
 
+      </div><!-- /.setup-main -->
     </main>
   </div>
 </div>
