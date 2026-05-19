@@ -334,6 +334,7 @@
       font-family: 'SFMono-Regular', Consolas, monospace;
       font-size: 0.8rem;
       line-height: 1.75;
+      white-space: pre;
       overflow-x: auto;
       margin: 0.5rem 0 0.9rem;
     }
@@ -458,7 +459,7 @@
         <div class="sidebar-group">SSH Setup (production)</div>
         <a href="#prereqs-server"><span class="step-num">1</span>Server prerequisites</a>
         <a href="#prereqs-pi"><span class="step-num">2</span>Pi prerequisites</a>
-        <a href="#clone"><span class="step-num">3</span>Clone &amp; configure</a>
+        <a href="#clone"><span class="step-num">3</span>Clone, configure &amp; port map</a>
         <a href="#launch"><span class="step-num">4</span>Launch cluster</a>
 
         <div class="sidebar-group">Optional</div>
@@ -481,7 +482,7 @@
           <h2 class="step-title">grove start / join</h2>
         </div>
 
-        <p class="desc">Workers discover the master over mDNS and self-register. No SSH config, no manual <code>config.yaml</code> editing — the master writes it automatically once all workers have joined. Good for testing and same-network setups.</p>
+        <p class="desc">Workers discover the master over mDNS and self-register. No SSH config, no manual <a href="#clone"><code>config.yaml</code></a> editing — the master writes it automatically once all workers have joined. Good for testing and same-network setups.</p>
 
         <div class="callout warn">
           <span class="icon">⚠️</span>
@@ -542,7 +543,7 @@ grove join</pre>
           <div>
             <strong>Once all N workers have joined:</strong>
             <ul style="margin: 0.4rem 0 0 1.1rem; font-size:0.92rem; line-height:2;">
-              <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
+              <li>Master writes <a href="#clone"><code>configs/config.yaml</code></a> with each worker's IP, rank, and port.</li>
               <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
               <li>Cluster is ready — drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
             </ul>
@@ -551,7 +552,7 @@ grove join</pre>
 
         <div class="callout info">
           <span class="icon">ℹ️</span>
-          <span>Set <code>ckpt_root</code> in <code>configs/config.yaml</code> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
+          <span>Set <code>ckpt_root</code> in <a href="#clone"><code>configs/config.yaml</code></a> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
         </div>
       </section>
 
@@ -613,7 +614,7 @@ ssh-copy-id &lt;pi-user&gt;@&lt;pi-ip&gt;</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">Add an alias for each Pi in <code>~/.ssh/config</code> on the server. The alias must exactly match the <code>host</code> field you'll set in <code>configs/config.yaml</code>:</p>
+        <p class="desc">Add an alias for each Pi in <code>~/.ssh/config</code> on the server. The alias must exactly match the <code>host</code> field you'll set in <a href="#clone"><code>configs/config.yaml</code></a>:</p>
         <div class="code-block">
           <pre><span style="color:var(--text-ter)"># Append to ~/.ssh/config on the server</span>
 Host pi4-1
@@ -634,7 +635,7 @@ Host pi4-2
 
         <div class="callout warn">
           <span class="icon">⚠️</span>
-          <span><code>launch.sh</code> uses the <code>host</code> value from <code>config.yaml</code> as a literal SSH target — it must exactly match the <code>Host</code> alias above. If they don't match, rsync and remote starts will fail.</span>
+          <span><code>launch.sh</code> uses the <code>host</code> value from <a href="#clone"><code>config.yaml</code></a> as a literal SSH target — it must exactly match the <code>Host</code> alias above. If they don't match, rsync and remote starts will fail.</span>
         </div>
 
         <p class="desc">Verify SSH access from the server (should connect without a password prompt):</p>
@@ -659,35 +660,83 @@ uv sync</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc">Edit <code>configs/config.yaml</code> — set <code>ckpt_root</code>, the server's own IP, and each worker's <code>host</code>, <code>ip</code>, <code>port</code>, and <code>rank</code>:</p>
+        <p class="desc">Add <code>grove</code> to your PATH so you can call it from anywhere:</p>
+        <div class="code-block">
+          <pre>echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+grove --help   <span style="color:var(--text-ter)"># should print grove CLI usage</span></pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <p class="desc">Create your checkpoint root directory (the watcher monitors this folder):</p>
+        <div class="code-block">
+          <pre>mkdir -p ~/smolcluster/checkpoints</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <h3 class="sub-title">Edit configs/config.yaml</h3>
 
         <div class="callout info" style="margin-bottom:0.75rem;">
           <span class="icon">ℹ️</span>
-          <span>To find your server's IP on macOS: <code>ipconfig getifaddr en0</code> (Ethernet) or <code>ipconfig getifaddr en1</code> (Wi-Fi). Find each Pi's IP from your router's DHCP table, or run <code>arp -a</code>.</span>
+          <span>Find your server's LAN IP: <code>ipconfig getifaddr en0</code> (Ethernet) or <code>en1</code> (Wi-Fi). Find each Pi's IP from your router's DHCP table, or run <code>arp -a</code> on the server.</span>
         </div>
 
+        <p class="desc">Below is the <strong>complete working config</strong> for a 4-Pi setup. Replace IPs, paths, and SSH aliases with yours:</p>
+
         <div class="yaml-block">
-<span class="yaml-key">ckpt_root</span>: <span class="yaml-val">/Users/you/smolcluster/checkpoints</span>
-<span class="yaml-key">num_workers</span>: <span class="yaml-val">4</span>
-<span class="yaml-key">n_chunks</span>: <span class="yaml-val">4</span>
+<span class="yaml-comment"># ── Paths ─────────────────────────────────────────────────────────────────────</span>
+<span class="yaml-key">ckpt_root</span>: <span class="yaml-val">~/smolcluster/checkpoints</span>    <span class="yaml-comment"># watcher monitors this dir; must exist (mkdir -p above)</span>
+<span class="yaml-key">data_path</span>: <span class="yaml-val">~/smolcluster/checkpoints/model.safetensors</span>  <span class="yaml-comment"># used by legacy direct-load scripts only; safe to leave as-is</span>
+<span class="yaml-key">save_path</span>: <span class="yaml-val">~/smolcluster/received_model/model.safetensors</span> <span class="yaml-comment"># gather destination for legacy scripts; safe to leave as-is</span>
+
+<span class="yaml-comment"># ── Cluster topology ───────────────────────────────────────────────────────────</span>
+<span class="yaml-key">num_workers</span>: <span class="yaml-val">4</span>      <span class="yaml-comment"># number of worker nodes</span>
+<span class="yaml-key">n_chunks</span>: <span class="yaml-val">4</span>         <span class="yaml-comment"># MUST equal num_workers — each chunk goes to one worker</span>
 
 <span class="yaml-key">devices_config</span>:
   <span class="yaml-key">master</span>:
     - <span class="yaml-key">host</span>: <span class="yaml-val">localhost</span>
-      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;your-server-ip&gt;</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">192.168.1.10</span>   <span class="yaml-comment"># your server's LAN IP (ipconfig getifaddr en0)</span>
       <span class="yaml-key">rank</span>: <span class="yaml-val">0</span>
-      <span class="yaml-key">port</span>: <span class="yaml-val">5000</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5000</span>           <span class="yaml-comment"># internal coord port — not the API port (8000)</span>
+
   <span class="yaml-key">workers</span>:
-    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-1</span>    <span class="yaml-comment"># must match Host alias in ~/.ssh/config exactly</span>
-      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;pi-ip&gt;</span>
-      <span class="yaml-key">rank</span>: <span class="yaml-val">1</span>
-      <span class="yaml-key">port</span>: <span class="yaml-val">5001</span>
+    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-1</span>           <span class="yaml-comment"># MUST exactly match Host alias in ~/.ssh/config</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">192.168.1.7</span>
+      <span class="yaml-key">rank</span>: <span class="yaml-val">1</span>               <span class="yaml-comment"># ranks are 1-based; must be unique and sequential</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5001</span>             <span class="yaml-comment"># TCP port for shard transfer (NOT Prometheus metrics)</span>
     - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-2</span>
-      <span class="yaml-key">ip</span>: <span class="yaml-val">&lt;pi-ip&gt;</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">192.168.1.5</span>
       <span class="yaml-key">rank</span>: <span class="yaml-val">2</span>
       <span class="yaml-key">port</span>: <span class="yaml-val">5002</span>
-    <span class="yaml-comment"># ... one entry per worker</span>
+    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-3</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">192.168.1.3</span>
+      <span class="yaml-key">rank</span>: <span class="yaml-val">3</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5003</span>
+    - <span class="yaml-key">host</span>: <span class="yaml-val">pi4-4</span>
+      <span class="yaml-key">ip</span>: <span class="yaml-val">192.168.1.6</span>
+      <span class="yaml-key">rank</span>: <span class="yaml-val">4</span>
+      <span class="yaml-key">port</span>: <span class="yaml-val">5004</span>
         </div>
+
+        <div class="callout warn">
+          <span class="icon">⚠️</span>
+          <span><strong><code>n_chunks</code> must equal <code>num_workers</code></strong> — each chunk is assigned to exactly one worker. If they differ, sharding silently under/over-assigns and gather will fail.</span>
+        </div>
+
+        <h3 class="sub-title">Port map — what uses what</h3>
+        <table class="req-table">
+          <thead><tr><th>Port</th><th>Where</th><th>What</th></tr></thead>
+          <tbody>
+            <tr><td><code>8000</code></td><td>Server</td><td>FastAPI — <code>/store-shard</code>, <code>/gather-shards</code>, <code>/discover</code></td></tr>
+            <tr><td><code>8001</code></td><td>Server</td><td>Watcher Prometheus metrics</td></tr>
+            <tr><td><code>5001–5004</code></td><td>Each Pi</td><td>Worker TCP listener — raw shard transfer (not HTTP)</td></tr>
+            <tr><td><code>9201–9204</code></td><td>Each Pi</td><td>Worker Prometheus metrics (rank+9200)</td></tr>
+            <tr><td><code>9100</code></td><td>All nodes</td><td>node_exporter — system stats for Grafana</td></tr>
+            <tr><td><code>9101</code></td><td>All nodes</td><td>boot_exporter — last boot timestamp</td></tr>
+            <tr><td><code>3000</code></td><td>Server</td><td>Grafana UI</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- Step 4: Launch -->
@@ -699,7 +748,7 @@ uv sync</pre>
 
         <div class="callout tip">
           <span class="icon">💡</span>
-          <span><strong>Testing / quick start?</strong> Skip SSH setup and use <code>grove start -n N</code> on the master and <code>grove join</code> on each worker. Workers discover the master over mDNS and self-register — no config.yaml editing needed.</span>
+          <span><strong>Testing / quick start?</strong> Skip SSH setup and use <code>grove start -n N</code> on the master and <code>grove join</code> on each worker. Workers discover the master over mDNS and self-register — no <a href="#clone">config.yaml</a> editing needed.</span>
         </div>
 
         <p class="desc">One command rsyncs the codebase to every Pi, installs deps, and starts everything in tmux:</p>
@@ -718,6 +767,24 @@ uv sync</pre>
           <li><code>syncps_watcher</code> — Watcher daemon on the master</li>
           <li><code>syncps_worker_N</code> — TCP worker on each Pi (port 5001+)</li>
         </ul>
+
+        <h3 class="sub-title">Verify the cluster is up</h3>
+        <div class="code-block">
+          <pre><span style="color:var(--text-ter)"># Should return JSON with all 4 workers listed</span>
+curl http://localhost:8000/discover
+
+<span style="color:var(--text-ter)"># Should print "API Process Uptime" metric (confirms API is scraping)</span>
+curl -s http://localhost:8000/metrics/ | grep process_start_time
+
+<span style="color:var(--text-ter)"># Check tmux sessions exist</span>
+tmux ls   <span style="color:var(--text-ter)"># expect: syncps_api, syncps_watcher, syncps_worker_1..4 on Pis</span></pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <div class="callout tip">
+          <span class="icon">✅</span>
+          <span><strong>Success looks like:</strong> <code>/discover</code> returns <code>"workers": [...]</code> with all 4 Pis listed. If a worker is missing, SSH into that Pi and check <code>tmux attach -t syncps_worker_N</code> for the error.</span>
+        </div>
 
         <h3 class="sub-title">Useful launch flags</h3>
         <table class="req-table">
