@@ -38,7 +38,8 @@ def ensure_compiled() -> Path:
 
     result = subprocess.run(
         ["swiftc", "-O", "-o", str(bin_path), str(_SWIFT_SRC)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Swift compilation failed:\n{result.stderr}")

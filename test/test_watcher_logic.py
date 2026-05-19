@@ -9,6 +9,7 @@ Tests:
 
 Markers: integration — requires cluster running (bash scripts/launch.sh).
 """
+
 import shutil
 import socket
 import subprocess
@@ -23,7 +24,12 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import chunk_data, compute_checksum, load_tensors, shard_to_bytes
+from utils.common_utils import (
+    chunk_data,
+    compute_checksum,
+    load_tensors,
+    shard_to_bytes,
+)
 from watcher.watch import (
     _crosscheck_all_workers,
     _scan_local,
@@ -59,6 +65,7 @@ _EXTENSIONS = [".safetensors"]
 # _sync_all_workers
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 class TestSyncAllWorkers:
     def test_returns_set(self):
@@ -73,7 +80,9 @@ class TestSyncAllWorkers:
     def test_intersection_subset_of_any_worker(self):
         intersection = _sync_all_workers(WORKERS, _EXTENSIONS)
         # Every path in intersection must exist on worker 1
-        worker1_paths = set(_send_recv(WORKERS[0], ("sync", WORKERS[0]["rank"], _EXTENSIONS)) or [])
+        worker1_paths = set(
+            _send_recv(WORKERS[0], ("sync", WORKERS[0]["rank"], _EXTENSIONS)) or []
+        )
         assert intersection <= worker1_paths
 
     def test_unknown_extension_returns_empty(self):
@@ -84,6 +93,7 @@ class TestSyncAllWorkers:
 # ---------------------------------------------------------------------------
 # _crosscheck_all_workers
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 class TestCrosscheckAllWorkers:
@@ -103,11 +113,14 @@ class TestCrosscheckAllWorkers:
         # Write a tiny valid safetensors file
         from safetensors.torch import save_file
         import torch
+
         save_file({"w": torch.ones(2, 2)}, str(fake_file))
 
         try:
             missing = _crosscheck_all_workers(WORKERS, [fake_file], CKPT_ROOT)
-            assert fake_file in missing, "Fake path should be reported missing on workers"
+            assert fake_file in missing, (
+                "Fake path should be reported missing on workers"
+            )
         finally:
             shutil.rmtree(CKPT_ROOT / "__pytest_fake__", ignore_errors=True)
 
@@ -115,6 +128,7 @@ class TestCrosscheckAllWorkers:
 # ---------------------------------------------------------------------------
 # _scan_local extension filtering
 # ---------------------------------------------------------------------------
+
 
 class TestScanLocal:
     def test_safetensors_found(self, tmp_path):
@@ -150,6 +164,7 @@ class TestScanLocal:
 # Watcher file trigger — drop a new checkpoint, poll workers until synced
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 class TestWatcherFileTrigger:
     _TRIGGER_REL = "__pytest_trigger__/watcher/test/latest"
@@ -169,9 +184,13 @@ class TestWatcherFileTrigger:
         for w in WORKERS:
             try:
                 subprocess.run(
-                    ["ssh", "-i", str(Path.home() / ".ssh/smolcluster_key"),
-                     w["host"],
-                     f"rm -rf ~/Desktop/smoltorrent/shards/worker_{w['rank']}/__pytest_trigger__"],
+                    [
+                        "ssh",
+                        "-i",
+                        str(Path.home() / ".ssh/smolcluster_key"),
+                        w["host"],
+                        f"rm -rf ~/Desktop/smoltorrent/shards/worker_{w['rank']}/__pytest_trigger__",
+                    ],
                     timeout=10,
                 )
             except Exception:
@@ -198,16 +217,30 @@ class TestWatcherFileTrigger:
         d_model, d_ff = 64, 256
         weights = {}
         for layer in range(6):
-            weights[f"model.layers.{layer}.self_attn.q_proj.weight"] = mx.ones([d_model, d_model])
-            weights[f"model.layers.{layer}.self_attn.k_proj.weight"] = mx.ones([d_model, d_model])
-            weights[f"model.layers.{layer}.self_attn.v_proj.weight"] = mx.ones([d_model, d_model])
-            weights[f"model.layers.{layer}.self_attn.o_proj.weight"] = mx.ones([d_model, d_model])
-            weights[f"model.layers.{layer}.mlp.gate_proj.weight"]    = mx.ones([d_ff, d_model])
-            weights[f"model.layers.{layer}.mlp.up_proj.weight"]      = mx.ones([d_ff, d_model])
-            weights[f"model.layers.{layer}.mlp.down_proj.weight"]    = mx.ones([d_model, d_ff])
-            weights[f"model.layers.{layer}.input_layernorm.weight"]  = mx.ones([d_model])
+            weights[f"model.layers.{layer}.self_attn.q_proj.weight"] = mx.ones(
+                [d_model, d_model]
+            )
+            weights[f"model.layers.{layer}.self_attn.k_proj.weight"] = mx.ones(
+                [d_model, d_model]
+            )
+            weights[f"model.layers.{layer}.self_attn.v_proj.weight"] = mx.ones(
+                [d_model, d_model]
+            )
+            weights[f"model.layers.{layer}.self_attn.o_proj.weight"] = mx.ones(
+                [d_model, d_model]
+            )
+            weights[f"model.layers.{layer}.mlp.gate_proj.weight"] = mx.ones(
+                [d_ff, d_model]
+            )
+            weights[f"model.layers.{layer}.mlp.up_proj.weight"] = mx.ones(
+                [d_ff, d_model]
+            )
+            weights[f"model.layers.{layer}.mlp.down_proj.weight"] = mx.ones(
+                [d_model, d_ff]
+            )
+            weights[f"model.layers.{layer}.input_layernorm.weight"] = mx.ones([d_model])
         weights["model.embed_tokens.weight"] = mx.ones([256, d_model])
-        weights["lm_head.weight"]            = mx.ones([256, d_model])
+        weights["lm_head.weight"] = mx.ones([256, d_model])
         mx.save_safetensors(str(trigger_file), weights)
 
         # Give watchdog 30s to detect and trigger; if not, push manually via API
@@ -250,8 +283,9 @@ class TestWatcherFileTrigger:
         rel = "__pytest_pth_test__/latest"
         for w in WORKERS:
             missing = _send_recv(w, ("all_shards_present", w["rank"], [rel]))
-            assert rel in missing, \
+            assert rel in missing, (
                 f"rank {w['rank']} should NOT have .pth shard, but reported it present"
+            )
 
         shutil.rmtree(CKPT_ROOT / "__pytest_pth_test__", ignore_errors=True)
 
@@ -260,22 +294,31 @@ class TestWatcherFileTrigger:
 # Partial transfer recovery — 3/4 workers get shard, re-run fills the gap
 # ---------------------------------------------------------------------------
 
+
 def _make_gpt_checkpoint(path: Path) -> None:
     """Write a 50-tensor 6-layer GPT-style checkpoint so chunk_data produces
     4 distinct shards (one per worker). Same structure used by TestWatcherFileTrigger."""
     d_model, d_ff = 64, 256
     weights = {}
     for layer in range(6):
-        weights[f"model.layers.{layer}.self_attn.q_proj.weight"] = mx.ones([d_model, d_model])
-        weights[f"model.layers.{layer}.self_attn.k_proj.weight"] = mx.ones([d_model, d_model])
-        weights[f"model.layers.{layer}.self_attn.v_proj.weight"] = mx.ones([d_model, d_model])
-        weights[f"model.layers.{layer}.self_attn.o_proj.weight"] = mx.ones([d_model, d_model])
-        weights[f"model.layers.{layer}.mlp.gate_proj.weight"]    = mx.ones([d_ff, d_model])
-        weights[f"model.layers.{layer}.mlp.up_proj.weight"]      = mx.ones([d_ff, d_model])
-        weights[f"model.layers.{layer}.mlp.down_proj.weight"]    = mx.ones([d_model, d_ff])
-        weights[f"model.layers.{layer}.input_layernorm.weight"]  = mx.ones([d_model])
+        weights[f"model.layers.{layer}.self_attn.q_proj.weight"] = mx.ones(
+            [d_model, d_model]
+        )
+        weights[f"model.layers.{layer}.self_attn.k_proj.weight"] = mx.ones(
+            [d_model, d_model]
+        )
+        weights[f"model.layers.{layer}.self_attn.v_proj.weight"] = mx.ones(
+            [d_model, d_model]
+        )
+        weights[f"model.layers.{layer}.self_attn.o_proj.weight"] = mx.ones(
+            [d_model, d_model]
+        )
+        weights[f"model.layers.{layer}.mlp.gate_proj.weight"] = mx.ones([d_ff, d_model])
+        weights[f"model.layers.{layer}.mlp.up_proj.weight"] = mx.ones([d_ff, d_model])
+        weights[f"model.layers.{layer}.mlp.down_proj.weight"] = mx.ones([d_model, d_ff])
+        weights[f"model.layers.{layer}.input_layernorm.weight"] = mx.ones([d_model])
     weights["model.embed_tokens.weight"] = mx.ones([256, d_model])
-    weights["lm_head.weight"]            = mx.ones([256, d_model])
+    weights["lm_head.weight"] = mx.ones([256, d_model])
     mx.save_safetensors(str(path), weights)
 
 
@@ -288,17 +331,22 @@ class TestPartialTransferRecovery:
     since not ALL workers have it), pushes to all 4, then crosscheck at the end
     confirms every worker has it.
     """
-    _REL  = "__pytest_partial__/recovery/test/latest"
-    _DIR  = CKPT_ROOT / "__pytest_partial__" / "recovery" / "test" / "latest"
+
+    _REL = "__pytest_partial__/recovery/test/latest"
+    _DIR = CKPT_ROOT / "__pytest_partial__" / "recovery" / "test" / "latest"
 
     def _cleanup(self):
         shutil.rmtree(CKPT_ROOT / "__pytest_partial__", ignore_errors=True)
         for w in WORKERS:
             try:
                 subprocess.run(
-                    ["ssh", "-i", str(Path.home() / ".ssh/smolcluster_key"),
-                     w["host"],
-                     f"rm -rf ~/Desktop/smoltorrent/shards/worker_{w['rank']}/__pytest_partial__"],
+                    [
+                        "ssh",
+                        "-i",
+                        str(Path.home() / ".ssh/smolcluster_key"),
+                        w["host"],
+                        f"rm -rf ~/Desktop/smoltorrent/shards/worker_{w['rank']}/__pytest_partial__",
+                    ],
                     timeout=10,
                 )
             except Exception:
@@ -314,24 +362,27 @@ class TestPartialTransferRecovery:
 
         # Chunk the checkpoint exactly as the API does
         tensors = load_tensors(ckpt_file)
-        chunks  = chunk_data(tensors, n_chunks=len(WORKERS))
+        chunks = chunk_data(tensors, n_chunks=len(WORKERS))
 
         # Store to only the first 3 workers — worker 4 is skipped (simulates crash mid-transfer)
         for i, worker in enumerate(WORKERS[:3]):
             shard_bytes = shard_to_bytes(chunks[i])
-            checksum    = compute_checksum(shard_bytes)
+            checksum = compute_checksum(shard_bytes)
             result = _send_recv(
                 worker,
                 ("store_shard", worker["rank"], shard_bytes, checksum, self._REL),
                 timeout=30.0,
             )
-            assert result is not None and result[0] == "store_shard_done", \
+            assert result is not None and result[0] == "store_shard_done", (
                 f"rank {worker['rank']} store failed: {result}"
+            )
 
         # Confirm worker 4 does not have the shard
         w4 = WORKERS[3]
         missing = _send_recv(w4, ("all_shards_present", w4["rank"], [self._REL]))
-        assert self._REL in missing, "Worker 4 should be missing the shard at this point"
+        assert self._REL in missing, (
+            "Worker 4 should be missing the shard at this point"
+        )
 
         # Re-run — equivalent to the watcher's transfer loop re-running store
         try:
@@ -343,6 +394,8 @@ class TestPartialTransferRecovery:
         # All 4 workers must now have the shard (crosscheck passes)
         for w in WORKERS:
             missing = _send_recv(w, ("all_shards_present", w["rank"], [self._REL]))
-            assert missing == [], f"rank {w['rank']} still missing after re-run: {missing}"
+            assert missing == [], (
+                f"rank {w['rank']} still missing after re-run: {missing}"
+            )
 
         self._cleanup()

@@ -5,9 +5,9 @@ Markers:
                   discover it, confirm it appears. No cluster needed.
   api           — live /discover endpoint: requires API running + Pi workers up.
 """
+
 import socket
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from discovery import advertise_worker, discover_workers
+from discovery import discover_workers
 from discovery._mdns import WorkerAdvertiser, discover_mdns_workers
 
 API_BASE = "http://localhost:8000"
@@ -27,6 +27,7 @@ _FAKE_PORT = 19099
 # ---------------------------------------------------------------------------
 # Local Mac mDNS loopback (no cluster required)
 # ---------------------------------------------------------------------------
+
 
 class TestMdnsLoopback:
     """Start a fake WorkerAdvertiser on this Mac, discover it locally.
@@ -76,7 +77,7 @@ class TestMdnsLoopback:
         assert worker["ip"] != "127.0.0.1", "Expected a real LAN IP, not loopback"
 
     def test_context_manager_closes_cleanly(self):
-        with WorkerAdvertiser(rank=_FAKE_RANK, port=_FAKE_PORT) as adv:
+        with WorkerAdvertiser(rank=_FAKE_RANK, port=_FAKE_PORT):
             time.sleep(0.5)
         # After __exit__, the service should be unregistered — no exception = pass
 
@@ -107,6 +108,7 @@ class TestMdnsLoopback:
 # ---------------------------------------------------------------------------
 # Live /discover endpoint (requires API + Pi workers running)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.api
 class TestDiscoverEndpoint:

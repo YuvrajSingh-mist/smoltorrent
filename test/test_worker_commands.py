@@ -5,6 +5,7 @@ Tests every command the worker handles against live Pi workers:
 
 Markers: integration — requires cluster running (bash scripts/launch.sh).
 """
+
 import socket
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.common_utils import chunk_data, compute_checksum, shard_to_bytes, shard_from_bytes
+from utils.common_utils import compute_checksum, shard_to_bytes, shard_from_bytes
 
 _CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 
@@ -48,7 +49,9 @@ _FAKE_REL_PATH = "__test__/pytest/shard_cmd_test/latest"
 
 @pytest.mark.integration
 class TestHeartbeat:
-    @pytest.mark.parametrize("worker", WORKERS, ids=[f"rank{w['rank']}" for w in WORKERS])
+    @pytest.mark.parametrize(
+        "worker", WORKERS, ids=[f"rank{w['rank']}" for w in WORKERS]
+    )
     def test_alive(self, worker):
         result = _send_recv(worker, "heartbeat")
         assert result == "alive", f"rank {worker['rank']} did not reply alive: {result}"
@@ -56,12 +59,18 @@ class TestHeartbeat:
 
 @pytest.mark.integration
 class TestSync:
-    @pytest.mark.parametrize("worker", WORKERS, ids=[f"rank{w['rank']}" for w in WORKERS])
+    @pytest.mark.parametrize(
+        "worker", WORKERS, ids=[f"rank{w['rank']}" for w in WORKERS]
+    )
     def test_returns_list(self, worker):
         result = _send_recv(worker, ("sync", worker["rank"], [".safetensors"]))
-        assert isinstance(result, list), f"rank {worker['rank']} sync returned {type(result)}"
+        assert isinstance(result, list), (
+            f"rank {worker['rank']} sync returned {type(result)}"
+        )
 
-    @pytest.mark.parametrize("worker", WORKERS, ids=[f"rank{w['rank']}" for w in WORKERS])
+    @pytest.mark.parametrize(
+        "worker", WORKERS, ids=[f"rank{w['rank']}" for w in WORKERS]
+    )
     def test_paths_are_strings(self, worker):
         result = _send_recv(worker, ("sync", worker["rank"], [".safetensors"]))
         for p in result:
@@ -98,8 +107,9 @@ class TestAllShardsPresent:
         fake = ["__nonexistent__/run/latest", "__also_fake__/run/latest"]
         for w in WORKERS:
             missing = _send_recv(w, ("all_shards_present", w["rank"], fake))
-            assert set(fake) == set(missing), \
+            assert set(fake) == set(missing), (
                 f"rank {w['rank']} should report all fake paths missing, got: {missing}"
+            )
 
     def test_empty_list_returns_empty(self):
         for w in WORKERS:
@@ -146,7 +156,9 @@ class TestStoreShard:
             timeout=30.0,
         )
         assert result is not None
-        assert result[0] == "store_shard_done", f"Expected store_shard_done, got: {result}"
+        assert result[0] == "store_shard_done", (
+            f"Expected store_shard_done, got: {result}"
+        )
 
     def test_bad_checksum_rejected(self):
         worker = WORKERS[0]
@@ -179,7 +191,9 @@ class TestSendShard:
         )
 
         # Retrieve
-        received = _send_recv(worker, ("send_shard", worker["rank"], _FAKE_REL_PATH), timeout=30.0)
+        received = _send_recv(
+            worker, ("send_shard", worker["rank"], _FAKE_REL_PATH), timeout=30.0
+        )
         assert received is not None, "send_shard returned None for existing shard"
         assert isinstance(received, bytes)
 
@@ -188,5 +202,7 @@ class TestSendShard:
 
     def test_send_nonexistent_returns_none(self):
         worker = WORKERS[0]
-        result = _send_recv(worker, ("send_shard", worker["rank"], "__nonexistent__/path/latest"))
+        result = _send_recv(
+            worker, ("send_shard", worker["rank"], "__nonexistent__/path/latest")
+        )
         assert result is None

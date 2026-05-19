@@ -5,9 +5,10 @@ live Pi workers — all TCP calls are mocked.
 
 Run with:  pytest test/test_store_redundancy_parallel.py -v
 """
+
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -53,6 +54,7 @@ def fake_ckpt(tmp_path):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _collect_body(response) -> str:
     """Read a streaming TestClient response into one string."""
     return response.content.decode()
@@ -61,6 +63,7 @@ def _collect_body(response) -> str:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestStoreRedundancyParallel:
     """Verify that the parallelised two-round store sends to the right workers."""
@@ -79,14 +82,20 @@ class TestStoreRedundancyParallel:
 
         # Default: every send succeeds immediately
         def _ok_send(worker, shard_bytes, checksum, rel_path):
-            return True, "", {"shard_path": f"/remote/shard_{worker['rank']}.safetensors"}
+            return (
+                True,
+                "",
+                {"shard_path": f"/remote/shard_{worker['rank']}.safetensors"},
+            )
 
         side_effect = send_side_effect or _ok_send
 
         send_mock = MagicMock(side_effect=side_effect)
 
-        with patch.object(api_mod, "_load_config", return_value=cfg), \
-             patch.object(api_mod, "_send_shard_to_worker", send_mock):
+        with (
+            patch.object(api_mod, "_load_config", return_value=cfg),
+            patch.object(api_mod, "_send_shard_to_worker", send_mock),
+        ):
             client = TestClient(api_mod.app)
             resp = client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
 
@@ -111,21 +120,20 @@ class TestStoreRedundancyParallel:
         sent_pairs: list[tuple[int, int]] = []  # (shard_bytes_id, worker_rank)
 
         # Capture which worker gets which shard_bytes object (identity via id())
-        shard_bytes_order: list[int] = []
-
         def _capture(worker, shard_bytes, checksum, rel_path):
             sent_pairs.append((id(shard_bytes), worker["rank"]))
             return True, "", {"shard_path": "/tmp/x"}
 
-        import backend.api as api_mod
-
-        with patch.object(api_mod, "_load_config", return_value=cfg), \
-             patch.object(api_mod, "_send_shard_to_worker", side_effect=_capture):
+        with (
+            patch.object(api_mod, "_load_config", return_value=cfg),
+            patch.object(api_mod, "_send_shard_to_worker", side_effect=_capture),
+        ):
             client = TestClient(api_mod.app)
             client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
 
         # Group by shard_bytes identity → which ranks received it
         from collections import defaultdict
+
         ranks_per_shard: dict[int, set[int]] = defaultdict(set)
         for shard_id, rank in sent_pairs:
             ranks_per_shard[shard_id].add(rank)
@@ -150,8 +158,10 @@ class TestStoreRedundancyParallel:
             ranks_per_shard[id(shard_bytes)].append(worker["rank"])
             return True, "", {"shard_path": "/tmp/x"}
 
-        with patch.object(api_mod, "_load_config", return_value=cfg), \
-             patch.object(api_mod, "_send_shard_to_worker", side_effect=_capture):
+        with (
+            patch.object(api_mod, "_load_config", return_value=cfg),
+            patch.object(api_mod, "_send_shard_to_worker", side_effect=_capture),
+        ):
             client = TestClient(api_mod.app)
             client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
 
@@ -163,9 +173,8 @@ class TestStoreRedundancyParallel:
             idx0 = worker_ranks.index(r0)
             idx1 = worker_ranks.index(r1)
             # One must be the circular successor of the other
-            adjacent = (
-                (idx1 == (idx0 + 1) % N_WORKERS) or
-                (idx0 == (idx1 + 1) % N_WORKERS)
+            adjacent = (idx1 == (idx0 + 1) % N_WORKERS) or (
+                idx0 == (idx1 + 1) % N_WORKERS
             )
             assert adjacent, (
                 f"Ranks {r0} and {r1} are not adjacent in the worker ring {worker_ranks}"
@@ -181,9 +190,7 @@ class TestStoreRedundancyParallel:
     def test_done_line_reports_correct_send_count(self, fake_ckpt):
         body, _ = self._run_store(fake_ckpt)
         expected = f"{N_WORKERS * 2}/{N_WORKERS * 2} sends"
-        assert expected in body, (
-            f"Expected '{expected}' in body:\n{body}"
-        )
+        assert expected in body, f"Expected '{expected}' in body:\n{body}"
 
     def test_done_line_says_2x_replicated(self, fake_ckpt):
         body, _ = self._run_store(fake_ckpt)

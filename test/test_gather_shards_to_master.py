@@ -43,7 +43,9 @@ def _prepare_node_shards(
 def _collect_latest_node_shards(shard_root: Path) -> list[Path]:
     shard_paths = []
     for node_dir in sorted(shard_root.glob("node-*")):
-        node_shards = sorted(node_dir.glob("*.safetensors"), key=lambda p: p.stat().st_mtime)
+        node_shards = sorted(
+            node_dir.glob("*.safetensors"), key=lambda p: p.stat().st_mtime
+        )
         if not node_shards:
             continue
         shard_paths.append(node_shards[-1])
@@ -81,7 +83,9 @@ def _save_merged(weights: dict, path: Path) -> None:
             )
 
 
-def _gather_shards_to_master(shard_paths: list[Path], merged_weights_path: Path) -> Path:
+def _gather_shards_to_master(
+    shard_paths: list[Path], merged_weights_path: Path
+) -> Path:
     merged_weights = {}
 
     for shard_path in shard_paths:
@@ -124,7 +128,10 @@ def _prepare_master_model_dir(
 
 
 def _format_prompt(tokenizer, prompt: str) -> str:
-    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
+    if (
+        hasattr(tokenizer, "apply_chat_template")
+        and tokenizer.chat_template is not None
+    ):
         messages = [{"role": "user", "content": prompt}]
         return tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=False
@@ -181,9 +188,13 @@ def test_node_shards_present_and_valid(cluster_shards) -> None:
     all_shard_keys: list[set] = []
     for rank, shard_path in enumerate(gathered_shard_paths, start=1):
         assert shard_path.exists(), f"Shard for rank {rank} not found: {shard_path}"
-        assert shard_path.stat().st_size > 0, f"Shard for rank {rank} is empty: {shard_path}"
+        assert shard_path.stat().st_size > 0, (
+            f"Shard for rank {rank} is empty: {shard_path}"
+        )
         shard_weights = _load_shard(shard_path)
-        assert shard_weights, f"Shard for rank {rank} loaded with no tensors: {shard_path}"
+        assert shard_weights, (
+            f"Shard for rank {rank} loaded with no tensors: {shard_path}"
+        )
         all_shard_keys.append(set(shard_weights.keys()))
 
     seen_keys: set = set()
@@ -201,7 +212,9 @@ def test_node_shards_present_and_valid(cluster_shards) -> None:
         f"Extra: {sorted(seen_keys - set(source_weights.keys()))[:5]}"
     )
 
-    print(f"\n--- Shard validation passed ({n_nodes} shards, {len(seen_keys)} total keys) ---")
+    print(
+        f"\n--- Shard validation passed ({n_nodes} shards, {len(seen_keys)} total keys) ---"
+    )
 
 
 @pytest.mark.integration
@@ -232,4 +245,6 @@ def test_gather_all_node_shards_to_master_and_generate_text(cluster_shards) -> N
 
     assert isinstance(response, str)
     assert response.strip()
-    print(f"\n--- Generated response ---\n{response.strip()}\n--------------------------")
+    print(
+        f"\n--- Generated response ---\n{response.strip()}\n--------------------------"
+    )

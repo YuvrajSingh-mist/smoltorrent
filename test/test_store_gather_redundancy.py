@@ -8,6 +8,7 @@ Run:
   pytest -m api                         # store + gather + discover
   pytest -m "api or ssh"                # + replica fallback
 """
+
 import subprocess
 import sys
 import time
@@ -21,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 API_BASE = "http://localhost:8000"
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
+
+
 def _config():
     with _CONFIG_PATH.open() as f:
         return yaml.safe_load(f)
@@ -39,7 +42,9 @@ def _ckpt_path() -> str:
 def _stream_post(endpoint: str, ckpt_path: str) -> str:
     """POST to a streaming endpoint, collect and return full body as string."""
     with httpx.Client(timeout=None) as client:
-        with client.stream("POST", f"{API_BASE}/{endpoint}", params={"ckpt_path": ckpt_path}) as resp:
+        with client.stream(
+            "POST", f"{API_BASE}/{endpoint}", params={"ckpt_path": ckpt_path}
+        ) as resp:
             resp.raise_for_status()
             return resp.read().decode()
 
@@ -48,9 +53,9 @@ def _stream_post(endpoint: str, ckpt_path: str) -> str:
 # /store-shard with REDUNDANCY=2
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.api
 class TestStoreShard:
-
     @pytest.fixture(scope="class")
     def ckpt_path(self):
         return _ckpt_path()
@@ -68,7 +73,6 @@ class TestStoreShard:
     def test_store_sends_two_rounds(self, store_body):
         """With REDUNDANCY=2 every rank should appear twice (round 0 + round 1)."""
         cfg = _config()
-        num_workers = len(cfg["devices_config"]["workers"])
         for w in cfg["devices_config"]["workers"]:
             rank = w["rank"]
             count = store_body.count(f"rank {rank}")
@@ -97,9 +101,9 @@ class TestStoreShard:
 # /gather-shards
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.api
 class TestGatherShards:
-
     @pytest.fixture(scope="class")
     def ckpt_path(self):
         return _ckpt_path()
@@ -119,7 +123,9 @@ class TestGatherShards:
     def test_gather_all_shards_collected(self, gather_body):
         cfg = _config()
         for i in range(len(cfg["devices_config"]["workers"])):
-            assert f"shard {i}" in gather_body, f"shard {i} not mentioned in gather output"
+            assert f"shard {i}" in gather_body, (
+                f"shard {i} not mentioned in gather output"
+            )
 
     def test_merged_file_exists(self, ckpt_path, gather_body):
         cfg = _config()
@@ -136,6 +142,7 @@ class TestGatherShards:
 # ---------------------------------------------------------------------------
 # Replica fallback (requires SSH to kill/restart a Pi worker)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.api
 @pytest.mark.ssh
@@ -162,17 +169,23 @@ class TestReplicaFallback:
         time.sleep(3)  # wait for port to close
         body = _stream_post("gather-shards", ckpt_path)
         # Restore pi4-1
-        subprocess.run([
-            "ssh", self._PI,
-            f"cd ~/Desktop/smoltorrent && tmux new-session -d -s syncps_worker_{self._RANK} "
-            f"\"bash -lc '.venv/bin/python algorithms/SyncPS/worker.py {self._RANK} {self._PI} "
-            f"2>&1 | tee /tmp/smolcluster-logs/syncps-worker-rank{self._RANK}-{self._PI}.log; exec bash'\""
-        ], capture_output=True)
+        subprocess.run(
+            [
+                "ssh",
+                self._PI,
+                f"cd ~/Desktop/smoltorrent && tmux new-session -d -s syncps_worker_{self._RANK} "
+                f"\"bash -lc '.venv/bin/python algorithms/SyncPS/worker.py {self._RANK} {self._PI} "
+                f"2>&1 | tee /tmp/smolcluster-logs/syncps-worker-rank{self._RANK}-{self._PI}.log; exec bash'\"",
+            ],
+            capture_output=True,
+        )
         time.sleep(6)  # wait for worker to fully bind + re-advertise
         return body
 
     def test_gather_succeeds_with_primary_down(self, fallback_body):
-        assert "ERROR" not in fallback_body, f"Gather failed with pi4-1 down:\n{fallback_body}"
+        assert "ERROR" not in fallback_body, (
+            f"Gather failed with pi4-1 down:\n{fallback_body}"
+        )
         assert "Done: saved →" in fallback_body
 
     def test_fallback_message_logged(self, fallback_body):

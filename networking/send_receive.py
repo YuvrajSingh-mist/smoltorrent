@@ -3,6 +3,7 @@
 Messages are length-prefixed (4-byte big-endian header) and pickled.
 A global ``NetworkMetrics`` instance tracks bytes and latency for every send/receive.
 """
+
 import pickle
 import struct
 import socket
@@ -19,20 +20,43 @@ _network_metrics = NetworkMetrics()
 # Optional — only available on master (Mac). Pi workers don't expose /metrics.
 try:
     from prometheus_client import Counter, Gauge, Histogram
-    _PROM_BYTES_SENT       = Counter("smoltorrent_bytes_sent_total",       "Total bytes sent over TCP")
-    _PROM_BYTES_RECV       = Counter("smoltorrent_bytes_recv_total",       "Total bytes received over TCP")
-    _PROM_SEND_SECONDS     = Histogram("smoltorrent_send_duration_seconds", "Duration of each TCP send",
-                               buckets=[.01, .05, .1, .5, 1, 5, 10, 30, 60, 120, 300])
-    _PROM_RECV_SECONDS     = Histogram("smoltorrent_recv_duration_seconds", "Duration of each TCP receive",
-                               buckets=[.01, .05, .1, .5, 1, 5, 10, 30, 60, 120, 300])
+
+    _PROM_BYTES_SENT = Counter(
+        "smoltorrent_bytes_sent_total", "Total bytes sent over TCP"
+    )
+    _PROM_BYTES_RECV = Counter(
+        "smoltorrent_bytes_recv_total", "Total bytes received over TCP"
+    )
+    _PROM_SEND_SECONDS = Histogram(
+        "smoltorrent_send_duration_seconds",
+        "Duration of each TCP send",
+        buckets=[0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 120, 300],
+    )
+    _PROM_RECV_SECONDS = Histogram(
+        "smoltorrent_recv_duration_seconds",
+        "Duration of each TCP receive",
+        buckets=[0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 120, 300],
+    )
     # Derived gauges — same fields as FSDP's get_network_metrics() dict, readable directly in Grafana
     # without needing rate() PromQL on raw counters.
-    _PROM_SEND_BW_MBPS     = Gauge("smoltorrent_send_bandwidth_mbps",      "Send bandwidth Mbps (rolling)")
-    _PROM_RECV_BW_MBPS     = Gauge("smoltorrent_recv_bandwidth_mbps",      "Recv bandwidth Mbps (rolling)")
-    _PROM_AVG_SEND_LAT_MS  = Gauge("smoltorrent_avg_send_latency_ms",      "Avg send latency ms (rolling)")
-    _PROM_AVG_RECV_LAT_MS  = Gauge("smoltorrent_avg_recv_latency_ms",      "Avg recv latency ms (rolling)")
-    _PROM_AVG_BUF_KB       = Gauge("smoltorrent_avg_buffer_size_kb",       "Average TCP message buffer size KB")
-    _PROM_MAX_BUF_KB       = Gauge("smoltorrent_max_buffer_size_kb",       "Max TCP message buffer size KB")
+    _PROM_SEND_BW_MBPS = Gauge(
+        "smoltorrent_send_bandwidth_mbps", "Send bandwidth Mbps (rolling)"
+    )
+    _PROM_RECV_BW_MBPS = Gauge(
+        "smoltorrent_recv_bandwidth_mbps", "Recv bandwidth Mbps (rolling)"
+    )
+    _PROM_AVG_SEND_LAT_MS = Gauge(
+        "smoltorrent_avg_send_latency_ms", "Avg send latency ms (rolling)"
+    )
+    _PROM_AVG_RECV_LAT_MS = Gauge(
+        "smoltorrent_avg_recv_latency_ms", "Avg recv latency ms (rolling)"
+    )
+    _PROM_AVG_BUF_KB = Gauge(
+        "smoltorrent_avg_buffer_size_kb", "Average TCP message buffer size KB"
+    )
+    _PROM_MAX_BUF_KB = Gauge(
+        "smoltorrent_max_buffer_size_kb", "Max TCP message buffer size KB"
+    )
     _HAS_PROM = True
 except ImportError:
     _HAS_PROM = False
@@ -87,7 +111,9 @@ def send_message(sock: socket.socket, message: Any) -> None:
     # Prepend payload length as 4-byte big-endian uint so receiver knows exactly
     # how many bytes to read. 4 bytes = 32-bit uint = up to ~4 GB per message.
     sock.sendall(struct.pack(">I", len(data)) + data)
-    elapsed = time.time() - start_time  # measured after sendall — includes actual wire time
+    elapsed = (
+        time.time() - start_time
+    )  # measured after sendall — includes actual wire time
     _network_metrics.record_send(len(data), elapsed)
     if _HAS_PROM:
         _PROM_BYTES_SENT.inc(len(data))

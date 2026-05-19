@@ -14,14 +14,14 @@ from typing import Optional
 _RESET = "\033[0m"
 
 _LEVEL_COLOURS = {
-    logging.DEBUG:    "\033[36m",    # cyan
-    logging.INFO:     "\033[32m",    # green
-    logging.WARNING:  "\033[33m",    # yellow
-    logging.ERROR:    "\033[31m",    # red
+    logging.DEBUG: "\033[36m",  # cyan
+    logging.INFO: "\033[32m",  # green
+    logging.WARNING: "\033[33m",  # yellow
+    logging.ERROR: "\033[31m",  # red
     logging.CRITICAL: "\033[1;31m",  # bold red
 }
 
-_TAG_COLOUR = "\033[35m"   # magenta — for bracketed tags like [MODEL], [LORA]
+_TAG_COLOUR = "\033[35m"  # magenta — for bracketed tags like [MODEL], [LORA]
 _DIM = "\033[2m"
 _CTX_COLOUR = "\033[1;35m"  # bold magenta — for the context prefix
 
@@ -61,7 +61,12 @@ def set_log_context(
     Call once from the main entry-point after setup_logging().
     Fields are shown as  [arch | algorithm | role | hardware]  in each line.
     """
-    for key, val in (("algorithm", algorithm), ("arch", arch), ("role", role), ("hardware", hardware)):
+    for key, val in (
+        ("algorithm", algorithm),
+        ("arch", arch),
+        ("role", role),
+        ("hardware", hardware),
+    ):
         if val:
             _CTX[key] = val
 
@@ -131,13 +136,21 @@ def setup_logging(
     root.setLevel(level)
 
     # Quieten noisy third-party loggers
-    for noisy in ("httpx", "httpcore", "urllib3", "filelock", "datasets", "huggingface_hub"):
+    for noisy in (
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "filelock",
+        "datasets",
+        "huggingface_hub",
+    ):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 # ---------------------------------------------------------------------------
 # Cluster logging (file-based, structured)
 # ---------------------------------------------------------------------------
+
 
 class RankFilter(logging.Filter):
     """Attach rank and component fields to every log record."""
@@ -170,7 +183,11 @@ def setup_cluster_logging(
 
     def _pick_writable(preferred: Optional[str]) -> Path:
         default = _project_log_dir()
-        for candidate in [Path(preferred) if preferred else default, default, Path.cwd() / "smolcluster-logs"]:
+        for candidate in [
+            Path(preferred) if preferred else default,
+            default,
+            Path.cwd() / "smolcluster-logs",
+        ]:
             try:
                 candidate.mkdir(parents=True, exist_ok=True)
                 probe = candidate / ".write_probe"
@@ -187,18 +204,28 @@ def setup_cluster_logging(
     set_log_context(
         algorithm=algorithm,
         arch=arch,
-        role=("server" if component == "server" else f"worker-{rank}" if rank is not None else "worker"),
+        role=(
+            "server"
+            if component == "server"
+            else f"worker-{rank}"
+            if rank is not None
+            else "worker"
+        ),
         hardware=hardware,
     )
 
     algo_prefix = f"{algorithm}-" if algorithm else ""
     log_file = _pick_writable(log_dir) / (
-        f"{algo_prefix}server-{hostname or 'unknown'}.log" if component == "server"
+        f"{algo_prefix}server-{hostname or 'unknown'}.log"
+        if component == "server"
         else f"{algo_prefix}worker-rank{rank}-{hostname or 'unknown'}.log"
     )
 
     # Avoid duplicate handlers
-    if any(isinstance(h, logging.FileHandler) and h.baseFilename == str(log_file) for h in logger.handlers):
+    if any(
+        isinstance(h, logging.FileHandler) and h.baseFilename == str(log_file)
+        for h in logger.handlers
+    ):
         return
 
     logger.addFilter(RankFilter(rank=rank, component=component))
@@ -206,21 +233,38 @@ def setup_cluster_logging(
     try:
         fh = logging.FileHandler(log_file, mode="a")
     except PermissionError:
-        fallback = _pick_writable(str(_project_log_dir().parent / "cluster-logs-fallback"))
+        fallback = _pick_writable(
+            str(_project_log_dir().parent / "cluster-logs-fallback")
+        )
         fh = logging.FileHandler(fallback / log_file.name, mode="a")
 
     # Build a clean, human-readable format for the file (no ANSI colours)
-    ctx_parts = [p for p in (arch, algorithm, ("server" if component == "server" else f"worker-{rank}"), hardware) if p]
+    ctx_parts = [
+        p
+        for p in (
+            arch,
+            algorithm,
+            ("server" if component == "server" else f"worker-{rank}"),
+            hardware,
+        )
+        if p
+    ]
     ctx_str = " | ".join(ctx_parts)
     fh.setLevel(level)
-    fh.setFormatter(logging.Formatter(
-        f"%(asctime)s  %(levelname)-8s  [{ctx_str}]  %(name)s  %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    fh.setFormatter(
+        logging.Formatter(
+            f"%(asctime)s  %(levelname)-8s  [{ctx_str}]  %(name)s  %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
     logger.addHandler(fh)
     logger.info(
         "Logging initialised: %s  [algorithm=%s arch=%s role=%s hardware=%s]",
-        log_file, algorithm or "?", arch or "?", component, hardware or "?",
+        log_file,
+        algorithm or "?",
+        arch or "?",
+        component,
+        hardware or "?",
     )
 
 
@@ -235,12 +279,16 @@ def log_shard_progress(logger: logging.Logger, gathered: list, errors: list) -> 
     total = len(gathered) + len(errors)
     logger.info(f"Gathered {len(gathered)}/{total} shards")
     for s in gathered:
-        logger.info(f"  ✓ rank {s['rank']} ({s['host']})  →  {s.get('shard_path', 'n/a')}")
+        logger.info(
+            f"  ✓ rank {s['rank']} ({s['host']})  →  {s.get('shard_path', 'n/a')}"
+        )
     for e in errors:
         logger.error(f"  ✗ rank {e['rank']} ({e['host']}): {e['error']}")
 
 
-def log_step(logger: logging.Logger, step: int, message: str, level: int = logging.INFO) -> None:
+def log_step(
+    logger: logging.Logger, step: int, message: str, level: int = logging.INFO
+) -> None:
     """Emit a structured step log line: ``step:<n> | <message>``.
 
     Args:
@@ -252,7 +300,13 @@ def log_step(logger: logging.Logger, step: int, message: str, level: int = loggi
     logger.log(level, "step:%d | %s", step, message)
 
 
-def log_metric(logger: logging.Logger, step: int, metric_name: str, value: float, extra_info: Optional[str] = None) -> None:
+def log_metric(
+    logger: logging.Logger,
+    step: int,
+    metric_name: str,
+    value: float,
+    extra_info: Optional[str] = None,
+) -> None:
     """Emit a structured metric log line: ``step:<n> | metric:<name> | value:<v>``.
 
     Args:
@@ -305,4 +359,7 @@ def emit_smol_event(event_type: str, direction: str, arch: str, count: int = 1) 
     once per peer / per prompt gives one animation burst per exchange — rather
     than a single burst for the whole batch.
     """
-    print(f'[SMOL_EVENT] {json.dumps({"type": event_type, "dir": direction, "arch": arch, "count": max(1, int(count))})}', flush=True)
+    print(
+        f"[SMOL_EVENT] {json.dumps({'type': event_type, 'dir': direction, 'arch': arch, 'count': max(1, int(count))})}",
+        flush=True,
+    )

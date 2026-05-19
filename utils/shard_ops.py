@@ -1,4 +1,5 @@
 """HTTP client helpers that call the local FastAPI server for store and gather operations."""
+
 import logging
 
 import httpx

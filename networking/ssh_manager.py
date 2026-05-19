@@ -1,4 +1,5 @@
 """Manages the smoltorrent-owned block in ~/.ssh/config."""
+
 from pathlib import Path
 
 _SSH_CONFIG = Path.home() / ".ssh" / "config"
@@ -24,7 +25,9 @@ def _build_block(workers: list[dict], username: str, identity_file: str | None) 
     return "".join(lines)
 
 
-def write_ssh_block(workers: list[dict], username: str, identity_file: str | None = None) -> None:
+def write_ssh_block(
+    workers: list[dict], username: str, identity_file: str | None = None
+) -> None:
     """Write or replace the smoltorrent managed block in ~/.ssh/config.
 
     Everything outside the block is left untouched.

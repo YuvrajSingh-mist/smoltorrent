@@ -6,6 +6,7 @@ Usage:
     python main.py store --ckpt-path <path>
     python main.py gather --ckpt-path <path>
 """
+
 import argparse
 import logging
 import os
@@ -36,6 +37,7 @@ _LAUNCH_SCRIPT = Path(__file__).parent / "scripts" / "grove_launch.sh"
 # start — master side
 # ---------------------------------------------------------------------------
 
+
 def _cmd_start(n: int) -> None:
     """Advertise this node as master, wait for N workers to join, then launch."""
     from discovery.grove._mdns import MasterAdvertiser, _REGISTRATION_PORT
@@ -52,7 +54,9 @@ def _cmd_start(n: int) -> None:
                 body["rank"] = rank
                 body.setdefault("port", 5000 + rank)
                 registered.append(body)
-            print(f"  ✓ {body['user']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}/{n}]")
+            print(
+                f"  ✓ {body['user']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}/{n}]"
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -66,7 +70,7 @@ def _cmd_start(n: int) -> None:
 
     advertiser = MasterAdvertiser(expected_workers=n)
     print(f"\n  smoltorrent master ready — waiting for {n} worker(s)")
-    print(f"  On each worker node: grove join\n")
+    print("  On each worker node: grove join\n")
 
     while True:
         with lock:
@@ -82,7 +86,12 @@ def _cmd_start(n: int) -> None:
         cfg = yaml.safe_load(f)
     cfg["num_workers"] = len(registered)
     cfg["devices_config"]["workers"] = [
-        {"host": f"{w['user']}@{w['ip']}", "ip": w["ip"], "rank": w["rank"], "port": w["port"]}
+        {
+            "host": f"{w['user']}@{w['ip']}",
+            "ip": w["ip"],
+            "rank": w["rank"],
+            "port": w["port"],
+        }
         for w in registered
     ]
     with _CONFIG_PATH.open("w") as f:
@@ -96,6 +105,7 @@ def _cmd_start(n: int) -> None:
 # ---------------------------------------------------------------------------
 # join — worker side
 # ---------------------------------------------------------------------------
+
 
 def _cmd_join() -> None:
     """Discover a smoltorrent master via TUI, register, then start worker.py."""
@@ -134,22 +144,34 @@ def _cmd_join() -> None:
     print(f"  ✓ Joined as rank {rank} on port {port}")
 
     # Start worker.py in foreground so the user sees its logs
-    subprocess.run([sys.executable, "algorithms/SyncPS/worker.py", str(rank), my_hostname])
+    subprocess.run(
+        [sys.executable, "algorithms/SyncPS/worker.py", str(rank), my_hostname]
+    )
 
 
 # ---------------------------------------------------------------------------
 # store / gather / argparse
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="SmolTorrent")
     sub = parser.add_subparsers(dest="action", required=True)
 
-    start_p = sub.add_parser("start", help="Master: advertise and wait for workers to join")
-    start_p.add_argument("-n", type=int, required=True, metavar="N",
-                         help="Number of worker nodes to wait for")
+    start_p = sub.add_parser(
+        "start", help="Master: advertise and wait for workers to join"
+    )
+    start_p.add_argument(
+        "-n",
+        type=int,
+        required=True,
+        metavar="N",
+        help="Number of worker nodes to wait for",
+    )
 
-    sub.add_parser("join", help="Worker: find master via TUI, register, start worker.py")
+    sub.add_parser(
+        "join", help="Worker: find master via TUI, register, start worker.py"
+    )
 
     store_p = sub.add_parser("store", help="Shard a checkpoint and push to workers")
     store_p.add_argument("--ckpt-path", required=True, metavar="PATH")

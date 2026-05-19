@@ -3,6 +3,7 @@
 Marker: api — requires `uvicorn backend.api:app` running on localhost:8000.
 Run with:  pytest -m api
 """
+
 from pathlib import Path
 
 import httpx
@@ -19,6 +20,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # ---------------------------------------------------------------------------
 # /gather-shards
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.api
 class TestGatherShards:
@@ -49,6 +51,7 @@ class TestGatherShards:
 # ---------------------------------------------------------------------------
 # /store-shard
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.api
 class TestStoreShard:

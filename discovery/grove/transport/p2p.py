@@ -34,12 +34,15 @@ def discover_airdrop_workers(timeout: float = 10.0) -> list[dict]:
     """
     try:
         from ..swift.compile import ensure_compiled
+
         helper_path = ensure_compiled()
     except RuntimeError:
         return []
 
     ctrl_path = f"/tmp/smoltorrent_discover_{os.getpid()}.sock"
-    proc = subprocess.Popen([str(helper_path), "discover", ctrl_path], stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        [str(helper_path), "discover", ctrl_path], stderr=subprocess.PIPE
+    )
 
     sock = None
     deadline = time.monotonic() + 30.0
@@ -69,7 +72,14 @@ def discover_airdrop_workers(timeout: float = 10.0) -> list[dict]:
             if text.startswith("found "):
                 parts = text.split(None, 4)
                 if len(parts) >= 5:
-                    nodes.append({"name": parts[1], "uid": parts[2], "hostname": "awdl-peer", "started": str(time.time())})
+                    nodes.append(
+                        {
+                            "name": parts[1],
+                            "uid": parts[2],
+                            "hostname": "awdl-peer",
+                            "started": str(time.time()),
+                        }
+                    )
         except TimeoutError:
             continue
 
@@ -96,6 +106,7 @@ class AirdropBrowser:
 
         try:
             from ..swift.compile import ensure_compiled
+
             helper_path = ensure_compiled()
         except RuntimeError:
             self._proc = None
@@ -103,7 +114,9 @@ class AirdropBrowser:
 
         ctrl_path = f"/tmp/smoltorrent_live_{os.getpid()}.sock"
         self._ctrl_path = ctrl_path
-        self._proc = subprocess.Popen([str(helper_path), "discover", ctrl_path], stderr=subprocess.PIPE)
+        self._proc = subprocess.Popen(
+            [str(helper_path), "discover", ctrl_path], stderr=subprocess.PIPE
+        )
 
         deadline = time.monotonic() + 30.0
         self._sock: socket.socket | None = None
@@ -136,7 +149,12 @@ class AirdropBrowser:
                     if len(parts) >= 5:
                         uid = parts[2]
                         with self._lock:
-                            self._nodes[uid] = {"name": parts[1], "uid": uid, "hostname": "awdl-peer", "started": str(time.time())}
+                            self._nodes[uid] = {
+                                "name": parts[1],
+                                "uid": uid,
+                                "hostname": "awdl-peer",
+                                "started": str(time.time()),
+                            }
                 elif text.startswith("lost "):
                     uid = text.split()[1]
                     with self._lock:

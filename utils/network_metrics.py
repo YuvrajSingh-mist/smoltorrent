@@ -1,4 +1,5 @@
 """Network performance metrics collection and logging."""
+
 import logging
 import time
 
@@ -101,4 +102,3 @@ class NetworkMetrics:
             self.last_log_time = time.time()
 
         return metrics
-    

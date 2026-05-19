@@ -3,6 +3,7 @@
 import io
 import threading
 import time
+from collections.abc import Callable
 
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -75,7 +76,7 @@ class JoinApp(App):
 
     BINDINGS = [Binding("q", "quit", "Quit", show=False)]
 
-    def __init__(self, browser: "LiveBrowser"):
+    def __init__(self, browser: object):
         super().__init__()
         self._browser = browser
         self.selected_cluster: dict | None = None
@@ -124,7 +125,6 @@ class JoinApp(App):
         self.exit()
 
 
-
 def _format_elapsed(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
@@ -150,7 +150,7 @@ class DashboardApp(App):
 
     def __init__(
         self,
-        get_state: "Callable",
+        get_state: Callable,
         cluster_name: str,
         uid: str,
         my_rank: int | None = None,
@@ -178,7 +178,9 @@ class DashboardApp(App):
         )
         table = DataTable(id="nodes")
         table.cursor_type = "none"
-        table.add_columns("Rank", "Host", "Status", "Step", "Loss", "Grad", "tok/s", "Sync", "Net Mb")
+        table.add_columns(
+            "Rank", "Host", "Status", "Step", "Loss", "Grad", "tok/s", "Sync", "Net Mb"
+        )
         yield table
         yield Static("", id="stats")
         log = RichLog(id="logs", wrap=True, markup=False)

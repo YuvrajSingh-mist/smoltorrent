@@ -3,20 +3,22 @@
 
 Exit 0 if every worker responds "alive", exit 1 if any fail.
 """
+
 import logging
 import socket
 import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).parents[1]))
+
+from networking.send_receive import receive_message, send_message
 
 logger = logging.getLogger(__name__)
 
 REMOTE_SHARDS_ROOT = "~/Desktop/smoltorrent/shards/incoming_shards"
-
-import yaml
-from networking.send_receive import receive_message, send_message
 
 
 def count_remote_shards(
@@ -42,7 +44,11 @@ def count_remote_shards(
     # Build a find expression that matches any of the requested extensions:
     #   -name '*.safetensors' -o -name '*.pth' ...
     name_clauses = " -o ".join(f"-name '*{ext}'" for ext in extensions)
-    find_expr = f"\\( {name_clauses} \\)" if len(extensions) > 1 else f"-name '*{extensions[0]}'"
+    find_expr = (
+        f"\\( {name_clauses} \\)"
+        if len(extensions) > 1
+        else f"-name '*{extensions[0]}'"
+    )
 
     results = []
     total = 0
@@ -54,7 +60,15 @@ def count_remote_shards(
         cmd = f"find {remote_dir} -maxdepth 1 {find_expr} 2>/dev/null | wc -l"
         try:
             proc = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host_alias, cmd],
+                [
+                    "ssh",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=10",
+                    host_alias,
+                    cmd,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -63,12 +77,22 @@ def count_remote_shards(
         except Exception as e:
             logger.warning("Could not SSH into %s (%s): %s", host_alias, ip, e)
             count = 0
-        results.append({"rank": rank, "host": host_alias, "ip": ip, "remote_dir": remote_dir, "found": count})
+        results.append(
+            {
+                "rank": rank,
+                "host": host_alias,
+                "ip": ip,
+                "remote_dir": remote_dir,
+                "found": count,
+            }
+        )
         total += count
     return total, results
 
 
-def ping_worker(host: str, ip: str, port: int, rank: int, timeout: float = 0.5) -> tuple[bool, str]:
+def ping_worker(
+    host: str, ip: str, port: int, rank: int, timeout: float = 0.5
+) -> tuple[bool, str]:
     """Send a heartbeat to a worker and check for an ``"alive"`` response.
 
     Args:
@@ -112,7 +136,9 @@ def main() -> None:
         rank = w["rank"]
 
         alive, reason = ping_worker(host, ip, port, rank)
-        status = "\033[32m✓ alive\033[0m" if alive else f"\033[31m✗ dead  ({reason})\033[0m"
+        status = (
+            "\033[32m✓ alive\033[0m" if alive else f"\033[31m✗ dead  ({reason})\033[0m"
+        )
         print(f"  rank {rank}  {host} ({ip}:{port})  {status}")
         if not alive:
             all_alive = False

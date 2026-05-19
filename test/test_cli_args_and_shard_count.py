@@ -5,6 +5,7 @@ Markers:
   ssh       — real SSH to Pi workers from configs/config.yaml; requires cluster reachable
               Run with:  pytest -m ssh
 """
+
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -26,6 +27,7 @@ def _load_workers() -> list[dict]:
 # main() CLI behaviour  (unit — no network)
 # ---------------------------------------------------------------------------
 
+
 class TestMainCLI:
     def _run_main(self, argv: list[str], count_return=(0, []), gather_return=None):
         """Run main() with patched sys.argv, SSH counter, and gather call."""
@@ -40,15 +42,24 @@ class TestMainCLI:
             "data_path": cfg["data_path"],
         }
 
-        with patch("sys.argv", ["main.py"] + argv), \
-             patch.object(m, "_load_config", return_value=fake_config), \
-             patch.object(m, "_count_remote_shards", return_value=count_return) as mock_count, \
-             patch.object(m, "gather_shards", return_value=gather_return or {"gathered": [], "save_path": ""}) as mock_gather:
+        with (
+            patch("sys.argv", ["main.py"] + argv),
+            patch.object(m, "_load_config", return_value=fake_config),
+            patch.object(
+                m, "_count_remote_shards", return_value=count_return
+            ) as mock_count,
+            patch.object(
+                m,
+                "gather_shards",
+                return_value=gather_return or {"gathered": [], "save_path": ""},
+            ) as mock_gather,
+        ):
             m.main()
             return mock_count, mock_gather
 
     def test_missing_model_id_exits(self):
         import main as m
+
         with patch("sys.argv", ["main.py"]):
             with pytest.raises(SystemExit) as exc_info:
                 m.main()
@@ -56,7 +67,15 @@ class TestMainCLI:
 
     def test_zero_shards_skips_gather(self):
         workers = _load_workers()
-        per_worker = [{"rank": w["rank"], "host": w.get("host") or w.get("device"), "ip": w["ip"], "found": 0} for w in workers]
+        per_worker = [
+            {
+                "rank": w["rank"],
+                "host": w.get("host") or w.get("device"),
+                "ip": w["ip"],
+                "found": 0,
+            }
+            for w in workers
+        ]
         mock_count, mock_gather = self._run_main(
             ["--model-id", "mlx-community/DoesNotExist"],
             count_return=(0, per_worker),
@@ -65,7 +84,15 @@ class TestMainCLI:
 
     def test_partial_shards_skips_gather(self):
         workers = _load_workers()
-        per_worker = [{"rank": w["rank"], "host": w.get("host") or w.get("device"), "ip": w["ip"], "found": i % 2} for i, w in enumerate(workers)]
+        per_worker = [
+            {
+                "rank": w["rank"],
+                "host": w.get("host") or w.get("device"),
+                "ip": w["ip"],
+                "found": i % 2,
+            }
+            for i, w in enumerate(workers)
+        ]
         partial_found = sum(e["found"] for e in per_worker)
         mock_count, mock_gather = self._run_main(
             ["--model-id", "mlx-community/PartialModel"],
@@ -75,9 +102,24 @@ class TestMainCLI:
 
     def test_all_shards_calls_gather(self):
         workers = _load_workers()
-        per_worker = [{"rank": w["rank"], "host": w.get("host") or w.get("device"), "ip": w["ip"], "found": 1} for w in workers]
+        per_worker = [
+            {
+                "rank": w["rank"],
+                "host": w.get("host") or w.get("device"),
+                "ip": w["ip"],
+                "found": 1,
+            }
+            for w in workers
+        ]
         gather_return = {
-            "gathered": [{"rank": w["rank"], "host": w.get("host") or w.get("device"), "shard_path": f"/tmp/shard_{w['rank']}.safetensors"} for w in workers],
+            "gathered": [
+                {
+                    "rank": w["rank"],
+                    "host": w.get("host") or w.get("device"),
+                    "shard_path": f"/tmp/shard_{w['rank']}.safetensors",
+                }
+                for w in workers
+            ],
             "save_path": "/tmp/out.safetensors",
         }
         mock_count, mock_gather = self._run_main(
@@ -85,11 +127,21 @@ class TestMainCLI:
             count_return=(len(workers), per_worker),
             gather_return=gather_return,
         )
-        mock_gather.assert_called_once_with(model_id="mlx-community/SmolLM2-135M-Instruct")
+        mock_gather.assert_called_once_with(
+            model_id="mlx-community/SmolLM2-135M-Instruct"
+        )
 
     def test_model_id_converted_for_count(self):
         workers = _load_workers()
-        per_worker = [{"rank": w["rank"], "host": w.get("host") or w.get("device"), "ip": w["ip"], "found": 0} for w in workers]
+        per_worker = [
+            {
+                "rank": w["rank"],
+                "host": w.get("host") or w.get("device"),
+                "ip": w["ip"],
+                "found": 0,
+            }
+            for w in workers
+        ]
         mock_count, _ = self._run_main(
             ["--model-id", "mlx-community/Qwen2.5-0.5B"],
             count_return=(0, per_worker),
@@ -101,6 +153,7 @@ class TestMainCLI:
 # ---------------------------------------------------------------------------
 # _count_remote_shards — real SSH to workers from config  (ssh marker)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.ssh
 class TestCountRemoteShardsSSH:
@@ -128,7 +181,9 @@ class TestCountRemoteShardsSSH:
         assert total == len(workers)
 
     def test_unknown_model_returns_zero(self, workers):
-        total, results = _count_remote_shards("mlx-community--DoesNotExistModel", workers)
+        total, results = _count_remote_shards(
+            "mlx-community--DoesNotExistModel", workers
+        )
         assert total == 0
         assert all(w["found"] == 0 for w in results)
 

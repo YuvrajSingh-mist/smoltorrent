@@ -1,4 +1,5 @@
 """Entry-point wrapper — puts the project root on sys.path then delegates to main.py."""
+
 import os
 import sys
 
@@ -10,4 +11,5 @@ os.chdir(_ROOT)
 
 def main() -> None:
     from main import main as _main
+
     _main()

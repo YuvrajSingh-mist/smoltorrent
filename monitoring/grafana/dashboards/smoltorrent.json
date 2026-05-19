@@ -213,12 +213,59 @@
       }
     },
     {
+      "id": 104,
+      "title": "Server Last Boot",
+      "description": "Boot timestamp for the coordinator \u2014 flat line jumps on reboot.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "node_boot_time_seconds{job=\"node\",node=\"master\"} * 1000",
+          "legendFormat": "master"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true,
+            "drawStyle": "line"
+          },
+          "noValue": "N/A"
+        }
+      }
+    },
+    {
       "id": 1,
       "title": "Bandwidth (Mbps)",
       "description": "Send and receive bandwidth as reported directly by the API. A curve that starts fast and decelerates exponentially = O(n\u00b2) copying bug.",
       "type": "timeseries",
       "gridPos": {
-        "y": 15,
+        "y": 21,
         "x": 0,
         "w": 12,
         "h": 8
@@ -310,7 +357,7 @@
       "description": "API up = Prometheus can scrape port 8000; Watcher up = port 8001 reachable. Both must be 1 for the cluster to be fully operational.",
       "type": "stat",
       "gridPos": {
-        "y": 15,
+        "y": 21,
         "x": 12,
         "w": 12,
         "h": 4
@@ -387,7 +434,7 @@
       "description": "Error rate per worker rank. A rank that keeps erroring = flaky Pi or dead port.",
       "type": "timeseries",
       "gridPos": {
-        "y": 23,
+        "y": 29,
         "x": 0,
         "w": 8,
         "h": 7
@@ -417,7 +464,7 @@
       "description": "Cumulative store and gather operations (counter \u2014 never resets).",
       "type": "timeseries",
       "gridPos": {
-        "y": 23,
+        "y": 29,
         "x": 8,
         "w": 8,
         "h": 7
@@ -462,7 +509,7 @@
       "description": "Rolling average send and receive latency per message.",
       "type": "timeseries",
       "gridPos": {
-        "y": 23,
+        "y": 29,
         "x": 16,
         "w": 8,
         "h": 7
@@ -496,7 +543,7 @@
       "description": "Average and max TCP message buffer size. Sudden spike = unusually large checkpoint.",
       "type": "timeseries",
       "gridPos": {
-        "y": 30,
+        "y": 36,
         "x": 0,
         "w": 12,
         "h": 7
@@ -530,7 +577,7 @@
       "description": "Cumulative bytes sent and received over TCP.",
       "type": "timeseries",
       "gridPos": {
-        "y": 30,
+        "y": 36,
         "x": 12,
         "w": 12,
         "h": 7
@@ -564,7 +611,7 @@
       "description": "Overall CPU utilisation across all cores (100% = 1 core fully busy).",
       "type": "timeseries",
       "gridPos": {
-        "y": 37,
+        "y": 43,
         "x": 0,
         "w": 8,
         "h": 6
@@ -596,7 +643,7 @@
       "description": "Active + wired memory vs total. macOS does not report a single 'used' counter; active+wired is the closest equivalent.",
       "type": "timeseries",
       "gridPos": {
-        "y": 37,
+        "y": 43,
         "x": 8,
         "w": 8,
         "h": 6
@@ -630,7 +677,7 @@
       "description": "Available bytes on the root APFS volume.",
       "type": "timeseries",
       "gridPos": {
-        "y": 37,
+        "y": 43,
         "x": 16,
         "w": 8,
         "h": 6
@@ -664,7 +711,7 @@
       "description": "Read and write throughput on disk0.",
       "type": "timeseries",
       "gridPos": {
-        "y": 43,
+        "y": 49,
         "x": 0,
         "w": 8,
         "h": 6
@@ -698,7 +745,7 @@
       "description": "1 / 5 / 15 minute load average.",
       "type": "timeseries",
       "gridPos": {
-        "y": 43,
+        "y": 49,
         "x": 8,
         "w": 8,
         "h": 6
@@ -736,7 +783,7 @@
       "description": "macOS swap usage. Non-zero means memory pressure is causing pages to be compressed/swapped.",
       "type": "timeseries",
       "gridPos": {
-        "y": 43,
+        "y": 49,
         "x": 16,
         "w": 8,
         "h": 6
@@ -770,7 +817,7 @@
       "description": "All logs from master (API, watcher) and Pi workers in one stream.",
       "type": "logs",
       "gridPos": {
-        "y": 49,
+        "y": 55,
         "x": 0,
         "w": 24,
         "h": 10

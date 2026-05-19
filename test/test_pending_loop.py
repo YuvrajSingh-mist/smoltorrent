@@ -5,6 +5,7 @@ mirror actual traffic. Requires cluster running (scripts/launch.sh).
 
 Markers: integration
 """
+
 import shutil
 import socket
 import subprocess
@@ -31,7 +32,7 @@ def _load_config() -> dict:
         return yaml.safe_load(f)
 
 
-CFG     = _load_config()
+CFG = _load_config()
 WORKERS = CFG["devices_config"]["workers"]
 CKPT_ROOT = Path(CFG["ckpt_root"]).expanduser()
 
@@ -60,8 +61,11 @@ def _cleanup_rel(rel: str) -> None:
     for w in WORKERS:
         try:
             subprocess.run(
-                ["ssh", w["host"],
-                 f"rm -rf ~/Desktop/smoltorrent/shards/worker_{w['rank']}/{rel.split('/')[0]}"],
+                [
+                    "ssh",
+                    w["host"],
+                    f"rm -rf ~/Desktop/smoltorrent/shards/worker_{w['rank']}/{rel.split('/')[0]}",
+                ],
                 timeout=15,
             )
         except Exception:
@@ -74,7 +78,9 @@ def _make_checkpoint(path: Path, target_mb: int) -> None:
     # Each tensor: [2048, 2048] bf16 = 8 MB. Repeat to hit target.
     tensor_mb = 8
     n = max(1, target_mb // tensor_mb)
-    weights = {f"layer_{i}.weight": mx.ones([2048, 2048], dtype=mx.bfloat16) for i in range(n)}
+    weights = {
+        f"layer_{i}.weight": mx.ones([2048, 2048], dtype=mx.bfloat16) for i in range(n)
+    }
     mx.save_safetensors(str(path), weights)
 
 
@@ -89,8 +95,11 @@ def _write_in_background(path: Path, target_mb: int) -> threading.Thread:
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _start_pending_loop(pending, lock, trigger):
-    t = threading.Thread(target=_run_pending_loop, args=(pending, lock, trigger), daemon=True)
+    t = threading.Thread(
+        target=_run_pending_loop, args=(pending, lock, trigger), daemon=True
+    )
     t.start()
     return t
 
@@ -98,6 +107,7 @@ def _start_pending_loop(pending, lock, trigger):
 # ---------------------------------------------------------------------------
 # Test 1: ~150 MB file (LFM shard size) — unstable → stable → transferred
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 def test_pending_promotes_and_transfers_150mb():
@@ -109,7 +119,7 @@ def test_pending_promotes_and_transfers_150mb():
     _cleanup_rel(rel)
 
     pending = []
-    lock    = threading.Lock()
+    lock = threading.Lock()
     trigger = threading.Event()
 
     # Start writing — file will be unstable while write is in progress
@@ -125,7 +135,9 @@ def test_pending_promotes_and_transfers_150mb():
 
     # Wait for write to complete then for pending loop to promote
     write_thread.join(timeout=60)
-    assert trigger.wait(timeout=30), "pending loop did not fire trigger after file became stable"
+    assert trigger.wait(timeout=30), (
+        "pending loop did not fire trigger after file became stable"
+    )
     assert pending == [], "stable file should be removed from pending"
 
     # Transfer via real API
@@ -148,6 +160,7 @@ def test_pending_promotes_and_transfers_150mb():
 # Test 2: ~400 MB file (Qwen shard size) — same flow, heavier
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 def test_pending_promotes_and_transfers_400mb():
     """Same flow as the 150 MB test but with ~400 MB to stress real transfer
@@ -157,7 +170,7 @@ def test_pending_promotes_and_transfers_400mb():
     _cleanup_rel(rel)
 
     pending = []
-    lock    = threading.Lock()
+    lock = threading.Lock()
     trigger = threading.Event()
 
     write_thread = _write_in_background(ckpt_file, target_mb=400)
@@ -168,7 +181,9 @@ def test_pending_promotes_and_transfers_400mb():
     _start_pending_loop(pending, lock, trigger)
 
     write_thread.join(timeout=120)
-    assert trigger.wait(timeout=30), "pending loop did not fire trigger after 400 MB file stabilised"
+    assert trigger.wait(timeout=30), (
+        "pending loop did not fire trigger after 400 MB file stabilised"
+    )
     assert pending == [], "stable file should be removed from pending"
 
     request_store_shards(ckpt_path=str(ckpt_file), log_fn=lambda m: None)
@@ -189,6 +204,7 @@ def test_pending_promotes_and_transfers_400mb():
 # Test 3: still-unstable file stays in pending, no premature transfer
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 def test_unstable_file_not_transferred():
     """A file that never finishes writing should stay in pending and never
@@ -199,7 +215,7 @@ def test_unstable_file_not_transferred():
     ckpt_file.parent.mkdir(parents=True, exist_ok=True)
 
     pending = []
-    lock    = threading.Lock()
+    lock = threading.Lock()
     trigger = threading.Event()
 
     # Write a tiny placeholder that keeps changing size (open and hold)
@@ -224,9 +240,13 @@ def test_unstable_file_not_transferred():
     writer.join(timeout=20)
     time.sleep(3)
 
-    assert not trigger.is_set(), "trigger must not fire while file is still being written"
+    assert not trigger.is_set(), (
+        "trigger must not fire while file is still being written"
+    )
     assert ckpt_file in pending, "unstable file must remain in pending"
-    assert not _workers_have_shard(rel), "unstable file must not have been transferred to workers"
+    assert not _workers_have_shard(rel), (
+        "unstable file must not have been transferred to workers"
+    )
 
     _cleanup_rel(rel)
 
@@ -235,13 +255,14 @@ def test_unstable_file_not_transferred():
 # Test 4: multiple files — mix of stable and unstable
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 def test_mixed_pending_only_stable_transferred():
     """Two files in pending: one stable (150 MB, done writing), one still
     being written. Only the stable one should be promoted and transferred."""
-    rel_stable   = "__pytest_pending__/mixed-stable/latest"
+    rel_stable = "__pytest_pending__/mixed-stable/latest"
     rel_unstable = "__pytest_pending__/mixed-unstable/latest"
-    ckpt_stable   = CKPT_ROOT / rel_stable   / "model.safetensors"
+    ckpt_stable = CKPT_ROOT / rel_stable / "model.safetensors"
     ckpt_unstable = CKPT_ROOT / rel_unstable / "model.safetensors"
     _cleanup_rel("__pytest_pending__")
 
@@ -253,7 +274,7 @@ def test_mixed_pending_only_stable_transferred():
     ckpt_unstable.write_bytes(b"\x00" * 1024)
 
     pending = [ckpt_stable, ckpt_unstable]
-    lock    = threading.Lock()
+    lock = threading.Lock()
     trigger = threading.Event()
 
     def keep_unstable_writing():
@@ -270,9 +291,12 @@ def test_mixed_pending_only_stable_transferred():
     assert trigger.wait(timeout=30), "trigger should fire for the stable file"
 
     # Writer is still running — check unstable state while it's actively being written
-    assert ckpt_unstable in pending, "unstable file must still be in pending while being written"
-    assert not _workers_have_shard(rel_unstable), \
+    assert ckpt_unstable in pending, (
+        "unstable file must still be in pending while being written"
+    )
+    assert not _workers_have_shard(rel_unstable), (
         "unstable file must not have been transferred while still being written"
+    )
 
     writer.join(timeout=15)
 

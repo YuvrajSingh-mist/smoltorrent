@@ -12,7 +12,9 @@ from pathlib import Path
 
 import pytest
 
-RECEIVED_MODEL_DIR = Path.home() / "smolcluster/checkpoints/Qwen2.5-0.5B-instruct-bf16/gaming/latest"
+RECEIVED_MODEL_DIR = (
+    Path.home() / "smolcluster/checkpoints/Qwen2.5-0.5B-instruct-bf16/gaming/latest"
+)
 MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 
 PROMPTS = [
@@ -46,7 +48,9 @@ def loaded_model(ensure_metadata):
 @pytest.mark.integration
 def test_received_model_dir_is_complete(ensure_metadata):
     assert RECEIVED_MODEL_DIR.exists()
-    assert list(RECEIVED_MODEL_DIR.glob("*.safetensors")), "No .safetensors weights in received_model/"
+    assert list(RECEIVED_MODEL_DIR.glob("*.safetensors")), (
+        "No .safetensors weights in received_model/"
+    )
     assert (RECEIVED_MODEL_DIR / "config.json").exists(), "config.json missing"
     assert (RECEIVED_MODEL_DIR / "tokenizer.json").exists(), "tokenizer.json missing"
 
@@ -65,7 +69,10 @@ def test_generate(loaded_model, prompt):
 
     model, tokenizer = loaded_model
 
-    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
+    if (
+        hasattr(tokenizer, "apply_chat_template")
+        and tokenizer.chat_template is not None
+    ):
         formatted = tokenizer.apply_chat_template(
             [{"role": "user", "content": prompt}],
             add_generation_prompt=True,

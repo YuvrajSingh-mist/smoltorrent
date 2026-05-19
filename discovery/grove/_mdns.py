@@ -70,8 +70,9 @@ def discover_mdns_workers(timeout: float = 10.0) -> list[dict]:
             if info and info.addresses:
                 ip = socket.inet_ntoa(info.addresses[0])
                 props = {
-                    k.decode() if isinstance(k, bytes) else k:
-                    v.decode() if isinstance(v, bytes) else v
+                    k.decode() if isinstance(k, bytes) else k: v.decode()
+                    if isinstance(v, bytes)
+                    else v
                     for k, v in info.properties.items()
                 }
                 try:
@@ -151,8 +152,9 @@ class MasterBrowser:
         if not info or not info.addresses:
             return
         props = {
-            k.decode() if isinstance(k, bytes) else k:
-            v.decode() if isinstance(v, bytes) else v
+            k.decode() if isinstance(k, bytes) else k: v.decode()
+            if isinstance(v, bytes)
+            else v
             for k, v in info.properties.items()
         }
         with self._lock:

@@ -1,4 +1,5 @@
 """Exposes server/worker boot time as smoltorrent_boot_time_ms on port 9101."""
+
 import platform
 import re
 import subprocess
@@ -6,7 +7,9 @@ import time
 
 from prometheus_client import Gauge, start_http_server
 
-boot_time = Gauge("smoltorrent_boot_time_ms", "Unix timestamp of last OS boot (milliseconds)")
+boot_time = Gauge(
+    "smoltorrent_boot_time_ms", "Unix timestamp of last OS boot (milliseconds)"
+)
 
 
 def _get_boot_time_ms() -> float:

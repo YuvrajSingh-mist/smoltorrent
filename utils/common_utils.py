@@ -1,4 +1,5 @@
 """Shared tensor utilities: config loading, shard serialisation, chunking, saving, and merging."""
+
 import hashlib
 import io
 import json
@@ -18,7 +19,7 @@ from safetensors.torch import save as st_save
 from safetensors.torch import save_file as st_save_file
 
 from utils.dtypes import MLX_TO_TORCH
- 
+
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
@@ -41,10 +42,12 @@ def shard_to_bytes(shard: dict) -> bytes:
     """Serialize a shard dict to safetensors bytes. No temp files, no numpy."""
     if _IS_MAC:
         import mlx.core as mx
-       
+
         mx.eval(*shard.values())
         torch_shard = {
-            k: torch.frombuffer(bytearray(bytes(v)), dtype=MLX_TO_TORCH[v.dtype]).reshape(v.shape).clone()
+            k: torch.frombuffer(bytearray(bytes(v)), dtype=MLX_TO_TORCH[v.dtype])
+            .reshape(v.shape)
+            .clone()
             for k, v in shard.items()
         }
         return st_save(torch_shard)
@@ -57,6 +60,7 @@ class _NamedBytesIO(io.BytesIO):
     MLX's ``mx.load()`` requires a file-like object with a ``.name`` ending in
     ``.safetensors``; standard ``io.BytesIO`` has no such attribute.
     """
+
     name = "shard.safetensors"
 
 
@@ -64,6 +68,7 @@ def shard_from_bytes(data: bytes) -> dict:
     """Deserialize safetensors bytes. Returns MLX arrays on Mac, torch tensors on Pi."""
     if _IS_MAC:
         import mlx.core as mx
+
         return dict(mx.load(_NamedBytesIO(data)))
     return st_load(data)
 
@@ -91,7 +96,9 @@ def fetch_model_metadata(model_id: str, config: dict) -> None:
     dest_dir = Path(config["save_path"]).expanduser().parent
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Downloading tokenizer and config for %s from HuggingFace Hub...", model_id)
+    logger.info(
+        "Downloading tokenizer and config for %s from HuggingFace Hub...", model_id
+    )
     snapshot_download(
         repo_id=model_id,
         local_dir=str(dest_dir),
@@ -107,6 +114,7 @@ def _save_shard(shard: dict, path: str) -> None:
     """Save shard to disk. Mac uses MLX, Pi uses safetensors.torch (shard is already torch tensors)."""
     if _IS_MAC:
         import mlx.core as mx
+
         mx.save_safetensors(path, shard)
     else:
         st_save_file(shard, path)
@@ -116,9 +124,9 @@ def load_tensors(path: str | Path) -> dict:
     """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers)."""
     if _IS_MAC:
         import mlx.core as mx
+
         return dict(mx.load(str(path)))
     return st_load_file(str(path))
-
 
 
 def model_id_to_dir_name(model_id: str) -> str:
@@ -178,8 +186,12 @@ def save_received_data_shard(
     """
 
     try:
-        default_config = Path(__file__).resolve().parent.parent / "configs" / "config.yaml"
-        resolved_config_path = Path(config_path).expanduser() if config_path else default_config
+        default_config = (
+            Path(__file__).resolve().parent.parent / "configs" / "config.yaml"
+        )
+        resolved_config_path = (
+            Path(config_path).expanduser() if config_path else default_config
+        )
 
         if not resolved_config_path.exists():
             raise FileNotFoundError(f"Config file not found: {resolved_config_path}")
@@ -192,7 +204,9 @@ def save_received_data_shard(
             raise ValueError(f"'save_path' missing in config: {resolved_config_path}")
 
         base_path = Path(save_path).expanduser()
-        destination_dir = Path(output_dir).expanduser() if output_dir else base_path.parent
+        destination_dir = (
+            Path(output_dir).expanduser() if output_dir else base_path.parent
+        )
         destination_dir.mkdir(parents=True, exist_ok=True)
 
         extension = "".join(base_path.suffixes)
@@ -261,10 +275,10 @@ def main() -> None:
     n_chunks = 3
     chunks = chunk_data(data, n_chunks)
     print(chunks)
-    
+
     for i in range(0, 10, 4):
         print(i)
-    
-    
+
+
 if __name__ == "__main__":
     main()

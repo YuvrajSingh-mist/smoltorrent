@@ -11,18 +11,24 @@ Example:
     uv run python scripts/seq_baseline.py Qwen2.5-0.5B-instruct-bf16/gaming/latest
     uv run python scripts/seq_baseline.py LFM2.5-350M-bf16/test-watcher/latest
 """
-import sys, time, socket, yaml
+
+import sys
+import time
+import socket
+import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT))
 
-from networking.send_receive import send_message, receive_message
+from networking.send_receive import receive_message, send_message  # noqa: E402
 
 CONFIG_PATH = ROOT / "configs" / "config.yaml"
 
 
-def _connect(ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0) -> socket.socket:
+def _connect(
+    ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0
+) -> socket.socket:
     for attempt in range(1, retries + 1):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

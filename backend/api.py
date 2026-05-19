@@ -4,6 +4,7 @@ Exposes two endpoints:
   POST /store-shard  — shards a checkpoint and pushes each shard to its ranked worker.
   POST /gather-shards — pulls shards from all workers, saves locally, then merges.
 """
+
 import logging
 import socket
 import sys
@@ -22,7 +23,16 @@ from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message, _network_metrics
-from utils.common_utils import chunk_data, compute_checksum, load_tensors, merge_shards, save_merged_model, shard_from_bytes, shard_to_bytes, _save_shard
+from utils.common_utils import (
+    chunk_data,
+    compute_checksum,
+    load_tensors,
+    merge_shards,
+    save_merged_model,
+    shard_from_bytes,
+    shard_to_bytes,
+    _save_shard,
+)
 from utils.network_metrics import log_metrics
 from discovery import discover_workers
 
@@ -35,20 +45,35 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="SmolTorrent Shard API")
 app.mount("/metrics", make_asgi_app())  # Prometheus scrape endpoint
 
-_store_ops  = Counter("smoltorrent_store_operations_total",    "Completed store operations")
-_gather_ops = Counter("smoltorrent_gather_operations_total",   "Completed gather operations")
-_xfer_errors = Counter("smoltorrent_transfer_errors_total",    "Transfer errors by worker rank", ["rank"])
+_store_ops = Counter("smoltorrent_store_operations_total", "Completed store operations")
+_gather_ops = Counter(
+    "smoltorrent_gather_operations_total", "Completed gather operations"
+)
+_xfer_errors = Counter(
+    "smoltorrent_transfer_errors_total", "Transfer errors by worker rank", ["rank"]
+)
 
 _WALL_BUCKETS = [10, 30, 60, 120, 180, 240, 300, 420, 600]
-_store_wall  = Histogram("smoltorrent_store_wall_seconds",  "End-to-end wall-clock time of /store-shard",  buckets=_WALL_BUCKETS)
-_gather_wall = Histogram("smoltorrent_gather_wall_seconds", "End-to-end wall-clock time of /gather-shards", buckets=_WALL_BUCKETS)
+_store_wall = Histogram(
+    "smoltorrent_store_wall_seconds",
+    "End-to-end wall-clock time of /store-shard",
+    buckets=_WALL_BUCKETS,
+)
+_gather_wall = Histogram(
+    "smoltorrent_gather_wall_seconds",
+    "End-to-end wall-clock time of /gather-shards",
+    buckets=_WALL_BUCKETS,
+)
 
 # process_start_time_seconds is not emitted by prometheus_client on macOS
 # (ProcessCollector uses /proc which doesn't exist). Expose it manually.
-_process_start_time = Gauge("process_start_time_seconds", "Unix timestamp when this process started")
+_process_start_time = Gauge(
+    "process_start_time_seconds", "Unix timestamp when this process started"
+)
 _process_start_time.set(time.time())
 
 CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
+
 
 # Pre-initialise per-rank error series so they appear in Prometheus at zero
 # before any failure occurs (labeled counters are only emitted after first inc()).
@@ -58,6 +83,7 @@ def _init_error_labels() -> None:
     for w in cfg["devices_config"]["workers"]:
         _xfer_errors.labels(rank=str(w["rank"]))
 
+
 try:
     _init_error_labels()
 except Exception:
@@ -65,6 +91,7 @@ except Exception:
 SHARDS_ROOT = Path(__file__).parents[1] / "shards"
 MAX_RETRIES = 6
 REDUNDANCY = 2  # replicas per shard (1 = no redundancy, 2 = one primary + one replica)
+
 
 def _load_config() -> dict:
     """Load and return the YAML config from the default config path.
@@ -76,7 +103,9 @@ def _load_config() -> dict:
         return yaml.safe_load(f)
 
 
-def _send_shard_to_worker(worker: dict, shard_bytes: bytes, checksum: str, rel_path: str) -> tuple[bool, str, dict]:
+def _send_shard_to_worker(
+    worker: dict, shard_bytes: bytes, checksum: str, rel_path: str
+) -> tuple[bool, str, dict]:
     """Send one pre-serialized shard to a worker and verify the ack.
 
     Args:
@@ -89,7 +118,7 @@ def _send_shard_to_worker(worker: dict, shard_bytes: bytes, checksum: str, rel_p
         Tuple of (ok, error_msg, result) where result contains ``shard_path`` on success.
     """
     rank = worker["rank"]
-    
+
     try:
         sock = _connect_with_retry(worker["ip"], worker["port"], rank)
         send_message(sock, ("store_shard", rank, shard_bytes, checksum, rel_path))
@@ -128,13 +157,19 @@ def _gather_shard_from_worker(worker: dict, rel_path: str) -> tuple[bool, str, d
         sock.close()
         if shard_bytes is None:
             return False, "no shard received", {}
-        return True, "", {"rank": rank, "host": host, "_shard": shard_from_bytes(shard_bytes)}
+        return (
+            True,
+            "",
+            {"rank": rank, "host": host, "_shard": shard_from_bytes(shard_bytes)},
+        )
     except Exception as e:
         logger.exception("Unhandled error gathering shard from rank %d", rank)
         return False, str(e), {}
 
 
-def _retry_worker(retry_queue: Queue, recovered: list, dead_letter: list, lock: threading.Lock) -> None:
+def _retry_worker(
+    retry_queue: Queue, recovered: list, dead_letter: list, lock: threading.Lock
+) -> None:
     """Daemon thread that drains retry_queue with exponential backoff.
 
     Each item must have keys: ``fn`` (zero-arg callable -> (ok, err, result)),
@@ -145,12 +180,20 @@ def _retry_worker(retry_queue: Queue, recovered: list, dead_letter: list, lock: 
         fn, worker, attempt = item["fn"], item["worker"], item["attempt"]
         rank = worker["rank"]
         if attempt > MAX_RETRIES:
-            logger.error("Worker %d permanently failed after %d retries", rank, MAX_RETRIES)
+            logger.error(
+                "Worker %d permanently failed after %d retries", rank, MAX_RETRIES
+            )
             with lock:
-                dead_letter.append({"rank": rank, "host": worker.get("host"), "error": "max retries exceeded"})
+                dead_letter.append(
+                    {
+                        "rank": rank,
+                        "host": worker.get("host"),
+                        "error": "max retries exceeded",
+                    }
+                )
             retry_queue.task_done()
             continue
-        time.sleep(2 ** attempt)
+        time.sleep(2**attempt)
         ok, err, result = fn()
         if ok:
             with lock:
@@ -158,11 +201,13 @@ def _retry_worker(retry_queue: Queue, recovered: list, dead_letter: list, lock: 
         else:
             logger.warning("Worker %d retry attempt %d failed: %s", rank, attempt, err)
             retry_queue.put({"fn": fn, "worker": worker, "attempt": attempt + 1})
-        
+
         retry_queue.task_done()
 
 
-def _connect_with_retry(ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0) -> socket.socket:
+def _connect_with_retry(
+    ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0
+) -> socket.socket:
     """Open a TCP connection, retrying on failure with a fixed delay.
 
     Args:
@@ -182,21 +227,33 @@ def _connect_with_retry(ip: str, port: int, rank: int, retries: int = 3, delay: 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5.0)
         try:
-            logger.info(f"Connecting to rank {rank} at {ip}:{port} (attempt {attempt}/{retries})")
+            logger.info(
+                f"Connecting to rank {rank} at {ip}:{port} (attempt {attempt}/{retries})"
+            )
             sock.connect((ip, port))
-            sock.settimeout(None)  # blocking for send/receive — large shards need no deadline
+            sock.settimeout(
+                None
+            )  # blocking for send/receive — large shards need no deadline
             logger.info(f"Connected to rank {rank} at {ip}:{port}")
             return sock
         except (OSError, ConnectionRefusedError) as e:
             sock.close()
-            logger.warning(f"Attempt {attempt}/{retries} failed for rank {rank} at {ip}:{port}: {e}")
+            logger.warning(
+                f"Attempt {attempt}/{retries} failed for rank {rank} at {ip}:{port}: {e}"
+            )
             if attempt < retries:
                 time.sleep(delay * (2 ** (attempt - 1)))
-    raise ConnectionError(f"Could not connect to rank {rank} at {ip}:{port} after {retries} attempts")
+    raise ConnectionError(
+        f"Could not connect to rank {rank} at {ip}:{port} after {retries} attempts"
+    )
 
 
 @app.post("/store-shard")
-def store_shard(ckpt_path: str = Query(..., description="Absolute path to the checkpoint .safetensors file on master")):
+def store_shard(
+    ckpt_path: str = Query(
+        ..., description="Absolute path to the checkpoint .safetensors file on master"
+    ),
+):
     """Load a checkpoint, shard it, push each shard to its ranked worker, stream log lines.
 
     Args:
@@ -206,6 +263,7 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
     Returns:
         StreamingResponse (text/plain) — one log line per event.
     """
+
     def _generate():
         def _log(msg: str) -> str:
             logger.info(msg)
@@ -230,7 +288,9 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
         _store_start = time.monotonic()
         tensors = load_tensors(ckpt_file)
         total_mb = sum(v.nbytes for v in tensors.values()) / 1024**2
-        yield _log(f"Loaded {len(tensors)} tensors ({total_mb:.1f} MB) from {rel_path} — chunking into {num_workers} shards")
+        yield _log(
+            f"Loaded {len(tensors)} tensors ({total_mb:.1f} MB) from {rel_path} — chunking into {num_workers} shards"
+        )
         chunks = chunk_data(tensors, n_chunks=num_workers)
 
         sent: list = []
@@ -238,7 +298,11 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
         lock = threading.Lock()
         store_queue: Queue = Queue()
 
-        threading.Thread(target=_retry_worker, args=(store_queue, sent, dead_letter, lock), daemon=True).start()
+        threading.Thread(
+            target=_retry_worker,
+            args=(store_queue, sent, dead_letter, lock),
+            daemon=True,
+        ).start()
 
         # Serialize all shards up front (decoupled from worker assignment)
         shards = []
@@ -255,7 +319,9 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
 
         with ThreadPoolExecutor(max_workers=num_workers * REDUNDANCY) as pool:
             future_to_job = {
-                pool.submit(_send_shard_to_worker, worker, shard_bytes, checksum, rel_path): (worker, shard_bytes, checksum, round_idx)
+                pool.submit(
+                    _send_shard_to_worker, worker, shard_bytes, checksum, rel_path
+                ): (worker, shard_bytes, checksum, round_idx)
                 for worker, shard_bytes, checksum, round_idx in jobs
             }
             for future in as_completed(future_to_job):
@@ -265,12 +331,28 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
                 ok, err, result = future.result()
                 if ok:
                     with lock:
-                        sent.append({"rank": rank, "host": host, "shard_path": result.get("shard_path")})
+                        sent.append(
+                            {
+                                "rank": rank,
+                                "host": host,
+                                "shard_path": result.get("shard_path"),
+                            }
+                        )
                     yield _log(f"  ✓ rank {rank} ({host}) [round {round_idx}]")
                 else:
-                    yield _log(f"  ↻ rank {rank} ({host}) failed — queuing retry: {err}")
-                    store_queue.put({"fn": lambda w=worker, sb=shard_bytes, cs=checksum: _send_shard_to_worker(w, sb, cs, rel_path), "worker": worker, "attempt": 1})
-        
+                    yield _log(
+                        f"  ↻ rank {rank} ({host}) failed — queuing retry: {err}"
+                    )
+                    store_queue.put(
+                        {
+                            "fn": lambda w=worker, sb=shard_bytes, cs=checksum: (
+                                _send_shard_to_worker(w, sb, cs, rel_path)
+                            ),
+                            "worker": worker,
+                            "attempt": 1,
+                        }
+                    )
+
         store_queue.join()
 
         failed = list(dead_letter)
@@ -278,7 +360,9 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
 
         for f in failed:
             _xfer_errors.labels(rank=str(f["rank"])).inc()
-            yield _log(f"  ✗ rank {f['rank']} ({f.get('host')}) permanently failed: {f.get('error')}")
+            yield _log(
+                f"  ✗ rank {f['rank']} ({f.get('host')}) permanently failed: {f.get('error')}"
+            )
 
         total_expected = num_workers * REDUNDANCY
         log_metrics(_network_metrics.get_metrics(), logger, "store")
@@ -287,13 +371,20 @@ def store_shard(ckpt_path: str = Query(..., description="Absolute path to the ch
             yield f"ERROR: {len(failed)}/{total_expected} sends failed\n"
         else:
             _store_ops.inc()
-            yield _log(f"Done: {len(succeeded)}/{total_expected} sends ({REDUNDANCY}x replicated) → {rel_path}")
+            yield _log(
+                f"Done: {len(succeeded)}/{total_expected} sends ({REDUNDANCY}x replicated) → {rel_path}"
+            )
 
     return StreamingResponse(_generate(), media_type="text/plain")
 
 
 @app.post("/gather-shards")
-def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the checkpoint file (same path used for store)")):
+def gather_shards(
+    ckpt_path: str = Query(
+        ...,
+        description="Absolute path to the checkpoint file (same path used for store)",
+    ),
+):
     """Pull shards from every worker, save each as it arrives, merge, stream log lines.
 
     Args:
@@ -303,6 +394,7 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
     Returns:
         StreamingResponse (text/plain) — one log line per event.
     """
+
     def _generate():
         def _log(msg: str) -> str:
             logger.info(msg)
@@ -324,7 +416,7 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
         gathered: list = []
         # Keyed by shard index (0..n-1), not worker rank. Matters when a replica
         # serves a shard: e.g. shard 0 falling back to workers[1] (rank 1) would
-        # land in the wrong merge slot if keyed by rank. Equivalently , its just like 
+        # land in the wrong merge slot if keyed by rank. Equivalently , its just like
         # # primary: rank i → shards_by_rank[i]         ✓
         # replica: rank i+1 → shards_by_rank[i+1 - 1] ✓
 
@@ -357,7 +449,11 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
                 shards_by_index[shard_index] = received_shard
             return True, "", result
 
-        threading.Thread(target=_retry_worker, args=(gather_queue, gathered, dead_letter, lock), daemon=True).start()
+        threading.Thread(
+            target=_retry_worker,
+            args=(gather_queue, gathered, dead_letter, lock),
+            daemon=True,
+        ).start()
 
         def _gather_one(i: int, worker: dict):
             rank = worker["rank"]
@@ -368,20 +464,37 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
                 ok, err, result = _gather_and_save(replica, shard_index=i)
                 if not ok:
                     return i, rank, host, False, err, result
-                return i, replica["rank"], replica.get("host") or replica.get("device"), True, "", result
+                return (
+                    i,
+                    replica["rank"],
+                    replica.get("host") or replica.get("device"),
+                    True,
+                    "",
+                    result,
+                )
             return i, rank, host, ok, err, result
 
         with ThreadPoolExecutor(max_workers=num_workers) as pool:
-            future_to_idx = {pool.submit(_gather_one, i, w): i for i, w in enumerate(workers)}
+            future_to_idx = {
+                pool.submit(_gather_one, i, w): i for i, w in enumerate(workers)
+            }
             for future in as_completed(future_to_idx):
                 i, rank, host, ok, err, result = future.result()
                 if ok:
                     gathered.append(result)
                     yield _log(f"  ✓ shard {i} — saved → {result['shard_path']}")
                 else:
-                    yield _log(f"  ↻ shard {i} (rank {rank}) failed — queuing retry: {err}")
+                    yield _log(
+                        f"  ↻ shard {i} (rank {rank}) failed — queuing retry: {err}"
+                    )
                     worker = workers[i]
-                    gather_queue.put({"fn": lambda w=worker, si=i: _gather_and_save(w, si), "worker": worker, "attempt": 1})
+                    gather_queue.put(
+                        {
+                            "fn": lambda w=worker, si=i: _gather_and_save(w, si),
+                            "worker": worker,
+                            "attempt": 1,
+                        }
+                    )
 
         gather_queue.join()
 
@@ -395,7 +508,9 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
             yield f"ERROR: {len(failed)}/{len(workers)} shards failed — skipping merge\n"
             return
 
-        save_path = Path(config["ckpt_root"]).expanduser() / rel_path / "merged.safetensors"
+        save_path = (
+            Path(config["ckpt_root"]).expanduser() / rel_path / "merged.safetensors"
+        )
         yield _log(f"Merging {len(all_gathered)} shards → {save_path}")
         merged = merge_shards([shards_by_index[i] for i in range(num_workers)])
         save_merged_model(merged, save_path)
@@ -408,7 +523,9 @@ def gather_shards(ckpt_path: str = Query(..., description="Absolute path to the 
 
 
 @app.get("/discover")
-def discover(timeout: float = Query(10.0, description="How long to scan for workers (seconds)")):
+def discover(
+    timeout: float = Query(10.0, description="How long to scan for workers (seconds)"),
+):
     """Scan the local network for smoltorrent worker nodes.
 
     Uses mDNS (works on all platforms over WiFi/Ethernet) and AirDrop/AWDL

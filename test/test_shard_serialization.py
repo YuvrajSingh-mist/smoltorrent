@@ -5,15 +5,21 @@ No network, no cluster. Tests the core data pipeline:
 
 Markers: (none) — always runs.
 """
+
 import sys
 from pathlib import Path
 
 import mlx.core as mx
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from utils.common_utils import chunk_data, compute_checksum, merge_shards, shard_from_bytes, shard_to_bytes
+from utils.common_utils import (
+    chunk_data,
+    compute_checksum,
+    merge_shards,
+    shard_from_bytes,
+    shard_to_bytes,
+)
 
 
 def _make_tensors(n: int = 20) -> dict:
@@ -58,6 +64,7 @@ class TestShardFromBytes:
             restored = result[k]
             if hasattr(restored, "numpy"):
                 import numpy as np
+
                 assert np.allclose(v.tolist(), restored.numpy()), f"Mismatch on {k}"
             else:
                 assert v.tolist() == restored.tolist(), f"Mismatch on {k}"
@@ -75,7 +82,9 @@ class TestRoundTrip:
         assert len(chunks) == 4
 
         # Serialize + deserialize each chunk
-        restored_chunks = [shard_from_bytes(shard_to_bytes(chunks[i])) for i in range(4)]
+        restored_chunks = [
+            shard_from_bytes(shard_to_bytes(chunks[i])) for i in range(4)
+        ]
         merged = merge_shards(restored_chunks)
 
         assert set(merged.keys()) == set(tensors.keys())

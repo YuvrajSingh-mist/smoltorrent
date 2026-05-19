@@ -22,9 +22,12 @@ Worker (advertises itself)::
 import sys
 
 from .grove._mdns import WorkerAdvertiser, discover_mdns_workers
-from .grove.transport.p2p import discover_airdrop_workers  
+from .grove.transport.p2p import discover_airdrop_workers
 
-def advertise_worker(rank: int, port: int, hostname: str | None = None) -> WorkerAdvertiser:
+
+def advertise_worker(
+    rank: int, port: int, hostname: str | None = None
+) -> WorkerAdvertiser:
     """Register this worker over mDNS so the master can find it without IPs.
 
     Returns a :class:`WorkerAdvertiser` — call ``.close()`` when done or use
@@ -66,7 +69,6 @@ def discover_workers(timeout: float = 10.0) -> list[dict]:
         if sys.platform != "darwin":
             return
         try:
-           
             airdrop_results.extend(discover_airdrop_workers(timeout=timeout))
         except Exception:
             pass
