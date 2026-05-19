@@ -135,6 +135,10 @@ def _send_shard_to_worker(
         return False, err_msg, {}
     except Exception as e:
         logger.exception("Unhandled error sending shard to rank %d", rank)
+        try:
+            sock.close()
+        except Exception:
+            pass
         return False, str(e), {}
 
 
@@ -312,46 +316,48 @@ def store_shard(
 
         # Round 0: shard i → workers[i]  (primary)
         # Round 1: shard i → workers[(i+1) % n]  (replica)
-        jobs = []
+        # Rounds are sent sequentially so each Pi never handles two concurrent
+        # 235 MB receives at the same time (which causes BrokenPipe under memory pressure).
         for round_idx in range(REDUNDANCY):
-            for i, (sb, cs) in enumerate(shards):
-                jobs.append((workers[(i + round_idx) % num_workers], sb, cs, round_idx))
-
-        with ThreadPoolExecutor(max_workers=num_workers * REDUNDANCY) as pool:
-            future_to_job = {
-                pool.submit(
-                    _send_shard_to_worker, worker, shard_bytes, checksum, rel_path
-                ): (worker, shard_bytes, checksum, round_idx)
-                for worker, shard_bytes, checksum, round_idx in jobs
-            }
-            for future in as_completed(future_to_job):
-                worker, shard_bytes, checksum, round_idx = future_to_job[future]
-                rank = worker["rank"]
-                host = worker.get("host") or worker.get("device")
-                ok, err, result = future.result()
-                if ok:
-                    with lock:
-                        sent.append(
+            round_jobs = [
+                (workers[(i + round_idx) % num_workers], sb, cs)
+                for i, (sb, cs) in enumerate(shards)
+            ]
+            with ThreadPoolExecutor(max_workers=num_workers) as pool:
+                future_to_job = {
+                    pool.submit(
+                        _send_shard_to_worker, worker, shard_bytes, checksum, rel_path
+                    ): (worker, shard_bytes, checksum)
+                    for worker, shard_bytes, checksum in round_jobs
+                }
+                for future in as_completed(future_to_job):
+                    worker, shard_bytes, checksum = future_to_job[future]
+                    rank = worker["rank"]
+                    host = worker.get("host") or worker.get("device")
+                    ok, err, result = future.result()
+                    if ok:
+                        with lock:
+                            sent.append(
+                                {
+                                    "rank": rank,
+                                    "host": host,
+                                    "shard_path": result.get("shard_path"),
+                                }
+                            )
+                        yield _log(f"  ✓ rank {rank} ({host}) [round {round_idx}]")
+                    else:
+                        yield _log(
+                            f"  ↻ rank {rank} ({host}) failed — queuing retry: {err}"
+                        )
+                        store_queue.put(
                             {
-                                "rank": rank,
-                                "host": host,
-                                "shard_path": result.get("shard_path"),
+                                "fn": lambda w=worker, sb=shard_bytes, cs=checksum: (
+                                    _send_shard_to_worker(w, sb, cs, rel_path)
+                                ),
+                                "worker": worker,
+                                "attempt": 1,
                             }
                         )
-                    yield _log(f"  ✓ rank {rank} ({host}) [round {round_idx}]")
-                else:
-                    yield _log(
-                        f"  ↻ rank {rank} ({host}) failed — queuing retry: {err}"
-                    )
-                    store_queue.put(
-                        {
-                            "fn": lambda w=worker, sb=shard_bytes, cs=checksum: (
-                                _send_shard_to_worker(w, sb, cs, rel_path)
-                            ),
-                            "worker": worker,
-                            "attempt": 1,
-                        }
-                    )
 
         store_queue.join()
 

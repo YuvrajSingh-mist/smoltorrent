@@ -492,6 +492,182 @@
           }
         }
       }
+    },
+    {
+      "id": 46,
+      "title": "Store Shard Bandwidth Percentiles per Pi (MB/s)",
+      "description": "p50 / p95 / p99 of store_shard receive throughput per worker over a 5-minute window. Low p50 = sustained slow writes; high p99 = burst spikes.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "quantile_over_time(0.50, rate(worker_bytes_recv_total{job=\"worker-metrics\"}[1m])[5m:1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} p50"
+        },
+        {
+          "expr": "quantile_over_time(0.95, rate(worker_bytes_recv_total{job=\"worker-metrics\"}[1m])[5m:1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} p95"
+        },
+        {
+          "expr": "quantile_over_time(0.99, rate(worker_bytes_recv_total{job=\"worker-metrics\"}[1m])[5m:1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MBs",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 47,
+      "title": "Gather Shard Bandwidth Percentiles per Pi (MB/s)",
+      "description": "p50 / p95 / p99 of gather_shards send throughput per worker over a 5-minute window. Low p50 = network bottleneck returning shards to master.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "quantile_over_time(0.50, rate(worker_bytes_sent_total{job=\"worker-metrics\"}[1m])[5m:1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} p50"
+        },
+        {
+          "expr": "quantile_over_time(0.95, rate(worker_bytes_sent_total{job=\"worker-metrics\"}[1m])[5m:1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} p95"
+        },
+        {
+          "expr": "quantile_over_time(0.99, rate(worker_bytes_sent_total{job=\"worker-metrics\"}[1m])[5m:1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MBs",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 48,
+      "title": "Store Shard Latency Percentiles per Pi (ms)",
+      "description": "p50 / p95 / p99 latency for store_shard writes per worker. Rising tail = SD card degrading or Pi under load.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m])) * 1000",
+          "legendFormat": "{{node}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m])) * 1000",
+          "legendFormat": "{{node}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(worker_store_duration_seconds_bucket{job=\"worker-metrics\"}[5m])) * 1000",
+          "legendFormat": "{{node}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 49,
+      "title": "Gather Shard Latency Percentiles per Pi (ms)",
+      "description": "p50 / p95 / p99 latency for gather_shards (send path) per worker. Rising tail = network congestion or Pi CPU saturation.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m])) * 1000",
+          "legendFormat": "{{node}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m])) * 1000",
+          "legendFormat": "{{node}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(worker_send_duration_seconds_bucket{job=\"worker-metrics\"}[5m])) * 1000",
+          "legendFormat": "{{node}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
     }
   ],
   "timezone": "browser"
