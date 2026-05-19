@@ -99,6 +99,8 @@ bash scripts/launch.sh
 
 Rsyncs code to all Pis, installs deps, starts API + watcher + workers in tmux.
 
+> **Warning:** both `launch.sh` and `grove start` forcibly free ports before starting. On the coordinator: ports **8000** (API) and **8001** (watcher metrics). On each worker Pi: port **9200+rank** (Prometheus metrics, e.g. 9201–9204). Any process already using those ports will be killed.
+
 ---
 
 ## Usage

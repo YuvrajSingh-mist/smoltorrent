@@ -570,11 +570,20 @@ if [[ "$DRY_RUN" != "true" ]]; then
         if is_local_host "$worker_host"; then
             info "Cleaning local tmux session: syncps_worker_${worker_rank} (host: $worker_host)"
             tmux kill-session -t "syncps_worker_${worker_rank}" 2>/dev/null || true
+            fuser -k "$((9200 + worker_rank))/tcp" 2>/dev/null || true
         else
             info "Cleaning remote tmux session: syncps_worker_${worker_rank} (host: $worker_host)"
-            ssh -o StrictHostKeyChecking=no "$worker_host" "tmux kill-session -t syncps_worker_${worker_rank} 2>/dev/null || true"
+            ssh -o StrictHostKeyChecking=no "$worker_host" "tmux kill-session -t syncps_worker_${worker_rank} 2>/dev/null || true; fuser -k $((9200 + worker_rank))/tcp 2>/dev/null || true"
         fi
     done
+
+    # Free API + watcher metrics ports on master
+    if is_local_host "$MASTER_HOST"; then
+        fuser -k 8000/tcp 2>/dev/null || true
+        fuser -k 8001/tcp 2>/dev/null || true
+    else
+        ssh -o StrictHostKeyChecking=no "$MASTER_HOST" "fuser -k 8000/tcp 2>/dev/null || true; fuser -k 8001/tcp 2>/dev/null || true"
+    fi
 fi
 
 if [[ "$API_ONLY" == "true" ]]; then

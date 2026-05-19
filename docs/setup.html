@@ -6,332 +6,478 @@
   <title>smoltorrent — Setup Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
   <style>
-    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-
     :root {
-      --bg-0: #f8fbfc;
-      --bg-2: #ffffff;
-      --ink: #12343b;
-      --ink-2: #32565d;
-      --ink-3: #648087;
-      --accent: #f39a1f;
-      --teal: #167d90;
-      --green: #1a9e63;
-      --red: #c0392b;
-      --panel: rgba(255,255,255,0.82);
-      --line: rgba(18,52,59,0.09);
-      --r: 14px;
+      --bg: #faf8f5;
+      --bg-subtle: #f5f3ef;
+      --text: #2c2c2c;
+      --text-sec: #737373;
+      --text-ter: #9a9a9a;
+      --accent: #8a7355;
+      --accent-lt: #a99478;
+      --border: #e5e0d8;
+      --border-lt: #ebe7e0;
+      --link: #6b8a94;
+      --green: #4a7a5a;
+      --green-bg: #f0f5ee;
+      --green-border: #c0d8c0;
     }
 
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: 'Space Grotesk', sans-serif;
-      background: #ffffff;
+      font-family: 'Crimson Pro', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1.08rem;
+      line-height: 1.7;
       min-height: 100vh;
-      color: var(--ink);
       display: flex;
       flex-direction: column;
     }
 
-    header {
-      position: sticky; top: 0; z-index: 20;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 13px 28px;
-      background: var(--panel); backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
+    h1, h2, h3, h4 {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 300;
+      line-height: 1.25;
     }
-    .logo {
-      font-size: 19px; font-weight: 700; letter-spacing: -.5px;
-      color: var(--ink); text-decoration: none;
-    }
-    .logo:hover { opacity: 0.82; }
-    .nav-back {
-      font-size: 12px; font-weight: 600; color: var(--ink-3);
-      text-decoration: none; display: flex; align-items: center; gap: 6px;
-      padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
-      background: rgba(255,255,255,0.7); transition: background .14s, color .14s;
-    }
-    .nav-back:hover { background: rgba(255,255,255,1); color: var(--ink); }
 
-    .setup-shell {
-      flex: 1;
-      padding: 28px 24px 40px;
-      background: #ffffff;
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.83em;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-lt);
+      border-radius: 2px;
+      padding: 0.1em 0.35em;
+      color: var(--accent);
     }
-    .setup-wrap {
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border-lt);
+      padding: 0.85rem 0;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-title {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 400;
+      font-size: 1.2rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; }
+    .nav-links a {
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-sec);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--accent); }
+
+    /* ── Layout ── */
+    .page-shell { flex: 1; padding: 2rem 1.5rem 4rem; }
+    .page-wrap {
       max-width: 1100px;
       margin: 0 auto;
       display: grid;
-      gap: 16px;
-      grid-template-columns: 300px 1fr;
+      gap: 2rem;
+      grid-template-columns: 220px 1fr;
     }
 
-    /* ─── Sidebar ─────────────────────────────────────────────────────── */
+    /* ── Sidebar ── */
     .sidebar {
-      border: 1px solid var(--line);
-      border-radius: var(--r);
-      background: rgba(255,255,255,0.92);
-      padding: 20px;
+      border-right: 1px solid var(--border-lt);
+      padding-right: 1.5rem;
       height: fit-content;
       position: sticky;
       top: 70px;
     }
     .sidebar-title {
-      font-size: 11px; font-weight: 700; letter-spacing: .08em;
-      text-transform: uppercase; color: var(--ink-3);
-      margin-bottom: 14px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      margin-bottom: 1rem;
     }
+    .sidebar-group {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      padding: 0.9rem 0 0.3rem;
+      border-top: 1px solid var(--border-lt);
+      margin-top: 0.5rem;
+    }
+    .sidebar-group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
     .sidebar nav a {
-      display: block; padding: 7px 10px; border-radius: 8px;
-      font-size: 13px; font-weight: 500; color: var(--ink-2);
-      text-decoration: none; transition: background .12s, color .12s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.6rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
+      color: var(--text-sec);
+      text-decoration: none;
+      transition: background 0.12s, color 0.12s;
     }
     .sidebar nav a:hover, .sidebar nav a.active {
-      background: var(--bg-0); color: var(--teal);
-    }
-    .sidebar nav a .step-num {
-      display: inline-block; width: 20px; height: 20px;
-      background: var(--line); border-radius: 50%;
-      font-size: 11px; font-weight: 700; text-align: center; line-height: 20px;
-      margin-right: 8px; color: var(--ink-3);
-    }
-    .sidebar nav a.active .step-num {
-      background: var(--teal); color: #fff;
-    }
-    .sidebar-group-label {
-      font-size: 10px; font-weight: 700; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--ink-3);
-      padding: 12px 10px 4px;
-      border-top: 1px solid var(--line);
-      margin-top: 8px;
-    }
-    .sidebar-group-label:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
-    .sidebar nav a.grove-link .step-num {
-      background: #e8f9ef; color: var(--green);
-    }
-    .sidebar nav a.grove-link.active .step-num {
-      background: var(--green); color: #fff;
+      background: var(--bg-subtle);
+      color: var(--accent);
+      text-decoration: none;
     }
     .sidebar nav a.grove-link:hover, .sidebar nav a.grove-link.active {
       color: var(--green);
     }
-    .grove-badge {
-      background: var(--green) !important;
+
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--border);
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--text-sec);
+      flex-shrink: 0;
+      font-family: 'SFMono-Regular', monospace;
     }
+    .sidebar nav a.active .step-num {
+      background: var(--accent);
+      color: #fff;
+    }
+    .sidebar nav a.grove-link .step-num {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+    .sidebar nav a.grove-link.active .step-num {
+      background: var(--green);
+      color: #fff;
+    }
+
+    /* ── Step sections ── */
+    .step-section {
+      margin-bottom: 3rem;
+      padding-bottom: 3rem;
+      border-bottom: 1px solid var(--border-lt);
+    }
+    .step-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      margin-bottom: 1.1rem;
+    }
+    .step-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 600;
+      flex-shrink: 0;
+      font-family: 'SFMono-Regular', monospace;
+    }
+    .step-badge.optional {
+      background: var(--bg-subtle);
+      color: var(--accent);
+      border: 1.5px solid var(--accent);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .step-badge.grove { background: var(--green); font-size: 0.9rem; }
+
+    h2.step-title { font-size: 1.5rem; font-weight: 300; }
+
+    h3.sub-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      margin: 1.4rem 0 0.5rem;
+    }
+
+    p.desc {
+      font-size: 1rem;
+      line-height: 1.65;
+      color: var(--text-sec);
+      margin-bottom: 0.9rem;
+    }
+
+    /* ── Grove section ── */
     .grove-section {
-      background: #f4fdf8;
-      border: 1px solid #b2dfcb;
-      border-radius: var(--r);
-      padding: 32px 36px;
-      margin-bottom: 16px;
-    }
-    .grove-section .step-badge { background: var(--green); }
-    .grove-section-header {
-      display: flex; align-items: center; gap: 10px;
-      margin-bottom: 10px;
+      background: var(--green-bg);
+      border: 1px solid var(--green-border);
+      border-radius: 4px;
+      padding: 2rem 2.2rem;
+      margin-bottom: 2rem;
     }
     .grove-tag {
       display: inline-block;
-      background: var(--green); color: #fff;
-      font-size: 10px; font-weight: 700; letter-spacing: .08em;
-      text-transform: uppercase; padding: 3px 9px; border-radius: 20px;
-      margin-bottom: 14px;
+      background: var(--green);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 1rem;
     }
     .grove-sub-step {
-      background: rgba(255,255,255,0.75);
-      border: 1px solid #c8eedd;
-      border-radius: 10px;
-      padding: 16px 20px;
-      margin: 14px 0;
+      background: rgba(255,255,255,0.7);
+      border: 1px solid var(--green-border);
+      border-radius: 3px;
+      padding: 1.1rem 1.3rem;
+      margin: 1rem 0;
     }
     .grove-sub-step h3 {
-      font-size: 13px; font-weight: 700; color: var(--green);
-      margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--green);
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: 'Crimson Pro', Georgia, serif;
     }
     .grove-sub-step h3 .who {
-      background: var(--green); color: #fff;
-      font-size: 10px; padding: 2px 7px; border-radius: 10px;
-      font-weight: 700; letter-spacing: .05em;
+      background: var(--green);
+      color: #fff;
+      font-size: 0.68rem;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      font-family: 'SFMono-Regular', monospace;
     }
 
-    /* ─── Main content ─────────────────────────────────────────────────── */
-    .setup-main {
-      border: 1px solid var(--line);
-      border-radius: var(--r);
-      background: rgba(255,255,255,0.92);
-      padding: 32px 36px;
-    }
-
-    .step-section {
-      margin-bottom: 40px;
-      padding-bottom: 40px;
-      border-bottom: 1px solid var(--line);
-    }
-    .step-section:last-child {
-      border-bottom: none;
-      margin-bottom: 0;
-      padding-bottom: 0;
-    }
-
-    .step-header {
-      display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
-    }
-    .step-badge {
-      display: flex; align-items: center; justify-content: center;
-      width: 32px; height: 32px; border-radius: 50%;
-      background: var(--teal); color: #fff;
-      font-size: 14px; font-weight: 700; flex-shrink: 0;
-    }
-    .step-badge.optional {
-      background: #e8f4f7; color: var(--teal);
-      border: 2px solid var(--teal);
-      font-size: 11px;
-    }
-    h2.step-title {
-      font-size: 20px; font-weight: 700; color: var(--ink);
-    }
-    h3.sub-title {
-      font-size: 15px; font-weight: 600; color: var(--ink);
-      margin: 18px 0 8px;
-    }
-    p.desc {
-      font-size: 14px; line-height: 1.65; color: var(--ink-2);
-      margin-bottom: 12px;
-    }
-
-    /* ─── Code blocks ─────────────────────────────────────────────────── */
+    /* ── Code blocks ── */
     .code-block {
       position: relative;
-      background: #f6f8fa;
-      border: 1px solid #d0dce6;
-      border-radius: 10px;
-      margin: 10px 0 16px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-lt);
+      border-radius: 3px;
+      margin: 0.5rem 0 0.9rem;
       overflow: hidden;
     }
+    .grove-section .code-block,
+    .grove-sub-step .code-block {
+      background: rgba(255,255,255,0.65);
+      border-color: var(--green-border);
+    }
     .code-block pre {
-      padding: 16px 18px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      color: #111111;
+      padding: 0.9rem 1.1rem;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text);
       overflow-x: auto;
       white-space: pre;
     }
-    .code-block .copy-btn {
-      position: absolute; top: 10px; right: 10px;
-      background: rgba(0,0,0,0.06); border: 1px solid #d0dce6;
-      border-radius: 6px; padding: 4px 10px;
-      font-size: 11px; color: #555; cursor: pointer;
-      transition: background .14s;
+    .copy-btn {
+      position: absolute;
+      top: 0.4rem;
+      right: 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 3px 8px;
+      font-family: 'Crimson Pro', Georgia, serif;
+      font-size: 0.72rem;
+      color: var(--text-sec);
+      cursor: pointer;
+      transition: background 0.12s;
     }
-    .code-block .copy-btn:hover { background: rgba(0,0,0,0.12); color: #111; }
+    .copy-btn:hover { background: var(--border-lt); color: var(--text); }
 
-    /* ─── Callouts ─────────────────────────────────────────────────────── */
-    .callout {
-      display: flex; gap: 12px; align-items: flex-start;
-      padding: 12px 16px; border-radius: 10px;
-      margin: 12px 0;
-      font-size: 13px; line-height: 1.55;
-    }
-    .callout.info { background: #e8f4f7; border-left: 4px solid var(--teal); color: var(--ink-2); }
-    .callout.warn { background: #fff8e6; border-left: 4px solid var(--accent); color: #7a5500; }
-    .callout.tip  { background: #e8f9ef; border-left: 4px solid var(--green); color: #1a5c38; }
-    .callout .icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    /* YAML color tokens */
+    .yaml-key   { color: #5a6a9a; }
+    .yaml-val   { color: #4a7a5a; }
+    .yaml-comment { color: var(--text-ter); font-style: italic; }
 
-    /* ─── Inline code ─────────────────────────────────────────────────── */
-    code {
-      background: #f0f4f8; border-radius: 4px;
-      padding: 1px 5px; font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.88em; color: var(--teal);
-    }
-
-    /* ─── Config block ─────────────────────────────────────────────────── */
     .yaml-block {
-      background: #f6f8fa;
-      border: 1px solid #d0dce6;
-      border-radius: 10px;
-      padding: 16px 18px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 13px;
-      line-height: 1.7;
-      color: #111111;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-lt);
+      border-radius: 3px;
+      padding: 0.9rem 1.1rem;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 0.8rem;
+      line-height: 1.75;
       overflow-x: auto;
-      margin: 10px 0 16px;
+      margin: 0.5rem 0 0.9rem;
     }
-    .yaml-key { color: #0550ae; }
-    .yaml-val { color: #116329; }
-    .yaml-comment { color: #6e7781; font-style: italic; }
 
-    /* ─── Table ─────────────────────────────────────────────────────────── */
+    /* ── Callouts ── */
+    .callout {
+      display: flex;
+      gap: 0.7rem;
+      align-items: flex-start;
+      padding: 0.75rem 1rem;
+      border-radius: 0 3px 3px 0;
+      margin: 0.9rem 0;
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+    .callout.info { background: #eff4f6; border-left: 3px solid var(--link); color: var(--text-sec); }
+    .callout.warn { background: #fff8ed; border-left: 3px solid #c8922a; color: #6a4a10; }
+    .callout.tip  { background: #f0f5ee; border-left: 3px solid var(--green); color: #3a5a3a; }
+    .callout .icon { font-size: 1rem; flex-shrink: 0; margin-top: 2px; }
+
+    .callout-port {
+      background: #fff8ed;
+      border-left: 3px solid #c8922a;
+      border-radius: 0 3px 3px 0;
+      padding: 0.75rem 1rem;
+      font-size: 0.92rem;
+      color: #6a4a10;
+      margin: 0.9rem 0;
+    }
+    .callout-port strong { color: #8a5a10; }
+
+    /* ── Divider ── */
+    .section-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      margin: 0.5rem 0 1.5rem;
+    }
+    .section-divider hr {
+      flex: 1;
+      border: none;
+      border-top: 1px solid var(--border-lt);
+    }
+    .section-divider span {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--text-ter);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* ── Tables ── */
     table.req-table {
-      width: 100%; border-collapse: collapse;
-      font-size: 13px; margin: 10px 0 16px;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 0.5rem 0 1rem;
     }
     table.req-table th {
-      background: #f0f4f8; padding: 8px 12px;
-      text-align: left; color: var(--ink-3);
-      font-weight: 600; font-size: 11px; text-transform: uppercase;
-      border-bottom: 2px solid var(--line);
+      background: var(--bg-subtle);
+      padding: 0.45rem 0.7rem;
+      text-align: left;
+      color: var(--text-ter);
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
     }
     table.req-table td {
-      padding: 8px 12px; border-bottom: 1px solid var(--line);
-      color: var(--ink-2); vertical-align: top;
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--border-lt);
+      color: var(--text-sec);
+      vertical-align: top;
     }
     table.req-table tr:last-child td { border-bottom: none; }
-    .req-auto { color: var(--green); font-weight: 600; font-size: 12px; }
-    .req-manual { color: var(--accent); font-weight: 600; font-size: 12px; }
+    .req-auto   { color: var(--green); font-weight: 600; font-size: 0.82rem; }
+    .req-manual { color: var(--accent); font-weight: 600; font-size: 0.82rem; }
 
-    @media (max-width: 768px) {
-      .setup-wrap { grid-template-columns: 1fr; }
-      .sidebar { position: static; }
-      .setup-main { padding: 20px; }
+    /* ── Footer ── */
+    footer {
+      background: var(--bg-subtle);
+      border-top: 1px solid var(--border);
+      padding: 2rem 0;
+      text-align: center;
+    }
+    footer p { font-size: 0.88rem; color: var(--text-ter); }
+    footer a { color: var(--link); }
+
+    @media (max-width: 820px) {
+      .page-wrap { grid-template-columns: 1fr; }
+      .sidebar { position: static; border-right: none; border-bottom: 1px solid var(--border-lt); padding-right: 0; padding-bottom: 1rem; }
     }
   </style>
 </head>
 <body>
 
-<header>
-  <a class="logo" href="./index.html">smoltorrent</a>
-  <div style="display:flex; gap:6px;">
-    <a class="nav-back" href="./index.html">Home</a>
-    <a class="nav-back" href="./docs.html">Docs</a>
-    <a class="nav-back" href="./blog.html">Blog</a>
-    <a class="nav-back" href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub</a>
+<!-- ── Nav ── -->
+<nav>
+  <div class="nav-inner">
+    <a class="nav-title" href="./index.html">smoltorrent</a>
+    <div class="nav-links">
+      <a href="./index.html">Home</a>
+      <a href="./setup.html" class="active">Setup</a>
+      <a href="./docs.html">Docs</a>
+      <a href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </div>
   </div>
-</header>
+</nav>
 
-<div class="setup-shell">
-  <div class="setup-wrap">
+<div class="page-shell">
+  <div class="page-wrap">
 
-    <!-- ─── Sidebar ───────────────────────────────────────────────────── -->
+    <!-- ── Sidebar ── -->
     <aside class="sidebar">
       <div class="sidebar-title">Setup Guide</div>
       <nav>
-        <div class="sidebar-group-label">Quick start</div>
+        <div class="sidebar-group">Quick start</div>
         <a href="#grove-quickstart" class="grove-link"><span class="step-num">⚡</span>grove start / join</a>
 
-        <div class="sidebar-group-label">SSH Setup (production)</div>
+        <div class="sidebar-group">SSH Setup (production)</div>
         <a href="#prereqs-server"><span class="step-num">1</span>Server prerequisites</a>
         <a href="#prereqs-pi"><span class="step-num">2</span>Pi prerequisites</a>
         <a href="#clone"><span class="step-num">3</span>Clone &amp; configure</a>
         <a href="#launch"><span class="step-num">4</span>Launch cluster</a>
 
-        <div class="sidebar-group-label">Optional</div>
+        <div class="sidebar-group">Optional</div>
         <a href="#pi-autostart"><span class="step-num">5</span>Pi auto-start</a>
         <a href="#server-autostart"><span class="step-num">6</span>Server auto-start</a>
-        <a href="#monitoring"><span class="step-num">7</span>Monitoring</a>
+        <a href="#boot-exporter"><span class="step-num">7</span>Boot time exporter</a>
+        <a href="#monitoring"><span class="step-num">8</span>Monitoring</a>
+        <a href="#requirements"><span class="step-num">—</span>Requirements</a>
       </nav>
     </aside>
 
-    <!-- ─── Main ──────────────────────────────────────────────────────── -->
+    <!-- ── Main ── -->
     <main>
 
-      <!-- Grove quick-start (standalone — no SSH) -->
+      <!-- Grove quick-start -->
       <section class="grove-section step-section" id="grove-quickstart">
         <div class="grove-tag">Quick start — no SSH required</div>
         <div class="step-header">
-          <div class="step-badge grove-badge">⚡</div>
+          <div class="step-badge grove">⚡</div>
           <h2 class="step-title">grove start / join</h2>
         </div>
 
@@ -342,28 +488,26 @@
           <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS multicast to reach them. For production runs over complex networks, use the SSH setup below.</span>
         </div>
 
-        <!-- Sub-step A: Server install -->
         <div class="grove-sub-step">
           <h3><span class="who">Master</span> Install once</h3>
           <div class="code-block">
-            <pre>brew install uv   <span style="color:#6e7781"># if not already installed</span>
+            <pre>brew install uv   <span style="color:var(--text-ter)"># if not already installed</span>
 git clone https://github.com/YuvrajSingh-mist/smoltorrent
 cd smoltorrent && uv sync
 
-<span style="color:#6e7781"># Add grove to your PATH (one time)</span>
+<span style="color:var(--text-ter)"># Add grove to your PATH (one time)</span>
 echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc</pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
         </div>
 
-        <!-- Sub-step B: Worker install -->
         <div class="grove-sub-step">
           <h3><span class="who">Each worker</span> Install once (Pi or any Linux/macOS)</h3>
           <div class="code-block">
-            <pre><span style="color:#6e7781"># Install uv first if not present</span>
+            <pre><span style="color:var(--text-ter)"># Install uv first if not present</span>
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env   <span style="color:#6e7781"># or open a new shell</span>
+source $HOME/.local/bin/env   <span style="color:var(--text-ter)"># or open a new shell</span>
 
 git clone https://github.com/YuvrajSingh-mist/smoltorrent
 cd smoltorrent && uv pip install -e .</pre>
@@ -371,36 +515,33 @@ cd smoltorrent && uv pip install -e .</pre>
           </div>
         </div>
 
-        <!-- Sub-step C: Start master -->
         <div class="grove-sub-step">
           <h3><span class="who">Master</span> Advertise and wait for workers</h3>
           <div class="code-block">
-            <pre><span style="color:#6e7781"># Run from inside the smoltorrent directory</span>
+            <pre><span style="color:var(--text-ter)"># Run from inside the smoltorrent directory</span>
 cd smoltorrent
-grove start -n 4   <span style="color:#6e7781"># replace 4 with your worker count</span></pre>
+grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your worker count</span></pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
-          <p style="font-size:13px; color:var(--ink-2); margin-top:6px;">The master advertises itself over mDNS and opens a registration server on port&nbsp;5999. It will wait until all <code>N</code> workers have joined before launching.</p>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">The master advertises itself over mDNS and opens a registration server on port&nbsp;5999. It will wait until all <code>N</code> workers have joined before launching.</p>
         </div>
 
-        <!-- Sub-step D: Workers join -->
         <div class="grove-sub-step">
           <h3><span class="who">Each worker</span> Find the master and join</h3>
           <div class="code-block">
-            <pre><span style="color:#6e7781"># Run from inside the smoltorrent directory on the worker</span>
+            <pre><span style="color:var(--text-ter)"># Run from inside the smoltorrent directory on the worker</span>
 cd smoltorrent
 grove join</pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
-          <p style="font-size:13px; color:var(--ink-2); margin-top:6px;">A TUI lists all smoltorrent masters found on the network. Select yours and press Enter. The worker registers, receives its rank, and starts the TCP listener immediately — no manual config needed.</p>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">A TUI lists all smoltorrent masters found on the network. Select yours and press Enter. The worker registers, receives its rank, and starts the TCP listener immediately — no manual config needed.</p>
         </div>
 
-        <!-- What happens next -->
-        <div class="callout tip" style="margin-top:16px;">
+        <div class="callout tip" style="margin-top:1.2rem;">
           <span class="icon">✅</span>
           <div>
             <strong>Once all N workers have joined:</strong>
-            <ul style="margin: 6px 0 0 16px; font-size:13px; line-height:1.9;">
+            <ul style="margin: 0.4rem 0 0 1.1rem; font-size:0.92rem; line-height:2;">
               <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
               <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
               <li>Cluster is ready — drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
@@ -408,20 +549,17 @@ grove join</pre>
           </div>
         </div>
 
-        <div class="callout info" style="margin-top:10px;">
+        <div class="callout info">
           <span class="icon">ℹ️</span>
           <span>Set <code>ckpt_root</code> in <code>configs/config.yaml</code> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
         </div>
       </section>
 
-      <!-- Divider -->
-      <div style="display:flex; align-items:center; gap:12px; margin:8px 0 16px;">
-        <hr style="flex:1; border:none; border-top:1px solid var(--line);">
-        <span style="font-size:11px; font-weight:700; color:var(--ink-3); letter-spacing:.08em; text-transform:uppercase; white-space:nowrap;">SSH Setup — production / serious runs</span>
-        <hr style="flex:1; border:none; border-top:1px solid var(--line);">
+      <div class="section-divider">
+        <hr>
+        <span>SSH Setup — production / serious runs</span>
+        <hr>
       </div>
-
-      <div class="setup-main">
 
       <!-- Step 1: Server prerequisites -->
       <section class="step-section" id="prereqs-server">
@@ -432,13 +570,13 @@ grove join</pre>
 
         <p class="desc">Install Homebrew tools on your Mac mini (or any Apple Silicon machine):</p>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Homebrew (if not installed)</span>
+          <pre><span style="color:var(--text-ter)"># Homebrew (if not installed)</span>
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-<span style="color:#6e7781"># Required tools</span>
-brew install yq       <span style="color:#6e7781"># YAML parser used by launch.sh</span>
-brew install uv       <span style="color:#6e7781"># Python package manager</span>
-brew install tmux     <span style="color:#6e7781"># launch.sh starts everything in tmux sessions</span></pre>
+<span style="color:var(--text-ter)"># Required tools</span>
+brew install yq       <span style="color:var(--text-ter)"># YAML parser used by launch.sh</span>
+brew install uv       <span style="color:var(--text-ter)"># Python package manager</span>
+brew install tmux     <span style="color:var(--text-ter)"># launch.sh starts everything in tmux sessions</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
@@ -459,10 +597,6 @@ brew install tmux     <span style="color:#6e7781"># launch.sh starts everything 
           Follow the <a href="https://www.smolhub.com/posts/raspberry-pi-cluster-setup-guide" target="_blank" rel="noopener noreferrer">Raspberry Pi cluster setup guide</a>
           to get your Pis networked. Then on each Pi:
         </p>
-        <p class="desc" style="margin-top:10px;">
-          For a deeper walkthrough of the full cluster build — hardware selection, PoE switch setup, SD card prep, and OS config — see the
-          <a href="https://yuvrajsingh.io/blogs/smoltorrent" target="_blank" rel="noopener noreferrer">smoltorrent build blog post</a>.
-        </p>
         <div class="code-block">
           <pre>sudo apt update && sudo apt install -y python3.13 python3.13-venv curl git</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -471,17 +605,17 @@ brew install tmux     <span style="color:#6e7781"># launch.sh starts everything 
         <h3 class="sub-title">Set up SSH key auth (server → each Pi)</h3>
         <p class="desc">Generate a key on the server (skip if you already have one) and copy it to each Pi:</p>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># On the server — generate key if needed</span>
+          <pre><span style="color:var(--text-ter)"># On the server — generate key if needed</span>
 ssh-keygen -t ed25519 -C "smoltorrent"
 
-<span style="color:#6e7781"># Copy to each Pi (repeat for each)</span>
+<span style="color:var(--text-ter)"># Copy to each Pi (repeat for each)</span>
 ssh-copy-id &lt;pi-user&gt;@&lt;pi-ip&gt;</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
         <p class="desc">Add an alias for each Pi in <code>~/.ssh/config</code> on the server. The alias must exactly match the <code>host</code> field you'll set in <code>configs/config.yaml</code>:</p>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Append to ~/.ssh/config on the server</span>
+          <pre><span style="color:var(--text-ter)"># Append to ~/.ssh/config on the server</span>
 Host pi4-1
     HostName &lt;pi-ip&gt;
     User &lt;pi-user&gt;
@@ -494,7 +628,7 @@ Host pi4-2
     IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
 
-<span style="color:#6e7781"># ... one block per Pi</span></pre>
+<span style="color:var(--text-ter)"># ... one block per Pi</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
@@ -505,7 +639,7 @@ Host pi4-2
 
         <p class="desc">Verify SSH access from the server (should connect without a password prompt):</p>
         <div class="code-block">
-          <pre>ssh pi4-1   <span style="color:#6e7781"># or whatever alias you chose</span></pre>
+          <pre>ssh pi4-1   <span style="color:var(--text-ter)"># or whatever alias you chose</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
       </section>
@@ -527,7 +661,7 @@ uv sync</pre>
 
         <p class="desc">Edit <code>configs/config.yaml</code> — set <code>ckpt_root</code>, the server's own IP, and each worker's <code>host</code>, <code>ip</code>, <code>port</code>, and <code>rank</code>:</p>
 
-        <div class="callout info" style="margin-bottom:10px;">
+        <div class="callout info" style="margin-bottom:0.75rem;">
           <span class="icon">ℹ️</span>
           <span>To find your server's IP on macOS: <code>ipconfig getifaddr en0</code> (Ethernet) or <code>ipconfig getifaddr en1</code> (Wi-Fi). Find each Pi's IP from your router's DHCP table, or run <code>arp -a</code>.</span>
         </div>
@@ -565,7 +699,7 @@ uv sync</pre>
 
         <div class="callout tip">
           <span class="icon">💡</span>
-          <span><strong>Testing / quick start?</strong> Skip SSH setup and use <code>grove start -n N</code> on the master and <code>grove join</code> on each worker instead. Workers discover the master over mDNS and self-register — no config.yaml editing needed. For production runs, use the SSH flow below.</span>
+          <span><strong>Testing / quick start?</strong> Skip SSH setup and use <code>grove start -n N</code> on the master and <code>grove join</code> on each worker. Workers discover the master over mDNS and self-register — no config.yaml editing needed.</span>
         </div>
 
         <p class="desc">One command rsyncs the codebase to every Pi, installs deps, and starts everything in tmux:</p>
@@ -574,8 +708,12 @@ uv sync</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
+        <div class="callout-port">
+          <strong>Port warning:</strong> <code>launch.sh</code> and <code>grove start</code> forcibly free ports before starting. On the coordinator: <strong>8000</strong> (API) and <strong>8001</strong> (watcher metrics). On each worker Pi: <strong>9200+rank</strong> (Prometheus metrics, e.g. 9201–9204). Any process already holding those ports will be killed.
+        </div>
+
         <p class="desc">This starts:</p>
-        <ul style="font-size:14px; color: var(--ink-2); line-height:2; margin: 0 0 14px 18px;">
+        <ul style="font-size:0.95rem; color:var(--text-sec); line-height:2; margin: 0 0 1rem 1.3rem;">
           <li><code>syncps_api</code> — FastAPI server on the master (port 8000)</li>
           <li><code>syncps_watcher</code> — Watcher daemon on the master</li>
           <li><code>syncps_worker_N</code> — TCP worker on each Pi (port 5001+)</li>
@@ -594,14 +732,14 @@ uv sync</pre>
 
         <h3 class="sub-title">Watch logs</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># API / watcher (on server)</span>
+          <pre><span style="color:var(--text-ter)"># API / watcher (on server)</span>
 tmux attach -t syncps_api
 tmux attach -t syncps_watcher
 
-<span style="color:#6e7781"># Worker logs (SSH into Pi, then attach)</span>
+<span style="color:var(--text-ter)"># Worker logs (SSH into Pi, then attach)</span>
 ssh -t pi4-1 tmux attach -t syncps_worker_1
 
-<span style="color:#6e7781"># All logs tailed locally</span>
+<span style="color:var(--text-ter)"># All logs tailed locally</span>
 tail -f logging/cluster-logs/*.log</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
@@ -616,13 +754,13 @@ tail -f logging/cluster-logs/*.log</pre>
 
         <p class="desc">Install a systemd service on each Pi so workers restart automatically after a Pi reboot — without waiting for the server:</p>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># All 4 workers</span>
+          <pre><span style="color:var(--text-ter)"># All 4 workers</span>
 bash scripts/install_worker_service.sh
 
-<span style="color:#6e7781"># Specific ranks only</span>
+<span style="color:var(--text-ter)"># Specific ranks only</span>
 bash scripts/install_worker_service.sh --workers 1,3
 
-<span style="color:#6e7781"># Remove from all</span>
+<span style="color:var(--text-ter)"># Remove from all</span>
 bash scripts/install_worker_service.sh --uninstall</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
@@ -647,7 +785,7 @@ bash scripts/install_worker_service.sh --uninstall</pre>
         </div>
 
         <p class="desc">This registers three system daemons:</p>
-        <ul style="font-size:14px; color: var(--ink-2); line-height:2; margin: 0 0 14px 18px;">
+        <ul style="font-size:0.95rem; color:var(--text-sec); line-height:2; margin: 0 0 1rem 1.3rem;">
           <li><code>com.smoltorrent.startup</code> — waits for network (pings first worker every 5&nbsp;s), then runs <code>launch.sh</code></li>
           <li><code>com.node-exporter</code> — keeps <code>node_exporter</code> running for Grafana system stats</li>
           <li><code>com.smoltorrent.boot-exporter</code> — exposes boot time metric on port 9101 for Grafana</li>
@@ -655,12 +793,12 @@ bash scripts/install_worker_service.sh --uninstall</pre>
 
         <h3 class="sub-title">Verify &amp; check logs</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Check all three are registered</span>
+          <pre><span style="color:var(--text-ter)"># Check all three are registered</span>
 sudo launchctl print system/com.smoltorrent.startup
 sudo launchctl print system/com.node-exporter
 sudo launchctl print system/com.smoltorrent.boot-exporter
 
-<span style="color:#6e7781"># Startup log (after reboot)</span>
+<span style="color:var(--text-ter)"># Startup log (after reboot)</span>
 cat /tmp/smoltorrent-startup.log
 cat /tmp/smoltorrent-boot-exporter.log</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -671,45 +809,44 @@ cat /tmp/smoltorrent-boot-exporter.log</pre>
           <span><code>launchctl print</code> may show <code>last exit code = 1</code> and <code>state = not running</code> — this is expected. The daemon runs once at boot, launches everything into tmux, then exits. The cluster keeps running in tmux independently.</span>
         </div>
 
-        <h3 class="sub-title">Remove / uninstall all daemons</h3>
+        <h3 class="sub-title">Remove all daemons</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Cluster startup daemon</span>
+          <pre><span style="color:var(--text-ter)"># Cluster startup daemon</span>
 sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
 sudo rm -f /Library/LaunchDaemons/com.smoltorrent.startup.plist
 sudo rm -f /usr/local/bin/smoltorrent_startup.sh
 
-<span style="color:#6e7781"># node_exporter (system stats)</span>
+<span style="color:var(--text-ter)"># node_exporter</span>
 sudo launchctl bootout system/com.node-exporter 2>/dev/null || true
 sudo rm -f /Library/LaunchDaemons/com.node-exporter.plist
 
-<span style="color:#6e7781"># Boot time exporter</span>
+<span style="color:var(--text-ter)"># Boot time exporter</span>
 sudo launchctl bootout system/com.smoltorrent.boot-exporter 2>/dev/null || true
 sudo rm -f /Library/LaunchDaemons/com.smoltorrent.boot-exporter.plist</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
       </section>
 
-      <!-- Step 6b: Boot exporter -->
+      <!-- Step 7: Boot exporter -->
       <section class="step-section" id="boot-exporter">
         <div class="step-header">
           <div class="step-badge optional">OPT</div>
           <h2 class="step-title">Boot time exporter</h2>
         </div>
 
-        <p class="desc"><code>utils/boot_exporter.py</code> exposes <code>smoltorrent_boot_time_ms</code> on port 9101 — the metric that powers the <strong>Server Last Boot</strong> panel in Grafana. It reads the OS boot timestamp directly (<code>sysctl kern.boottime</code> on macOS, <code>/proc/stat</code> on Linux) so the value is always accurate regardless of timezone or Prometheus scrape timing.</p>
+        <p class="desc"><code>utils/boot_exporter.py</code> exposes <code>smoltorrent_boot_time_ms</code> on port 9101 — the metric that powers the <strong>Server Last Boot</strong> panel in Grafana. It reads the OS boot timestamp directly (<code>sysctl kern.boottime</code> on macOS, <code>/proc/stat</code> on Linux) so the value is always accurate.</p>
 
-        <p class="desc"><strong>Server (macOS)</strong> — registered automatically by <code>--daemons</code> (see Step 6 above). Nothing extra needed.</p>
-        <p class="desc">Registers <code>com.smoltorrent.boot-exporter</code> as a system LaunchDaemon that starts on every boot. Verify:</p>
+        <p class="desc"><strong>Server (macOS)</strong> — registered automatically by <code>--daemons</code> (see step 6). Verify:</p>
         <div class="code-block">
           <pre>curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
 tail -f /tmp/smoltorrent-boot-exporter.log</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <p class="desc"><strong>Pi workers (Linux)</strong> — deployed automatically by <code>launch.sh</code> via SSH. To install manually on a Pi (SSH in first, then run):</p>
+        <p class="desc"><strong>Pi workers (Linux)</strong> — deployed automatically by <code>launch.sh</code> via SSH. To install manually on a Pi:</p>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># SSH into the Pi first, then run — adjust REPO_DIR to where you cloned smoltorrent</span>
-REPO_DIR="$HOME/Desktop/smoltorrent"   <span style="color:#6e7781"># change this if you cloned elsewhere</span>
+          <pre><span style="color:var(--text-ter)"># SSH into the Pi first, then run — adjust REPO_DIR to where you cloned smoltorrent</span>
+REPO_DIR="$HOME/Desktop/smoltorrent"
 
 sudo tee /etc/systemd/system/smoltorrent-boot-exporter.service &lt;&lt;EOF
 [Unit]
@@ -730,7 +867,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now smoltorrent-boot-exporter
 
-<span style="color:#6e7781"># Verify</span>
+<span style="color:var(--text-ter)"># Verify</span>
 systemctl is-active smoltorrent-boot-exporter
 curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -746,8 +883,7 @@ sudo rm -f /Library/LaunchDaemons/com.smoltorrent.boot-exporter.plist</pre>
 
         <p class="desc"><strong>Pi workers (Linux):</strong></p>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Stop, disable, and remove the unit on a Pi</span>
-sudo systemctl disable --now smoltorrent-boot-exporter
+          <pre>sudo systemctl disable --now smoltorrent-boot-exporter
 sudo rm -f /etc/systemd/system/smoltorrent-boot-exporter.service
 sudo systemctl daemon-reload</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -759,7 +895,7 @@ sudo systemctl daemon-reload</pre>
         </div>
       </section>
 
-      <!-- Step 7: Monitoring -->
+      <!-- Step 8: Monitoring -->
       <section class="step-section" id="monitoring">
         <div class="step-header">
           <div class="step-badge optional">OPT</div>
@@ -774,7 +910,7 @@ sudo systemctl daemon-reload</pre>
         <h3 class="sub-title">1. Install Docker (via colima on macOS)</h3>
         <div class="code-block">
           <pre>brew install colima docker docker-compose
-colima start   <span style="color:#6e7781"># must be running before any docker commands</span></pre>
+colima start   <span style="color:var(--text-ter)"># must be running before any docker commands</span></pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
@@ -785,11 +921,11 @@ colima start   <span style="color:#6e7781"># must be running before any docker c
 
         <h3 class="sub-title">2. Configure &amp; start the stack</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Copy and fill in credentials (from the smoltorrent directory)</span>
+          <pre><span style="color:var(--text-ter)"># Copy and fill in credentials (from the smoltorrent directory)</span>
 cp monitoring/.env.example monitoring/.env
-<span style="color:#6e7781"># Edit monitoring/.env — set Gmail app password for alert emails</span>
+<span style="color:var(--text-ter)"># Edit monitoring/.env — set Gmail app password for alert emails</span>
 
-<span style="color:#6e7781"># Start Prometheus + Grafana + Loki</span>
+<span style="color:var(--text-ter)"># Start Prometheus + Grafana + Loki</span>
 cd monitoring && docker compose up -d</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
@@ -801,10 +937,10 @@ cd monitoring && docker compose up -d</pre>
 
         <h3 class="sub-title">Stop / restart</h3>
         <div class="code-block">
-          <pre><span style="color:#6e7781"># Stop (volumes and history preserved)</span>
+          <pre><span style="color:var(--text-ter)"># Stop (volumes and history preserved)</span>
 cd monitoring && docker compose down
 
-<span style="color:#6e7781"># Restart after stopping</span>
+<span style="color:var(--text-ter)"># Restart</span>
 cd monitoring && docker compose up -d</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
@@ -828,7 +964,7 @@ cd monitoring && docker compose up -d</pre>
       <!-- Requirements summary -->
       <section class="step-section" id="requirements">
         <div class="step-header">
-          <div class="step-badge" style="background: #3a5068;">—</div>
+          <div class="step-badge" style="background: var(--text-sec);">—</div>
           <h2 class="step-title">Requirements summary</h2>
         </div>
 
@@ -848,23 +984,31 @@ cd monitoring && docker compose up -d</pre>
         </table>
       </section>
 
-      </div><!-- /.setup-main -->
     </main>
   </div>
 </div>
 
+<footer>
+  <p><strong>smoltorrent</strong> — <small><a href="https://github.com/YuvrajSingh-mist/smoltorrent">github.com/YuvrajSingh-mist/smoltorrent</a> · MIT License</small></p>
+</footer>
+
 <script>
   function copyCode(btn) {
     const pre = btn.previousElementSibling;
+    if (!pre || pre.tagName !== 'PRE') {
+      const block = btn.closest('.code-block');
+      const p = block && block.querySelector('pre');
+      if (p) { navigator.clipboard.writeText(p.innerText).then(() => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 1800); }); }
+      return;
+    }
     navigator.clipboard.writeText(pre.innerText).then(() => {
       btn.textContent = 'Copied!';
       setTimeout(() => btn.textContent = 'Copy', 1800);
     });
   }
 
-  // Highlight active sidebar link on scroll
-  const sections = document.querySelectorAll('.step-section');
-  const links = document.querySelectorAll('.sidebar nav a');
+  const sections = document.querySelectorAll('.step-section[id]');
+  const links = document.querySelectorAll('.sidebar nav a[href^="#"]');
   const observer = new IntersectionObserver(entries => {
     entries.forEach(e => {
       if (e.isIntersecting) {

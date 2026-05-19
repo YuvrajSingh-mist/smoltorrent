@@ -6,168 +6,433 @@
   <title>smoltorrent — API Docs</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
   <style>
-    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-
     :root {
-      --bg-0: #f8fbfc;
-      --bg-2: #ffffff;
-      --ink: #12343b;
-      --ink-2: #32565d;
-      --ink-3: #648087;
-      --accent: #f39a1f;
-      --teal: #167d90;
-      --green: #1a9e63;
-      --red: #c0392b;
-      --purple: #7c3aed;
-      --panel: rgba(255,255,255,0.82);
-      --line: rgba(18,52,59,0.09);
-      --r: 14px;
+      --bg: #faf8f5;
+      --bg-subtle: #f5f3ef;
+      --text: #2c2c2c;
+      --text-sec: #737373;
+      --text-ter: #9a9a9a;
+      --accent: #8a7355;
+      --accent-lt: #a99478;
+      --border: #e5e0d8;
+      --border-lt: #ebe7e0;
+      --link: #6b8a94;
+      --green: #4a7a5a;
+      --blue: #4a6a94;
     }
 
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: 'Space Grotesk', sans-serif;
-      background: #ffffff;
+      font-family: 'Crimson Pro', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1.08rem;
+      line-height: 1.7;
       min-height: 100vh;
-      color: var(--ink);
       display: flex;
       flex-direction: column;
     }
 
-    header {
-      position: sticky; top: 0; z-index: 20;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 13px 28px;
-      background: var(--panel); backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
+    h1, h2, h3, h4 {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 300;
+      line-height: 1.25;
     }
-    .logo { font-size: 19px; font-weight: 700; letter-spacing: -.5px; color: var(--ink); text-decoration: none; }
-    .logo:hover { opacity: 0.82; }
-    .nav-links { display: flex; align-items: center; gap: 6px; }
-    .nav-link {
-      font-size: 12px; font-weight: 600; color: var(--ink-3);
-      text-decoration: none; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
-      background: rgba(255,255,255,0.7); transition: background .14s, color .14s;
-    }
-    .nav-link:hover { background: rgba(255,255,255,1); color: var(--ink); }
-    .nav-link.active { background: var(--teal); color: #fff; border-color: var(--teal); }
 
-    .page-shell { flex: 1; padding: 28px 24px 60px; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.83em;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-lt);
+      border-radius: 2px;
+      padding: 0.1em 0.35em;
+      color: var(--accent);
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border-lt);
+      padding: 0.85rem 0;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-title {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 400;
+      font-size: 1.2rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; }
+    .nav-links a {
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-sec);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--accent); }
+
+    /* ── Layout ── */
+    .page-shell { flex: 1; padding: 2rem 1.5rem 4rem; }
     .page-wrap {
-      max-width: 1100px; margin: 0 auto;
-      display: grid; gap: 16px;
-      grid-template-columns: 260px 1fr;
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      gap: 2rem;
+      grid-template-columns: 230px 1fr;
     }
 
-    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    /* ── Sidebar ── */
     .sidebar {
-      border: 1px solid var(--line); border-radius: var(--r);
-      background: rgba(255,255,255,0.92); padding: 20px;
-      height: fit-content; position: sticky; top: 70px;
+      border-right: 1px solid var(--border-lt);
+      padding-right: 1.5rem;
+      height: fit-content;
+      position: sticky;
+      top: 70px;
     }
-    .sidebar-title { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px; }
-    .sidebar-group { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); padding: 12px 10px 4px; border-top: 1px solid var(--line); margin-top: 8px; }
+    .sidebar-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      margin-bottom: 1rem;
+    }
+    .sidebar-group {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      padding: 0.9rem 0 0.3rem;
+      border-top: 1px solid var(--border-lt);
+      margin-top: 0.5rem;
+    }
     .sidebar-group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
     .sidebar nav a {
-      display: flex; align-items: center; gap: 8px;
-      padding: 7px 10px; border-radius: 8px;
-      font-size: 13px; font-weight: 500; color: var(--ink-2);
-      text-decoration: none; transition: background .12s, color .12s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.6rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
+      color: var(--text-sec);
+      text-decoration: none;
+      transition: background 0.12s, color 0.12s;
     }
-    .sidebar nav a:hover, .sidebar nav a.active { background: var(--bg-0); color: var(--teal); }
+    .sidebar nav a:hover, .sidebar nav a.active {
+      background: var(--bg-subtle);
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* Method badges */
     .method-badge {
-      display: inline-block; font-size: 9px; font-weight: 700;
-      letter-spacing: .05em; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+      display: inline-block;
+      font-family: 'SFMono-Regular', monospace;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      padding: 1px 5px;
+      border-radius: 2px;
+      flex-shrink: 0;
     }
-    .method-post { background: #dbeafe; color: #1d4ed8; }
-    .method-get  { background: #dcfce7; color: #15803d; }
+    .method-post { background: #dde8f5; color: #3a5a8a; }
+    .method-get  { background: #ddf0e8; color: #3a6a50; }
 
-    /* ── Main ────────────────────────────────────────────────────────────── */
-    .docs-main { border: 1px solid var(--line); border-radius: var(--r); background: rgba(255,255,255,0.92); padding: 36px 40px; }
+    /* ── Main ── */
+    .docs-main { min-width: 0; }
 
-    .section { margin-bottom: 48px; padding-bottom: 48px; border-bottom: 1px solid var(--line); }
-    .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .page-title {
+      font-size: 2.2rem;
+      font-weight: 300;
+      margin-bottom: 0.7rem;
+    }
+    .page-sub {
+      font-size: 1rem;
+      color: var(--text-sec);
+      line-height: 1.65;
+      margin-bottom: 2rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--border-lt);
+    }
 
-    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    /* ── Overview cards ── */
+    .card-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.9rem;
+      margin-bottom: 2.5rem;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.1rem 1.2rem;
+      background: var(--bg-subtle);
+    }
+    .card-ep {
+      font-family: 'SFMono-Regular', monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .card h3 {
+      font-size: 1rem;
+      font-weight: 500;
+      margin-bottom: 0.3rem;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+    }
+    .card p { font-size: 0.85rem; color: var(--text-sec); line-height: 1.5; }
+
+    /* ── Doc sections ── */
+    .doc-section {
+      margin-bottom: 3rem;
+      padding-bottom: 3rem;
+      border-bottom: 1px solid var(--border-lt);
+    }
+    .doc-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 1rem;
+    }
     .endpoint-badge {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 11px; font-weight: 600;
-      padding: 4px 10px; border-radius: 6px; flex-shrink: 0;
+      font-family: 'SFMono-Regular', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 2px;
+      flex-shrink: 0;
     }
-    .ep-post { background: #dbeafe; color: #1d4ed8; }
-    .ep-get  { background: #dcfce7; color: #15803d; }
-    h2.ep-title { font-size: 20px; font-weight: 700; color: var(--ink); }
-    h2.page-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
-    p.page-sub { font-size: 14px; color: var(--ink-2); line-height: 1.6; margin-bottom: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
-    p.desc { font-size: 14px; line-height: 1.65; color: var(--ink-2); margin-bottom: 14px; }
-    h3.sub { font-size: 14px; font-weight: 700; color: var(--ink); margin: 22px 0 8px; }
+    .ep-post { background: #dde8f5; color: #3a5a8a; }
+    .ep-get  { background: #ddf0e8; color: #3a6a50; }
 
-    /* ── Code ────────────────────────────────────────────────────────────── */
-    .code-block { position: relative; background: #f6f8fa; border: 1px solid #d0dce6; border-radius: 10px; margin: 8px 0 14px; overflow: hidden; }
-    .code-block pre { padding: 16px 18px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.6; color: #111; overflow-x: auto; white-space: pre; }
-    .code-label { position: absolute; top: 10px; left: 14px; font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
-    .copy-btn { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.06); border: 1px solid #d0dce6; border-radius: 6px; padding: 4px 10px; font-size: 11px; color: #555; cursor: pointer; transition: background .14s; }
-    .copy-btn:hover { background: rgba(0,0,0,0.12); color: #111; }
-    .has-label pre { padding-top: 32px; }
+    h2.ep-title {
+      font-size: 1.5rem;
+      font-weight: 300;
+    }
 
-    /* ── Param table ─────────────────────────────────────────────────────── */
-    table.params { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 16px; }
-    table.params th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); padding: 6px 10px; border-bottom: 1px solid var(--line); }
-    table.params td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink-2); vertical-align: top; }
+    p.desc {
+      font-size: 1rem;
+      line-height: 1.65;
+      color: var(--text-sec);
+      margin-bottom: 0.9rem;
+    }
+
+    h3.sub {
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      margin: 1.4rem 0 0.5rem;
+    }
+
+    /* ── Code blocks ── */
+    .code-block {
+      position: relative;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-lt);
+      border-radius: 3px;
+      margin: 0.5rem 0 0.9rem;
+      overflow: hidden;
+    }
+    .code-block pre {
+      padding: 1rem 1.1rem;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text);
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .code-label {
+      position: absolute;
+      top: 0.5rem;
+      left: 0.8rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+    }
+    .copy-btn {
+      position: absolute;
+      top: 0.4rem;
+      right: 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 3px 8px;
+      font-family: 'Crimson Pro', Georgia, serif;
+      font-size: 0.72rem;
+      color: var(--text-sec);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .copy-btn:hover { background: var(--border-lt); color: var(--text); }
+    .has-label pre { padding-top: 2rem; }
+
+    /* ── Param table ── */
+    table.params {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 0.5rem 0 1rem;
+    }
+    table.params th {
+      text-align: left;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      padding: 0.45rem 0.7rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-subtle);
+    }
+    table.params td {
+      padding: 0.6rem 0.7rem;
+      border-bottom: 1px solid var(--border-lt);
+      color: var(--text-sec);
+      vertical-align: top;
+    }
     table.params tr:last-child td { border-bottom: none; }
-    .req-tag { background: #fee2e2; color: #991b1b; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
-    .opt-tag { background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
 
-    /* ── Callouts ────────────────────────────────────────────────────────── */
-    .callout { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-radius: 10px; margin: 14px 0; font-size: 13px; line-height: 1.55; }
-    .callout.info { background: #e8f4f7; border-left: 4px solid var(--teal); color: var(--ink-2); }
-    .callout.warn { background: #fff8e6; border-left: 4px solid var(--accent); color: #7a5500; }
-    .callout.tip  { background: #e8f9ef; border-left: 4px solid var(--green); color: #1a5c38; }
-    .callout .icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .req-tag {
+      background: #f5e8e8;
+      color: #8a3030;
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 2px;
+    }
+    .opt-tag {
+      background: var(--bg-subtle);
+      color: var(--text-ter);
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 2px;
+    }
 
-    code { background: #f0f4f8; border-radius: 4px; padding: 1px 5px; font-family: 'IBM Plex Mono', monospace; font-size: 0.88em; color: var(--teal); }
+    /* ── Callouts ── */
+    .callout {
+      display: flex;
+      gap: 0.7rem;
+      align-items: flex-start;
+      padding: 0.75rem 1rem;
+      border-radius: 0 3px 3px 0;
+      margin: 0.9rem 0;
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+    .callout.info { background: #eff4f6; border-left: 3px solid var(--link); color: var(--text-sec); }
+    .callout.warn { background: #fff8ed; border-left: 3px solid #c8922a; color: #6a4a10; }
+    .callout.tip  { background: #f0f5ee; border-left: 3px solid var(--green); color: #3a5a3a; }
+    .callout .icon { font-size: 1rem; flex-shrink: 0; margin-top: 2px; }
 
-    /* ── Response stream ─────────────────────────────────────────────────── */
-    .stream-output { background: #0d1117; border-radius: 10px; padding: 16px 18px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; margin: 8px 0 14px; overflow-x: auto; }
-    .so-dim   { color: #6e7781; }
-    .so-green { color: #3fb950; }
-    .so-yellow{ color: #d29922; }
-    .so-red   { color: #f85149; }
-    .so-white { color: #e6edf3; }
+    /* ── Stream output ── */
+    .stream-output {
+      background: #1e1c1a;
+      border-radius: 3px;
+      padding: 1rem 1.1rem;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.8;
+      margin: 0.5rem 0 0.9rem;
+      overflow-x: auto;
+    }
+    .so-dim    { color: #6a6560; }
+    .so-green  { color: #7ab87a; }
+    .so-yellow { color: #c8a84a; }
+    .so-red    { color: #c07060; }
+    .so-white  { color: #e0dbd4; }
 
-    /* ── Overview cards ─────────────────────────────────────────────────── */
-    .card-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 16px 0; }
-    .card { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
-    .card-ep { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; margin-bottom: 6px; }
-    .card h3 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-    .card p { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+    /* ── Error table ── */
+    table.err-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    table.err-table th {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      background: var(--bg-subtle);
+      padding: 0.45rem 0.7rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+    table.err-table td {
+      padding: 0.6rem 0.7rem;
+      border-bottom: 1px solid var(--border-lt);
+      color: var(--text-sec);
+      vertical-align: top;
+    }
+    table.err-table tr:last-child td { border-bottom: none; }
 
-    @media (max-width: 860px) {
+    /* ── Footer ── */
+    footer {
+      background: var(--bg-subtle);
+      border-top: 1px solid var(--border);
+      padding: 2rem 0;
+      text-align: center;
+    }
+    footer p { font-size: 0.88rem; color: var(--text-ter); }
+    footer a { color: var(--link); }
+
+    @media (max-width: 820px) {
       .page-wrap { grid-template-columns: 1fr; }
-      .sidebar { position: static; }
+      .sidebar { position: static; border-right: none; border-bottom: 1px solid var(--border-lt); padding-right: 0; padding-bottom: 1rem; }
       .card-row { grid-template-columns: 1fr; }
-      .docs-main { padding: 24px 20px; }
     }
   </style>
 </head>
 <body>
 
-<header>
-  <a class="logo" href="./index.html">smoltorrent</a>
-  <div class="nav-links">
-    <a class="nav-link" href="./index.html">Home</a>
-    <a class="nav-link" href="./setup.html">Setup</a>
-    <a class="nav-link active" href="./docs.html">Docs</a>
-    <a class="nav-link" href="./blog.html">Blog</a>
-    <a class="nav-link" href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub</a>
+<!-- ── Nav ── -->
+<nav>
+  <div class="nav-inner">
+    <a class="nav-title" href="./index.html">smoltorrent</a>
+    <div class="nav-links">
+      <a href="./index.html">Home</a>
+      <a href="./setup.html">Setup</a>
+      <a href="./docs.html" class="active">Docs</a>
+      <a href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </div>
   </div>
-</header>
+</nav>
 
 <div class="page-shell">
   <div class="page-wrap">
 
-    <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+    <!-- ── Sidebar ── -->
     <aside class="sidebar">
       <div class="sidebar-title">API Reference</div>
       <nav>
@@ -190,7 +455,7 @@
       </nav>
     </aside>
 
-    <!-- ── Main ───────────────────────────────────────────────────────── -->
+    <!-- ── Main ── -->
     <main class="docs-main">
 
       <h2 class="page-title">API Reference</h2>
@@ -204,24 +469,24 @@
       <!-- Overview cards -->
       <div class="card-row">
         <div class="card">
-          <div class="card-ep" style="color:#1d4ed8;">POST /store-shard</div>
+          <div class="card-ep" style="color: #3a5a8a;">POST /store-shard</div>
           <h3>Store</h3>
           <p>Shard a checkpoint and push each shard to workers with RF2 replication.</p>
         </div>
         <div class="card">
-          <div class="card-ep" style="color:#1d4ed8;">POST /gather-shards</div>
+          <div class="card-ep" style="color: #3a5a8a;">POST /gather-shards</div>
           <h3>Gather</h3>
           <p>Pull all shards from workers, verify, and merge into a single file.</p>
         </div>
         <div class="card">
-          <div class="card-ep" style="color:#15803d;">GET /discover</div>
+          <div class="card-ep" style="color: #3a6a50;">GET /discover</div>
           <h3>Discover</h3>
           <p>Scan the network via mDNS/AWDL and return all live workers.</p>
         </div>
       </div>
 
-      <!-- ── POST /store-shard ───────────────────────────────────────── -->
-      <div class="section" id="store-shard">
+      <!-- ── POST /store-shard ── -->
+      <div class="doc-section" id="store-shard">
         <div class="section-header">
           <span class="endpoint-badge ep-post">POST</span>
           <h2 class="ep-title">/store-shard</h2>
@@ -250,15 +515,15 @@
           </tbody>
         </table>
 
-        <h3 class="sub">curl</h3>
-        <div class="code-block has-label" id="curl">
+        <h3 class="sub" id="curl">curl</h3>
+        <div class="code-block has-label">
           <span class="code-label">bash</span>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre>curl -N -X POST \
   "http://localhost:8000/store-shard?ckpt_path=/home/user/checkpoints/run1/step_100/model.safetensors"</pre>
         </div>
 
-        <h3 class="sub">Python (httpx)</h3>
+        <h3 class="sub" id="python">Python (httpx)</h3>
         <div class="code-block has-label">
           <span class="code-label">python</span>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -302,8 +567,8 @@ with httpx.Client(timeout=None) as client:
         </div>
       </div>
 
-      <!-- ── POST /gather-shards ─────────────────────────────────────── -->
-      <div class="section" id="gather-shards">
+      <!-- ── POST /gather-shards ── -->
+      <div class="doc-section" id="gather-shards">
         <div class="section-header">
           <span class="endpoint-badge ep-post">POST</span>
           <h2 class="ep-title">/gather-shards</h2>
@@ -374,19 +639,19 @@ with httpx.Client(timeout=None) as client:
         <div class="callout tip">
           <span class="icon">✅</span>
           <span>The merged file is a standard <code>.safetensors</code> file — load it with
-          <code>safetensors.torch.load_file()</code> or <code>mx.load()</code> directly. No smoltorrent dependency needed at inference time.</span>
+          <code>safetensors.torch.load_file()</code> or <code>mx.load()</code> directly. No smoltorrent dependency at inference time.</span>
         </div>
 
         <h3 class="sub">Replica fallback</h3>
-        <p class="desc">If a primary worker is unreachable, gather automatically tries its replica (the next worker in the ring). This is transparent — the log shows which worker actually served the shard:</p>
+        <p class="desc">If a primary worker is unreachable, gather automatically tries its replica (the next worker in the ring). The log shows which worker actually served the shard:</p>
         <div class="stream-output">
 <span class="so-yellow">  trying replica rank 2 for shard 1 (primary rank 1 failed)</span>
 <span class="so-green">  ✓ shard 1 — saved → .../worker_2/run1/step_100/shard.safetensors</span>
         </div>
       </div>
 
-      <!-- ── GET /discover ──────────────────────────────────────────── -->
-      <div class="section" id="discover">
+      <!-- ── GET /discover ── -->
+      <div class="doc-section" id="discover">
         <div class="section-header">
           <span class="endpoint-badge ep-get">GET</span>
           <h2 class="ep-title">/discover</h2>
@@ -396,8 +661,7 @@ with httpx.Client(timeout=None) as client:
           Scans the local network for smoltorrent worker nodes using mDNS
           (<code>_smoltorrent._tcp.local.</code>). On macOS, AirDrop/AWDL discovery runs in
           parallel for router-free peer-to-peer Mac-to-Mac networking.
-          Useful for verifying which workers are alive before a store/gather, or after DHCP
-          reassigns IPs.
+          Useful for verifying which workers are alive before a store/gather, or after DHCP reassigns IPs.
         </p>
 
         <h3 class="sub">Query parameters</h3>
@@ -436,8 +700,8 @@ with httpx.Client(timeout=None) as client:
         </div>
       </div>
 
-      <!-- ── GET /metrics ───────────────────────────────────────────── -->
-      <div class="section" id="metrics">
+      <!-- ── GET /metrics ── -->
+      <div class="doc-section" id="metrics">
         <div class="section-header">
           <span class="endpoint-badge ep-get">GET</span>
           <h2 class="ep-title">/metrics</h2>
@@ -454,11 +718,9 @@ with httpx.Client(timeout=None) as client:
         </div>
       </div>
 
-      <!-- ── grove CLI ──────────────────────────────────────────────── -->
-      <div class="section" id="grove">
-        <div class="section-header">
-          <h2 class="ep-title" style="font-size:22px;">grove CLI</h2>
-        </div>
+      <!-- ── grove CLI ── -->
+      <div class="doc-section" id="grove">
+        <h2 class="ep-title" style="margin-bottom:0.8rem;">grove CLI</h2>
         <p class="desc">
           <code>grove</code> is the command-line interface that wraps all API calls. It handles cluster startup, worker discovery, and store/gather without needing to manage curl manually.
         </p>
@@ -477,7 +739,7 @@ bash scripts/launch.sh --api-only
 bash scripts/launch.sh --workers 1,3</pre>
         </div>
 
-        <p style="font-size:13px; color:var(--ink-2); margin-bottom:0.75rem;">
+        <p class="desc">
           <strong>grove CLI is the recommended way</strong> to store and gather — it handles streaming, error propagation, and optional tokenizer fetch after gather. The API server must already be running (started via <code>grove start</code> or <code>bash scripts/launch.sh</code>) before either command works.
         </p>
 
@@ -512,11 +774,9 @@ bash scripts/launch.sh --workers 1,3</pre>
         </div>
       </div>
 
-      <!-- ── Watcher ────────────────────────────────────────────────── -->
-      <div class="section" id="watcher">
-        <div class="section-header">
-          <h2 class="ep-title" style="font-size:22px;">Watcher — automatic mode</h2>
-        </div>
+      <!-- ── Watcher ── -->
+      <div class="doc-section" id="watcher">
+        <h2 class="ep-title" style="margin-bottom:0.8rem;">Watcher — automatic mode</h2>
         <p class="desc">
           The watcher daemon watches your checkpoint directory and calls <code>/store-shard</code>
           automatically whenever a new <code>.safetensors</code> file appears and stabilises (no
@@ -551,11 +811,9 @@ uv run python watcher/watch.py --ext .safetensors,.pth</pre>
         </div>
       </div>
 
-      <!-- ── config.yaml ────────────────────────────────────────────── -->
-      <div class="section" id="config">
-        <div class="section-header">
-          <h2 class="ep-title" style="font-size:22px;">config.yaml reference</h2>
-        </div>
+      <!-- ── config.yaml ── -->
+      <div class="doc-section" id="config">
+        <h2 class="ep-title" style="margin-bottom:0.8rem;">config.yaml reference</h2>
         <p class="desc">Lives at <code>configs/config.yaml</code>. Loaded fresh on every API request — no restart needed after edits.</p>
         <div class="code-block has-label">
           <span class="code-label">yaml</span>
@@ -594,17 +852,15 @@ devices_config:
         </div>
       </div>
 
-      <!-- ── Streaming responses ────────────────────────────────────── -->
-      <div class="section" id="streaming">
-        <div class="section-header">
-          <h2 class="ep-title" style="font-size:22px;">Streaming responses</h2>
-        </div>
+      <!-- ── Streaming responses ── -->
+      <div class="doc-section" id="streaming">
+        <h2 class="ep-title" style="margin-bottom:0.8rem;">Streaming responses</h2>
         <p class="desc">
           Both <code>/store-shard</code> and <code>/gather-shards</code> return
           <code>text/plain</code> streaming responses — FastAPI's <code>StreamingResponse</code>
           yields one log line per event as it happens. This means:
         </p>
-        <ul style="font-size:14px; color:var(--ink-2); line-height:2; padding-left:20px; margin-bottom:14px;">
+        <ul style="font-size:0.95rem; color:var(--text-sec); line-height:2; padding-left:1.3rem; margin-bottom:1rem;">
           <li>Use <code>-N</code> (no-buffer) with curl to see lines as they arrive</li>
           <li>Use <code>client.stream()</code> + <code>iter_lines()</code> in httpx/requests</li>
           <li>Set <code>timeout=None</code> — the response stays open until the operation finishes</li>
@@ -636,12 +892,10 @@ def store(ckpt_path: str) -> bool:
         </div>
       </div>
 
-      <!-- ── Errors ──────────────────────────────────────────────────── -->
-      <div class="section" id="errors">
-        <div class="section-header">
-          <h2 class="ep-title" style="font-size:22px;">Errors</h2>
-        </div>
-        <table class="params">
+      <!-- ── Errors ── -->
+      <div class="doc-section" id="errors">
+        <h2 class="ep-title" style="margin-bottom:0.8rem;">Errors</h2>
+        <table class="err-table">
           <thead><tr><th>Message</th><th>Cause</th><th>Fix</th></tr></thead>
           <tbody>
             <tr>
@@ -677,6 +931,10 @@ def store(ckpt_path: str) -> bool:
   </div>
 </div>
 
+<footer>
+  <p><strong>smoltorrent</strong> — <small><a href="https://github.com/YuvrajSingh-mist/smoltorrent">github.com/YuvrajSingh-mist/smoltorrent</a> · MIT License</small></p>
+</footer>
+
 <script>
   function copyCode(btn) {
     const pre = btn.closest('.code-block').querySelector('pre');
@@ -686,8 +944,7 @@ def store(ckpt_path: str) -> bool:
     });
   }
 
-  // Highlight active sidebar link on scroll
-  const sections = document.querySelectorAll('.section[id]');
+  const sections = document.querySelectorAll('.doc-section[id]');
   const links = document.querySelectorAll('.sidebar nav a[href^="#"]');
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
@@ -700,6 +957,5 @@ def store(ckpt_path: str) -> bool:
   }, { rootMargin: '-20% 0px -70% 0px' });
   sections.forEach(s => observer.observe(s));
 </script>
-
 </body>
 </html>
