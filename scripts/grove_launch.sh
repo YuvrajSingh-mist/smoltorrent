@@ -96,10 +96,9 @@ if [[ "$worker_count" -eq 0 ]]; then
 fi
 ok "Config OK — $worker_count worker(s) registered"
 
-# 7. Port 8000 free (non-fatal — tmux kill below will clear the old session)
-if lsof -iTCP:8000 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    warn "Port 8000 already in use — will kill existing syncps_api session and restart."
-fi
+# 7. Free ports before launch
+fuser -k 8000/tcp 2>/dev/null || true
+fuser -k 8001/tcp 2>/dev/null || true
 
 # ── Launch ───────────────────────────────────────────────────────────────────
 
