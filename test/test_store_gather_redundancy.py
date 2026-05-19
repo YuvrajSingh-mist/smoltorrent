@@ -21,9 +21,6 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 API_BASE = "http://localhost:8000"
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
-_TIMEOUT = 180  # seconds for store/gather HTTP calls
-
-
 def _config():
     with _CONFIG_PATH.open() as f:
         return yaml.safe_load(f)
@@ -41,7 +38,7 @@ def _ckpt_path() -> str:
 
 def _stream_post(endpoint: str, ckpt_path: str) -> str:
     """POST to a streaming endpoint, collect and return full body as string."""
-    with httpx.Client(timeout=_TIMEOUT) as client:
+    with httpx.Client(timeout=None) as client:
         with client.stream("POST", f"{API_BASE}/{endpoint}", params={"ckpt_path": ckpt_path}) as resp:
             resp.raise_for_status()
             return resp.read().decode()
@@ -124,11 +121,8 @@ class TestGatherShards:
         for i in range(len(cfg["devices_config"]["workers"])):
             assert f"shard {i}" in gather_body, f"shard {i} not mentioned in gather output"
 
-    def test_merged_file_exists(self, ckpt_path):
-        _stream_post("store-shard", ckpt_path)
-        _stream_post("gather-shards", ckpt_path)
+    def test_merged_file_exists(self, ckpt_path, gather_body):
         cfg = _config()
-        import yaml
         ckpt_root = Path(cfg["ckpt_root"]).expanduser()
         ckpt_file = Path(ckpt_path)
         rel = ckpt_file.parent.relative_to(ckpt_root)

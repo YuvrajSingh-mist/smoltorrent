@@ -43,6 +43,9 @@
 <nav class="navbar" role="navigation" aria-label="main navigation">
   <div class="navbar-menu">
     <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
+      <a class="navbar-item" href="./setup.html">Setup</a>
+      <a class="navbar-item" href="./docs.html">Docs</a>
+      <a class="navbar-item" href="./blog.html">Blog</a>
       <a class="navbar-item" href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">
         <span class="icon"><i class="fab fa-github"></i></span>
       </a>
@@ -78,6 +81,20 @@
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon"><i class="fas fa-terminal"></i></span>
                   <span>Setup Guide</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="./docs.html"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fas fa-book"></i></span>
+                  <span>API Docs</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="./blog.html"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fas fa-pen"></i></span>
+                  <span>Blog</span>
                 </a>
               </span>
             </div>
@@ -240,7 +257,8 @@ grove join</pre>
           <pre class="arch"># Edit configs/config.yaml with worker SSH aliases + IPs, then:
 bash scripts/launch.sh
 
-# Store / gather manually (watcher handles this automatically)
+# ── cluster is now up, API server at localhost:8000 ──
+# Store / gather manually (watcher handles this automatically — grove CLI preferred over curl):
 grove store --ckpt-path /path/to/checkpoints/model.safetensors
 grove gather --ckpt-path /path/to/checkpoints/model.safetensors
 
@@ -268,7 +286,7 @@ curl http://&lt;master-ip&gt;:8000/discover</pre>
           <p style="color: #555; margin-bottom: 1rem;">Any macOS or Linux machine can act as coordinator or worker. This is the exact setup we developed and tested on:</p>
           <table class="table is-bordered is-striped is-fullwidth" style="font-size: 0.9rem;">
             <thead>
-              <tr><th>Role</th><th>Hardware</th><th>Chip</th><th>OS</th><th>Python</th><th>RAM</th><th>Storage</th></tr>
+              <tr><th>Role</th><th>Hardware</th><th>Chip</th><th>OS</th><th>Python</th><th>RAM</th><th>Storage</th><th>Stack</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -279,6 +297,7 @@ curl http://&lt;master-ip&gt;:8000/discover</pre>
                 <td>3.13.3</td>
                 <td>16 GB</td>
                 <td>256 GB SSD</td>
+                <td style="font-size:0.8rem; color:#555;">uv 0.9 · safetensors 0.7 · PyTorch 2.11 · MLX 0.31</td>
               </tr>
               <tr>
                 <td><strong>Workers × 4</strong></td>
@@ -288,43 +307,47 @@ curl http://&lt;master-ip&gt;:8000/discover</pre>
                 <td>3.13.5</td>
                 <td>4 GB</td>
                 <td>64 GB microSD</td>
+                <td style="font-size:0.8rem; color:#555;">uv 0.9 · safetensors 0.7 · PyTorch 2.11</td>
               </tr>
             </tbody>
           </table>
 
           <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 1rem 0 0.5rem;">
             <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">Network: ~100 Mbps Ethernet + Tailscale VPN</span>
-            <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">~2 min / 942 MB checkpoint (per worker, parallel)</span>
-            <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">uv 0.9 · safetensors 0.7 · PyTorch 2.11 · MLX 0.31</span>
+            <span style="background:#f0f4f8; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#444;">Gather: ~1.5 min · Store: ~5 min · 942 MB (RF2, parallel)</span>
           </div>
 
           <p style="color: #888; font-size: 0.82rem; margin-top: 0.5rem;">Workers can be any Linux or macOS machine — not Pi-specific. Coordinator requires Apple Silicon for MLX tensor ops; workers are platform-agnostic (PyTorch only).</p>
 
           <h3 class="title is-5" style="margin-top: 2rem; margin-bottom: 0.75rem;">Performance Results</h3>
           <p style="font-size: 0.88rem; color: #555; margin-bottom: 1.25rem;">
-            3 runs per operation &middot; 4 workers &middot; 2&times; replication &middot; ~100&nbsp;Mbps Ethernet.
-            Watcher traffic excluded from timing (isolated runs).
+            4 workers &middot; RF2 replication &middot; ~100&nbsp;Mbps Ethernet &middot; 942 MB checkpoint.
+            Wall-clock times from Prometheus (9 runs avg). Bandwidth from lifetime Prometheus counters. Sequential baseline measured directly (242 s/shard × 4).
           </p>
           <div style="display:flex; flex-wrap:wrap; gap:1.5rem; justify-content:center; margin-bottom:1.5rem;">
             <figure style="margin:0; text-align:center;">
-              <img src="img/benchmark_wall_time.png" alt="Store &amp; Gather Wall-Clock Time" style="max-width:420px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
-              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Wall-clock time per operation</figcaption>
+              <img src="img/perf_wall_time.png" alt="Wall-clock time" style="max-width:420px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Wall-clock time — store, gather, sequential baseline</figcaption>
             </figure>
             <figure style="margin:0; text-align:center;">
-              <img src="img/benchmark_throughput.png" alt="Aggregate Throughput" style="max-width:420px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <img src="img/perf_throughput.png" alt="Aggregate throughput" style="max-width:420px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
               <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Aggregate throughput (MB/s)</figcaption>
             </figure>
           </div>
-          <div style="display:flex; justify-content:center; margin-bottom:1rem;">
+          <div style="display:flex; flex-wrap:wrap; gap:1.5rem; justify-content:center; margin-bottom:1rem;">
             <figure style="margin:0; text-align:center;">
-              <img src="img/benchmark_speedup.png" alt="Parallel Speedup vs Sequential" style="max-width:480px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
-              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Speedup vs. old sequential implementation</figcaption>
+              <img src="img/perf_bandwidth_per_node.png" alt="Per-node bandwidth" style="max-width:460px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Per-node cumulative bandwidth (Prometheus lifetime totals)</figcaption>
+            </figure>
+            <figure style="margin:0; text-align:center;">
+              <img src="img/perf_latency.png" alt="Avg TCP send latency" style="max-width:460px; width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10);">
+              <figcaption style="font-size:0.78rem; color:#777; margin-top:0.4rem;">Avg TCP send latency per direction</figcaption>
             </figure>
           </div>
           <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:0.5rem;">
-            <span style="background:#e8f4fd; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#2c6fad;">Qwen 942 MB store: ~191 s &nbsp;·&nbsp; gather: ~115 s</span>
-            <span style="background:#e8f4fd; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#2c6fad;">LFM 676 MB store: ~133 s &nbsp;·&nbsp; gather: ~75 s</span>
-            <span style="background:#eaf7ef; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#27864a;">~2&times; faster store &nbsp;·&nbsp; ~2.3&times; faster gather vs sequential</span>
+            <span style="background:#e8f4fd; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#2c6fad;">Store RF2: ~321 s &nbsp;·&nbsp; Gather: ~95 s — Prometheus, 9 runs</span>
+            <span style="background:#e8f4fd; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#2c6fad;">Sequential gather: ~968 s (measured) &nbsp;·&nbsp; ~10&times; speedup</span>
+            <span style="background:#eaf7ef; border-radius:20px; padding:5px 14px; font-size:0.8rem; color:#27864a;">Gather agg: 9.9 MB/s &nbsp;·&nbsp; Store agg: 5.9 MB/s (2× data, RF2)</span>
           </div>
         </div>
       </div>

@@ -106,21 +106,54 @@ Rsyncs code to all Pis, installs deps, starts API + watcher + workers in tmux.
 > **Recommended:** point `ckpt_root` in `config.yaml` to your checkpoint directory and let the watcher handle everything automatically. The watcher runs the full pipeline — `file_sync → checksum_sync → transfer → crosscheck` — which includes SHA-256 verification, retries, and a final crosscheck to confirm every worker received every shard. The `store` and `gather` commands below skip the crosscheck step, so they're best for one-off manual operations only.
 
 ```bash
-# Master: advertise and wait for 4 workers to join
-grove start -n 4
+# Step 1 — bring the cluster up (one of two options):
 
-# Worker: find master via TUI, register, start worker
-grove join
+# Option A — mDNS auto-discovery:
+grove start -n 4   # master: advertise, wait for 4 workers
+grove join         # (on each worker Pi) TUI → select master → auto-registers
+                   # once all N workers join, API + watcher start automatically
 
-# Store a checkpoint across workers with 2x replication (manual)
+# Option B — SSH-based (edit configs/config.yaml first):
+bash scripts/launch.sh
+
+# ── cluster is now up, API server running at localhost:8000 ──────────────────
+
+# Step 2 — store / gather (prefer grove CLI over curl):
 grove store --ckpt-path ~/smolcluster/checkpoints/Qwen2.5-0.5B/run1/latest/model.safetensors
-
-# Reassemble from shards (falls back to replica if a worker is down)
 grove gather --ckpt-path ~/smolcluster/checkpoints/Qwen2.5-0.5B/run1/latest/model.safetensors
 
-# Find workers on the network (mDNS)
+# Discover live workers (mDNS)
 curl http://<master-ip>:8000/discover
 ```
+
+> `grove store` and `grove gather` POST to the local API server at `localhost:8000`. The server must already be running (started by `grove start` or `launch.sh`) before either command works.
+
+### Direct API (curl / Python)
+
+`grove store` and `grove gather` are the recommended way to run store and gather. If you need to script against the API directly or integrate from Python, you can also hit the endpoints without the CLI:
+
+**Store:**
+```bash
+curl -N -X POST \
+  "http://localhost:8000/store-shard?ckpt_path=/abs/path/to/model.safetensors"
+# Loaded 148 tensors (676.1 MB) — chunking into 4 shards
+#   ✓ rank 1 (pi4-1) [round 0]
+#   ✓ rank 2 (pi4-2) [round 0]
+#   ...
+# Done: 8/8 sends (2x replicated) → run1/latest
+```
+
+**Gather:**
+```bash
+curl -N -X POST \
+  "http://localhost:8000/gather-shards?ckpt_path=/abs/path/to/model.safetensors"
+#   ✓ shard 0 — saved → .../shards/worker_1/.../shard.safetensors
+#   ✓ shard 1 — saved → .../shards/worker_2/.../shard.safetensors
+#   ...
+# Done: saved → /abs/path/to/merged.safetensors
+```
+
+`ckpt_path` must be absolute and under `ckpt_root` from `config.yaml`. Use `-N` with curl to stream output as it arrives. In Python use `httpx.Client(timeout=None)` with `client.stream()` + `iter_lines()`. Full API reference: **[docs →](https://yuvrajsingh-mist.github.io/smoltorrent/docs.html)**
 
 ---
 

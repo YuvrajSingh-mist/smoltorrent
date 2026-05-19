@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>smoltorrent — API Docs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    :root {
+      --bg-0: #f8fbfc;
+      --bg-2: #ffffff;
+      --ink: #12343b;
+      --ink-2: #32565d;
+      --ink-3: #648087;
+      --accent: #f39a1f;
+      --teal: #167d90;
+      --green: #1a9e63;
+      --red: #c0392b;
+      --purple: #7c3aed;
+      --panel: rgba(255,255,255,0.82);
+      --line: rgba(18,52,59,0.09);
+      --r: 14px;
+    }
+
+    body {
+      font-family: 'Space Grotesk', sans-serif;
+      background: #ffffff;
+      min-height: 100vh;
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 28px;
+      background: var(--panel); backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .logo { font-size: 19px; font-weight: 700; letter-spacing: -.5px; color: var(--ink); text-decoration: none; }
+    .logo:hover { opacity: 0.82; }
+    .nav-links { display: flex; align-items: center; gap: 6px; }
+    .nav-link {
+      font-size: 12px; font-weight: 600; color: var(--ink-3);
+      text-decoration: none; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
+      background: rgba(255,255,255,0.7); transition: background .14s, color .14s;
+    }
+    .nav-link:hover { background: rgba(255,255,255,1); color: var(--ink); }
+    .nav-link.active { background: var(--teal); color: #fff; border-color: var(--teal); }
+
+    .page-shell { flex: 1; padding: 28px 24px 60px; }
+    .page-wrap {
+      max-width: 1100px; margin: 0 auto;
+      display: grid; gap: 16px;
+      grid-template-columns: 260px 1fr;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    .sidebar {
+      border: 1px solid var(--line); border-radius: var(--r);
+      background: rgba(255,255,255,0.92); padding: 20px;
+      height: fit-content; position: sticky; top: 70px;
+    }
+    .sidebar-title { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px; }
+    .sidebar-group { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); padding: 12px 10px 4px; border-top: 1px solid var(--line); margin-top: 8px; }
+    .sidebar-group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+    .sidebar nav a {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 8px;
+      font-size: 13px; font-weight: 500; color: var(--ink-2);
+      text-decoration: none; transition: background .12s, color .12s;
+    }
+    .sidebar nav a:hover, .sidebar nav a.active { background: var(--bg-0); color: var(--teal); }
+    .method-badge {
+      display: inline-block; font-size: 9px; font-weight: 700;
+      letter-spacing: .05em; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+    }
+    .method-post { background: #dbeafe; color: #1d4ed8; }
+    .method-get  { background: #dcfce7; color: #15803d; }
+
+    /* ── Main ────────────────────────────────────────────────────────────── */
+    .docs-main { border: 1px solid var(--line); border-radius: var(--r); background: rgba(255,255,255,0.92); padding: 36px 40px; }
+
+    .section { margin-bottom: 48px; padding-bottom: 48px; border-bottom: 1px solid var(--line); }
+    .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .endpoint-badge {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; font-weight: 600;
+      padding: 4px 10px; border-radius: 6px; flex-shrink: 0;
+    }
+    .ep-post { background: #dbeafe; color: #1d4ed8; }
+    .ep-get  { background: #dcfce7; color: #15803d; }
+    h2.ep-title { font-size: 20px; font-weight: 700; color: var(--ink); }
+    h2.page-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+    p.page-sub { font-size: 14px; color: var(--ink-2); line-height: 1.6; margin-bottom: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+    p.desc { font-size: 14px; line-height: 1.65; color: var(--ink-2); margin-bottom: 14px; }
+    h3.sub { font-size: 14px; font-weight: 700; color: var(--ink); margin: 22px 0 8px; }
+
+    /* ── Code ────────────────────────────────────────────────────────────── */
+    .code-block { position: relative; background: #f6f8fa; border: 1px solid #d0dce6; border-radius: 10px; margin: 8px 0 14px; overflow: hidden; }
+    .code-block pre { padding: 16px 18px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.6; color: #111; overflow-x: auto; white-space: pre; }
+    .code-label { position: absolute; top: 10px; left: 14px; font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+    .copy-btn { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.06); border: 1px solid #d0dce6; border-radius: 6px; padding: 4px 10px; font-size: 11px; color: #555; cursor: pointer; transition: background .14s; }
+    .copy-btn:hover { background: rgba(0,0,0,0.12); color: #111; }
+    .has-label pre { padding-top: 32px; }
+
+    /* ── Param table ─────────────────────────────────────────────────────── */
+    table.params { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 16px; }
+    table.params th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); padding: 6px 10px; border-bottom: 1px solid var(--line); }
+    table.params td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink-2); vertical-align: top; }
+    table.params tr:last-child td { border-bottom: none; }
+    .req-tag { background: #fee2e2; color: #991b1b; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+    .opt-tag { background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+
+    /* ── Callouts ────────────────────────────────────────────────────────── */
+    .callout { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-radius: 10px; margin: 14px 0; font-size: 13px; line-height: 1.55; }
+    .callout.info { background: #e8f4f7; border-left: 4px solid var(--teal); color: var(--ink-2); }
+    .callout.warn { background: #fff8e6; border-left: 4px solid var(--accent); color: #7a5500; }
+    .callout.tip  { background: #e8f9ef; border-left: 4px solid var(--green); color: #1a5c38; }
+    .callout .icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+    code { background: #f0f4f8; border-radius: 4px; padding: 1px 5px; font-family: 'IBM Plex Mono', monospace; font-size: 0.88em; color: var(--teal); }
+
+    /* ── Response stream ─────────────────────────────────────────────────── */
+    .stream-output { background: #0d1117; border-radius: 10px; padding: 16px 18px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; margin: 8px 0 14px; overflow-x: auto; }
+    .so-dim   { color: #6e7781; }
+    .so-green { color: #3fb950; }
+    .so-yellow{ color: #d29922; }
+    .so-red   { color: #f85149; }
+    .so-white { color: #e6edf3; }
+
+    /* ── Overview cards ─────────────────────────────────────────────────── */
+    .card-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 16px 0; }
+    .card { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+    .card-ep { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; margin-bottom: 6px; }
+    .card h3 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+    .card p { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+
+    @media (max-width: 860px) {
+      .page-wrap { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      .card-row { grid-template-columns: 1fr; }
+      .docs-main { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="./index.html">smoltorrent</a>
+  <div class="nav-links">
+    <a class="nav-link" href="./index.html">Home</a>
+    <a class="nav-link" href="./setup.html">Setup</a>
+    <a class="nav-link active" href="./docs.html">Docs</a>
+    <a class="nav-link" href="./blog.html">Blog</a>
+    <a class="nav-link" href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub</a>
+  </div>
+</header>
+
+<div class="page-shell">
+  <div class="page-wrap">
+
+    <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-title">API Reference</div>
+      <nav>
+        <div class="sidebar-group">Endpoints</div>
+        <a href="#store-shard"><span class="method-badge method-post">POST</span> /store-shard</a>
+        <a href="#gather-shards"><span class="method-badge method-post">POST</span> /gather-shards</a>
+        <a href="#discover"><span class="method-badge method-get">GET</span> /discover</a>
+        <a href="#metrics"><span class="method-badge method-get">GET</span> /metrics</a>
+
+        <div class="sidebar-group">Usage</div>
+        <a href="#curl">curl</a>
+        <a href="#python">Python</a>
+        <a href="#grove">grove CLI</a>
+        <a href="#watcher">Watcher (auto)</a>
+
+        <div class="sidebar-group">Reference</div>
+        <a href="#config">config.yaml</a>
+        <a href="#streaming">Streaming responses</a>
+        <a href="#errors">Errors</a>
+      </nav>
+    </aside>
+
+    <!-- ── Main ───────────────────────────────────────────────────────── -->
+    <main class="docs-main">
+
+      <h2 class="page-title">API Reference</h2>
+      <p class="page-sub">
+        The smoltorrent API runs on the coordinator (default <code>localhost:8000</code>).
+        All store/gather operations stream log lines as they run so you see progress in real time.
+        No authentication required — it's designed for local cluster use.
+        Make sure the API and all workers are running before calling any endpoint (<a href="./setup.html">setup guide</a>).
+      </p>
+
+      <!-- Overview cards -->
+      <div class="card-row">
+        <div class="card">
+          <div class="card-ep" style="color:#1d4ed8;">POST /store-shard</div>
+          <h3>Store</h3>
+          <p>Shard a checkpoint and push each shard to workers with RF2 replication.</p>
+        </div>
+        <div class="card">
+          <div class="card-ep" style="color:#1d4ed8;">POST /gather-shards</div>
+          <h3>Gather</h3>
+          <p>Pull all shards from workers, verify, and merge into a single file.</p>
+        </div>
+        <div class="card">
+          <div class="card-ep" style="color:#15803d;">GET /discover</div>
+          <h3>Discover</h3>
+          <p>Scan the network via mDNS/AWDL and return all live workers.</p>
+        </div>
+      </div>
+
+      <!-- ── POST /store-shard ───────────────────────────────────────── -->
+      <div class="section" id="store-shard">
+        <div class="section-header">
+          <span class="endpoint-badge ep-post">POST</span>
+          <h2 class="ep-title">/store-shard</h2>
+        </div>
+
+        <p class="desc">
+          Loads the checkpoint at <code>ckpt_path</code>, shards the tensor dict into N equal chunks
+          (one per worker), serializes each chunk to <code>.safetensors</code> bytes, then dispatches
+          all <code>N × REDUNDANCY</code> sends in parallel via a <code>ThreadPoolExecutor</code>.
+          With <code>REDUNDANCY=2</code> (default), shard <code>i</code> goes to
+          <code>workers[i]</code> (primary) and <code>workers[(i+1) % N]</code> (replica).
+          Failed sends are retried with exponential backoff (up to 6 attempts).
+          Response is a streaming plain-text log — one line per event.
+        </p>
+
+        <h3 class="sub">Query parameters</h3>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>ckpt_path</code></td>
+              <td><code>string</code></td>
+              <td><span class="req-tag">required</span></td>
+              <td>Absolute path to the <code>.safetensors</code> checkpoint on the coordinator. Must be under <code>ckpt_root</code> from config — the relative path is used as the storage key on workers.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 class="sub">curl</h3>
+        <div class="code-block has-label" id="curl">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>curl -N -X POST \
+  "http://localhost:8000/store-shard?ckpt_path=/home/user/checkpoints/run1/step_100/model.safetensors"</pre>
+        </div>
+
+        <h3 class="sub">Python (httpx)</h3>
+        <div class="code-block has-label">
+          <span class="code-label">python</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>import httpx
+
+ckpt_path = "/home/user/checkpoints/run1/step_100/model.safetensors"
+
+with httpx.Client(timeout=None) as client:
+    with client.stream(
+        "POST", "http://localhost:8000/store-shard",
+        params={"ckpt_path": ckpt_path}
+    ) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            print(line)</pre>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">ℹ️</span>
+          <span>Use <code>timeout=None</code> — a 942 MB checkpoint with RF2 takes ~5 min on 100 Mbps Ethernet.
+          The response streams progress lines continuously so your connection won't idle.</span>
+        </div>
+
+        <h3 class="sub">Streaming response</h3>
+        <div class="stream-output">
+<span class="so-dim">Loaded 290 tensors (942.3 MB) from run1/step_100 — chunking into 4 shards</span>
+<span class="so-green">  ✓ rank 1 (pi4-1) [round 0]</span>
+<span class="so-green">  ✓ rank 3 (pi4-3) [round 0]</span>
+<span class="so-green">  ✓ rank 2 (pi4-2) [round 0]</span>
+<span class="so-green">  ✓ rank 4 (pi4-4) [round 0]</span>
+<span class="so-green">  ✓ rank 2 (pi4-2) [round 1]</span>
+<span class="so-green">  ✓ rank 3 (pi4-3) [round 1]</span>
+<span class="so-green">  ✓ rank 1 (pi4-1) [round 1]</span>
+<span class="so-green">  ✓ rank 4 (pi4-4) [round 1]</span>
+<span class="so-white">Done: 8/8 sends (2x replicated) → run1/step_100</span>
+        </div>
+
+        <div class="callout warn">
+          <span class="icon">⚠️</span>
+          <span>Check for <code>ERROR:</code> at the start of any line. A <code>Done:</code> line at the end means all shards were stored successfully. Missing <code>Done:</code> means at least one shard permanently failed.</span>
+        </div>
+      </div>
+
+      <!-- ── POST /gather-shards ─────────────────────────────────────── -->
+      <div class="section" id="gather-shards">
+        <div class="section-header">
+          <span class="endpoint-badge ep-post">POST</span>
+          <h2 class="ep-title">/gather-shards</h2>
+        </div>
+
+        <p class="desc">
+          Pulls shards from all workers in parallel, saves each to local disk under
+          <code>shards/</code>, verifies integrity, then merges them back into a single
+          <code>merged.safetensors</code> file in the same directory as the original checkpoint.
+          If a primary worker is down, the gather automatically falls back to the replica.
+          Pass the same <code>ckpt_path</code> used during store.
+        </p>
+
+        <h3 class="sub">Query parameters</h3>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>ckpt_path</code></td>
+              <td><code>string</code></td>
+              <td><span class="req-tag">required</span></td>
+              <td>Same absolute path used in <code>/store-shard</code>. The relative path from <code>ckpt_root</code> is used to look up shards on workers.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 class="sub">curl</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>curl -N -X POST \
+  "http://localhost:8000/gather-shards?ckpt_path=/home/user/checkpoints/run1/step_100/model.safetensors"</pre>
+        </div>
+
+        <h3 class="sub">Python (httpx)</h3>
+        <div class="code-block has-label">
+          <span class="code-label">python</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>import httpx
+
+ckpt_path = "/home/user/checkpoints/run1/step_100/model.safetensors"
+
+with httpx.Client(timeout=None) as client:
+    with client.stream(
+        "POST", "http://localhost:8000/gather-shards",
+        params={"ckpt_path": ckpt_path}
+    ) as resp:
+        resp.raise_for_status()
+        body = ""
+        for line in resp.iter_lines():
+            print(line)
+            body += line + "\n"
+
+# merged.safetensors is in the same directory as ckpt_path
+# e.g. /home/user/checkpoints/run1/step_100/merged.safetensors</pre>
+        </div>
+
+        <h3 class="sub">Streaming response</h3>
+        <div class="stream-output">
+<span class="so-green">  ✓ shard 0 — saved → /path/to/shards/worker_1/run1/step_100/shard.safetensors</span>
+<span class="so-green">  ✓ shard 1 — saved → /path/to/shards/worker_2/run1/step_100/shard.safetensors</span>
+<span class="so-green">  ✓ shard 2 — saved → /path/to/shards/worker_3/run1/step_100/shard.safetensors</span>
+<span class="so-green">  ✓ shard 3 — saved → /path/to/shards/worker_4/run1/step_100/shard.safetensors</span>
+<span class="so-dim">Merging 4 shards → /home/user/checkpoints/run1/step_100/merged.safetensors</span>
+<span class="so-white">Done: saved → /home/user/checkpoints/run1/step_100/merged.safetensors</span>
+        </div>
+
+        <div class="callout tip">
+          <span class="icon">✅</span>
+          <span>The merged file is a standard <code>.safetensors</code> file — load it with
+          <code>safetensors.torch.load_file()</code> or <code>mx.load()</code> directly. No smoltorrent dependency needed at inference time.</span>
+        </div>
+
+        <h3 class="sub">Replica fallback</h3>
+        <p class="desc">If a primary worker is unreachable, gather automatically tries its replica (the next worker in the ring). This is transparent — the log shows which worker actually served the shard:</p>
+        <div class="stream-output">
+<span class="so-yellow">  trying replica rank 2 for shard 1 (primary rank 1 failed)</span>
+<span class="so-green">  ✓ shard 1 — saved → .../worker_2/run1/step_100/shard.safetensors</span>
+        </div>
+      </div>
+
+      <!-- ── GET /discover ──────────────────────────────────────────── -->
+      <div class="section" id="discover">
+        <div class="section-header">
+          <span class="endpoint-badge ep-get">GET</span>
+          <h2 class="ep-title">/discover</h2>
+        </div>
+
+        <p class="desc">
+          Scans the local network for smoltorrent worker nodes using mDNS
+          (<code>_smoltorrent._tcp.local.</code>). On macOS, AirDrop/AWDL discovery runs in
+          parallel for router-free peer-to-peer Mac-to-Mac networking.
+          Useful for verifying which workers are alive before a store/gather, or after DHCP
+          reassigns IPs.
+        </p>
+
+        <h3 class="sub">Query parameters</h3>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>timeout</code></td>
+              <td><code>float</code></td>
+              <td><span class="opt-tag">optional</span></td>
+              <td><code>10.0</code></td>
+              <td>How long to scan for workers in seconds. Increase for slow networks.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 class="sub">curl</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>curl "http://localhost:8000/discover?timeout=5"</pre>
+        </div>
+
+        <h3 class="sub">Response</h3>
+        <div class="code-block has-label">
+          <span class="code-label">json</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>{
+  "workers": [
+    {"ip": "192.168.1.7",  "port": 5001, "rank": 1, "hostname": "pi4-1"},
+    {"ip": "192.168.1.5",  "port": 5002, "rank": 2, "hostname": "pi4-2"},
+    {"ip": "192.168.1.3",  "port": 5003, "rank": 3, "hostname": "pi4-3"},
+    {"ip": "192.168.1.6",  "port": 5004, "rank": 4, "hostname": "pi4-4"}
+  ]
+}</pre>
+        </div>
+      </div>
+
+      <!-- ── GET /metrics ───────────────────────────────────────────── -->
+      <div class="section" id="metrics">
+        <div class="section-header">
+          <span class="endpoint-badge ep-get">GET</span>
+          <h2 class="ep-title">/metrics</h2>
+        </div>
+        <p class="desc">Prometheus scrape endpoint. Exposes store/gather operation counts, wall-clock histograms, per-rank transfer errors, bytes sent/received, and send duration histograms. Scraped by the Prometheus container in the monitoring stack.</p>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>curl http://localhost:8000/metrics/</pre>
+        </div>
+        <div class="callout info">
+          <span class="icon">ℹ️</span>
+          <span>Note the trailing slash — <code>/metrics/</code> not <code>/metrics</code>. The Prometheus scrape config in <code>monitoring/prometheus/prometheus.yml</code> already has this configured.</span>
+        </div>
+      </div>
+
+      <!-- ── grove CLI ──────────────────────────────────────────────── -->
+      <div class="section" id="grove">
+        <div class="section-header">
+          <h2 class="ep-title" style="font-size:22px;">grove CLI</h2>
+        </div>
+        <p class="desc">
+          <code>grove</code> is the command-line interface that wraps all API calls. It handles cluster startup, worker discovery, and store/gather without needing to manage curl manually.
+        </p>
+
+        <h3 class="sub">Start the cluster</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre># Start API + watcher + all 4 workers (rsyncs code, installs deps, opens tmux sessions)
+bash scripts/launch.sh
+
+# Start API only (workers must already be running)
+bash scripts/launch.sh --api-only
+
+# Start specific workers only
+bash scripts/launch.sh --workers 1,3</pre>
+        </div>
+
+        <p style="font-size:13px; color:var(--ink-2); margin-bottom:0.75rem;">
+          <strong>grove CLI is the recommended way</strong> to store and gather — it handles streaming, error propagation, and optional tokenizer fetch after gather. The API server must already be running (started via <code>grove start</code> or <code>bash scripts/launch.sh</code>) before either command works.
+        </p>
+
+        <h3 class="sub">Store a checkpoint</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>grove store --ckpt-path ~/checkpoints/run1/step_100/model.safetensors
+
+# Streams the same log as the API directly to your terminal:
+# Loaded 290 tensors (942.3 MB) — chunking into 4 shards
+#   ✓ rank 1 (pi4-1) [round 0]
+#   ✓ rank 2 (pi4-2) [round 0]
+#   ...
+# Done: 8/8 sends (2x replicated) → run1/step_100</pre>
+        </div>
+
+        <h3 class="sub">Gather a checkpoint</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>grove gather --ckpt-path ~/checkpoints/run1/step_100/model.safetensors
+# → writes merged.safetensors in the same directory</pre>
+        </div>
+
+        <h3 class="sub">Discover workers</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>grove discover
+# → lists all live workers found via mDNS</pre>
+        </div>
+      </div>
+
+      <!-- ── Watcher ────────────────────────────────────────────────── -->
+      <div class="section" id="watcher">
+        <div class="section-header">
+          <h2 class="ep-title" style="font-size:22px;">Watcher — automatic mode</h2>
+        </div>
+        <p class="desc">
+          The watcher daemon watches your checkpoint directory and calls <code>/store-shard</code>
+          automatically whenever a new <code>.safetensors</code> file appears and stabilises (no
+          writes for 1 second). No manual intervention needed — just train, and checkpoints
+          replicate themselves.
+        </p>
+
+        <h3 class="sub">Start the watcher</h3>
+        <div class="code-block has-label">
+          <span class="code-label">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre># Watcher is launched automatically by launch.sh
+# To start manually:
+uv run python watcher/watch.py
+
+# Watch specific file extensions (default: .safetensors)
+uv run python watcher/watch.py --ext .safetensors,.pth</pre>
+        </div>
+
+        <h3 class="sub">What the watcher does</h3>
+        <div class="code-block has-label">
+          <span class="code-label">4-phase loop</span>
+          <pre>1. file_sync        — push local checkpoint list to all workers
+2. checksum_sync    — verify existing shards on startup (once)
+3. transfer         — call /store-shard for any new/changed file
+4. crosscheck       — confirm all workers have the shard before moving on</pre>
+        </div>
+
+        <div class="callout tip">
+          <span class="icon">✅</span>
+          <span>The watcher and direct API calls are not mutually exclusive — you can run both at the same time. The watcher handles new files automatically; direct API calls let you trigger store/gather on demand for specific paths.</span>
+        </div>
+      </div>
+
+      <!-- ── config.yaml ────────────────────────────────────────────── -->
+      <div class="section" id="config">
+        <div class="section-header">
+          <h2 class="ep-title" style="font-size:22px;">config.yaml reference</h2>
+        </div>
+        <p class="desc">Lives at <code>configs/config.yaml</code>. Loaded fresh on every API request — no restart needed after edits.</p>
+        <div class="code-block has-label">
+          <span class="code-label">yaml</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>ckpt_root: ~/smolcluster/checkpoints   # base directory — ckpt_path must be under this
+n_chunks: 4                            # number of shards = number of workers
+num_workers: 4
+
+devices_config:
+  master:
+    - host: localhost
+      ip: 127.0.0.1
+      rank: 0
+      port: 5000
+  workers:
+    - host: pi4-1
+      ip: 192.168.1.7
+      rank: 1
+      port: 5001
+    - host: pi4-2
+      ip: 192.168.1.5
+      rank: 2
+      port: 5002
+    - host: pi4-3
+      ip: 192.168.1.3
+      rank: 3
+      port: 5003
+    - host: pi4-4
+      ip: 192.168.1.6
+      rank: 4
+      port: 5004</pre>
+        </div>
+        <div class="callout warn">
+          <span class="icon">⚠️</span>
+          <span><code>ckpt_path</code> passed to the API must be an absolute path that starts with <code>ckpt_root</code>. The relative portion (e.g. <code>run1/step_100</code>) becomes the storage key on every worker.</span>
+        </div>
+      </div>
+
+      <!-- ── Streaming responses ────────────────────────────────────── -->
+      <div class="section" id="streaming">
+        <div class="section-header">
+          <h2 class="ep-title" style="font-size:22px;">Streaming responses</h2>
+        </div>
+        <p class="desc">
+          Both <code>/store-shard</code> and <code>/gather-shards</code> return
+          <code>text/plain</code> streaming responses — FastAPI's <code>StreamingResponse</code>
+          yields one log line per event as it happens. This means:
+        </p>
+        <ul style="font-size:14px; color:var(--ink-2); line-height:2; padding-left:20px; margin-bottom:14px;">
+          <li>Use <code>-N</code> (no-buffer) with curl to see lines as they arrive</li>
+          <li>Use <code>client.stream()</code> + <code>iter_lines()</code> in httpx/requests</li>
+          <li>Set <code>timeout=None</code> — the response stays open until the operation finishes</li>
+          <li>Check for <code>ERROR:</code> prefix on any line to detect failures</li>
+          <li>The final <code>Done:</code> line confirms full success</li>
+        </ul>
+
+        <h3 class="sub">Check for errors programmatically</h3>
+        <div class="code-block has-label">
+          <span class="code-label">python</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre>import httpx
+
+def store(ckpt_path: str) -> bool:
+    lines = []
+    with httpx.Client(timeout=None) as client:
+        with client.stream("POST", "http://localhost:8000/store-shard",
+                           params={"ckpt_path": ckpt_path}) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                lines.append(line)
+
+    body = "\n".join(lines)
+    if any(l.startswith("ERROR") for l in lines):
+        raise RuntimeError(f"Store failed:\n{body}")
+    if not any("Done:" in l for l in lines):
+        raise RuntimeError(f"Store did not complete:\n{body}")
+    return True</pre>
+        </div>
+      </div>
+
+      <!-- ── Errors ──────────────────────────────────────────────────── -->
+      <div class="section" id="errors">
+        <div class="section-header">
+          <h2 class="ep-title" style="font-size:22px;">Errors</h2>
+        </div>
+        <table class="params">
+          <thead><tr><th>Message</th><th>Cause</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>ERROR: checkpoint not found</code></td>
+              <td><code>ckpt_path</code> doesn't exist on the coordinator</td>
+              <td>Check the path. Must be absolute and the file must exist.</td>
+            </tr>
+            <tr>
+              <td><code>ERROR: … is not under ckpt_root</code></td>
+              <td><code>ckpt_path</code> is outside <code>ckpt_root</code> in config</td>
+              <td>Move the checkpoint under <code>ckpt_root</code> or update config.</td>
+            </tr>
+            <tr>
+              <td><code>↻ rank N failed — queuing retry</code></td>
+              <td>TCP connect failed to a worker</td>
+              <td>Transient — retried automatically up to 6 times. Check worker is running if it persists.</td>
+            </tr>
+            <tr>
+              <td><code>✗ rank N permanently failed</code></td>
+              <td>Worker unreachable after 6 retries</td>
+              <td>Check worker logs: <code>ssh pi4-N 'tmux attach -t syncps_worker_N'</code></td>
+            </tr>
+            <tr>
+              <td><code>ERROR: N/M shards failed — skipping merge</code></td>
+              <td>Gather could not retrieve all shards</td>
+              <td>At least one worker and its replica are both down. Restore a worker or recover from backup.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  function copyCode(btn) {
+    const pre = btn.closest('.code-block').querySelector('pre');
+    navigator.clipboard.writeText(pre.innerText).then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1800);
+    });
+  }
+
+  // Highlight active sidebar link on scroll
+  const sections = document.querySelectorAll('.section[id]');
+  const links = document.querySelectorAll('.sidebar nav a[href^="#"]');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar nav a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

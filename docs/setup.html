@@ -293,7 +293,12 @@
 
 <header>
   <a class="logo" href="./index.html">smoltorrent</a>
-  <a class="nav-back" href="./index.html">← Back</a>
+  <div style="display:flex; gap:6px;">
+    <a class="nav-back" href="./index.html">Home</a>
+    <a class="nav-back" href="./docs.html">Docs</a>
+    <a class="nav-back" href="./blog.html">Blog</a>
+    <a class="nav-back" href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub</a>
+  </div>
 </header>
 
 <div class="setup-shell">
@@ -453,6 +458,10 @@ brew install tmux     <span style="color:#6e7781"># launch.sh starts everything 
         <p class="desc">
           Follow the <a href="https://www.smolhub.com/posts/raspberry-pi-cluster-setup-guide" target="_blank" rel="noopener noreferrer">Raspberry Pi cluster setup guide</a>
           to get your Pis networked. Then on each Pi:
+        </p>
+        <p class="desc" style="margin-top:10px;">
+          For a deeper walkthrough of the full cluster build — hardware selection, PoE switch setup, SD card prep, and OS config — see the
+          <a href="https://yuvrajsingh.io/blogs/smoltorrent" target="_blank" rel="noopener noreferrer">smoltorrent build blog post</a>.
         </p>
         <div class="code-block">
           <pre>sudo apt update && sudo apt install -y python3.13 python3.13-venv curl git</pre>

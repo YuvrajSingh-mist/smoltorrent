@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 1390" font-family="'Noto Sans',Arial,sans-serif">
+<defs>
+<marker id="adk" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#495057"/>
+</marker>
+<marker id="apu" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#7048e8"/>
+</marker>
+<marker id="aam" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#f59f00"/>
+</marker>
+<marker id="agr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#2f9e44"/>
+</marker>
+<marker id="abl" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#1971c2"/>
+</marker>
+<marker id="agy" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#adb5bd"/>
+</marker>
+<marker id="ard" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#e8590c"/>
+</marker>
+<marker id="alt" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+  <polygon points="0 0,9 3.5,0 7" fill="#868e96"/>
+</marker>
+</defs>
+<rect width="860" height="1390" fill="#ffffff"/>
+<rect x="68" y="74" width="334" height="1264" rx="7" fill="#f5f0ff" stroke="#7048e8" stroke-width="2" stroke-dasharray="7,4" opacity="0.55"/>
+<rect x="488" y="74" width="304" height="1062" rx="7" fill="#f0faf2" stroke="#2f9e44" stroke-width="2" stroke-dasharray="7,4" opacity="0.55"/>
+<text x="235" y="64.0" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="700" fill="#7048e8">MAC COORDINATOR (Watcher)</text>
+<text x="640" y="64.0" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="700" fill="#2f9e44">PI WORKERS (TCP servers)</text>
+<text x="430" y="30.0" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="700" fill="#1a1a2e">SmolTorrent — Watcher Boot Sequence</text>
+<rect x="80" y="90" width="310" height="60" rx="7" fill="#ede9fe" stroke="#7048e8" stroke-width="2"/>
+<text x="235" y="120.0" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="700" fill="#3b1fa8">grove start -n 4</text>
+<rect x="500" y="90" width="280" height="60" rx="7" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="640" y="120.0" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="700" fill="#1a6b30">grove join</text>
+<rect x="80" y="188" width="310" height="60" rx="7" fill="#f1f3f5" stroke="#495057" stroke-width="2"/>
+<text x="235" y="209.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#343a40">grove_launch.sh</text>
+<text x="235" y="226.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#343a40">starts syncps_watcher (tmux)</text>
+<rect x="500" y="188" width="280" height="60" rx="7" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="640" y="209.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1a6b30">bind TCP port 500x</text>
+<text x="640" y="226.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1a6b30">advertise mDNS</text>
+<rect x="80" y="286" width="310" height="60" rx="7" fill="#f1f3f5" stroke="#868e96" stroke-width="2"/>
+<text x="235" y="307.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#495057">time.sleep(10) — grace period</text>
+<text x="235" y="324.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#495057">workers still binding</text>
+<rect x="80" y="384" width="310" height="60" rx="7" fill="#f3f0ff" stroke="#7048e8" stroke-width="2"/>
+<text x="235" y="405.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#3b1fa8">PHASE 1 — file_sync</text>
+<text x="235" y="422.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#3b1fa8">query all workers: rel_paths held?</text>
+<rect x="500" y="384" width="280" height="60" rx="7" fill="#ede9fe" stroke="#7048e8" stroke-width="2"/>
+<text x="640" y="405.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#3b1fa8">respond: list of</text>
+<text x="640" y="422.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#3b1fa8">rel_paths on disk</text>
+<rect x="80" y="482" width="310" height="60" rx="7" fill="#f3f0ff" stroke="#7048e8" stroke-width="2"/>
+<text x="235" y="503.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#3b1fa8">intersection = files on ALL workers</text>
+<text x="235" y="520.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#3b1fa8">to_transfer = local − intersection</text>
+<polygon points="235,580 350,609 235,638 120,609" fill="#fff4e6" stroke="#e8590c" stroke-width="2"/>
+<text x="235" y="609.0" text-anchor="middle" dominant-baseline="middle" font-size="12.5" font-weight="700" fill="#9c3a00">first boot?</text>
+<rect x="80" y="676" width="310" height="60" rx="7" fill="#fff9db" stroke="#f59f00" stroke-width="2"/>
+<text x="235" y="697.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#7d4a00">PHASE 2 — checksum_sync  ★ startup only</text>
+<text x="235" y="714.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#7d4a00">send checksum_shard to each worker</text>
+<rect x="500" y="676" width="280" height="60" rx="7" fill="#fff3bf" stroke="#f59f00" stroke-width="2"/>
+<text x="640" y="697.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#7d4a00">re-hash shard from disk</text>
+<text x="640" y="714.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#7d4a00">compare vs .checksum sidecar</text>
+<rect x="80" y="774" width="310" height="60" rx="7" fill="#fff9db" stroke="#f59f00" stroke-width="2"/>
+<text x="235" y="795.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#7d4a00">mismatched paths → added to to_transfer</text>
+<text x="235" y="812.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#7d4a00">catches bit-rot / partial writes</text>
+<rect x="80" y="884" width="310" height="60" rx="7" fill="#ebfbee" stroke="#2f9e44" stroke-width="2"/>
+<text x="235" y="905.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1a6b30">PHASE 3 — transfer</text>
+<text x="235" y="922.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1a6b30">POST /store-shard  (RF=2, two rounds)</text>
+<rect x="500" y="884" width="280" height="60" rx="7" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="640" y="905.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1a6b30">recv shard + verify SHA-256</text>
+<text x="640" y="922.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1a6b30">write to disk + .checksum sidecar</text>
+<rect x="80" y="982" width="310" height="60" rx="7" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+<text x="235" y="1003.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1254a1">PHASE 4 — crosscheck</text>
+<text x="235" y="1020.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1254a1">send all_shards_present to each worker</text>
+<rect x="500" y="982" width="280" height="60" rx="7" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="640" y="1003.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1254a1">confirm rel_paths held</text>
+<text x="640" y="1020.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#1254a1">vs full expected list</text>
+<polygon points="235,1080 350,1109 235,1138 120,1109" fill="#fff4e6" stroke="#e8590c" stroke-width="2"/>
+<text x="235" y="1109.0" text-anchor="middle" dominant-baseline="middle" font-size="12.5" font-weight="700" fill="#9c3a00">any gaps?</text>
+<rect x="80" y="1176" width="310" height="60" rx="7" fill="#e3fafc" stroke="#0c8599" stroke-width="2"/>
+<text x="235" y="1197.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="700" fill="#095c69">✓  cluster in sync</text>
+<text x="235" y="1214.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="700" fill="#095c69">all shards present + verified</text>
+<rect x="80" y="1274" width="310" height="60" rx="7" fill="#f1f3f5" stroke="#868e96" stroke-width="2"/>
+<text x="235" y="1295.8" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#495057">steady state — pending loop thread</text>
+<text x="235" y="1312.2" text-anchor="middle" dominant-baseline="middle" font-size="11.5" fill="#495057">wakes every 10s, skips checksum_sync</text>
+<line x1="235" y1="150" x2="235" y2="188" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="248" x2="235" y2="286" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="346" x2="235" y2="384" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="444" x2="235" y2="482" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="542" x2="235" y2="609" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="736" x2="235" y2="774" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="834" x2="235" y2="884" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="944" x2="235" y2="982" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="1042" x2="235" y2="1109" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="1236" x2="235" y2="1274" stroke="#495057" stroke-width="2" marker-end="url(#adk)"/>
+<line x1="235" y1="638" x2="235" y2="676" stroke="#2f9e44" stroke-width="2" marker-end="url(#agr)"/>
+<text x="253" y="651" text-anchor="middle" font-size="10" fill="#2f9e44">Yes</text>
+<line x1="235" y1="1138" x2="235" y2="1176" stroke="#2f9e44" stroke-width="2" marker-end="url(#agr)"/>
+<text x="251" y="1151" text-anchor="middle" font-size="10" fill="#2f9e44">No</text>
+<path d="M 350 609 H 364 V 914 H 390" fill="none" stroke="#868e96" stroke-width="2" marker-end="url(#alt)" stroke-dasharray="5,3"/>
+<text x="378" y="600" text-anchor="middle" font-size="10" fill="#868e96">No</text>
+<path d="M 120 1109 H 50 V 914 H 80" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ard)"/>
+<text x="102" y="1100" text-anchor="middle" font-size="10" fill="#e8590c">Yes</text>
+<line x1="640" y1="150" x2="640" y2="188" stroke="#2f9e44" stroke-width="2" marker-end="url(#agr)"/>
+<line x1="390" y1="406" x2="500" y2="406" stroke="#7048e8" stroke-width="2" marker-end="url(#apu)"/>
+<line x1="500" y1="422" x2="390" y2="422" stroke="#adb5bd" stroke-width="2" marker-end="url(#agy)"/>
+<line x1="390" y1="698" x2="500" y2="698" stroke="#f59f00" stroke-width="2" marker-end="url(#aam)"/>
+<line x1="500" y1="714" x2="390" y2="714" stroke="#adb5bd" stroke-width="2" marker-end="url(#agy)"/>
+<line x1="390" y1="906" x2="500" y2="906" stroke="#2f9e44" stroke-width="2" marker-end="url(#agr)"/>
+<line x1="390" y1="1004" x2="500" y2="1004" stroke="#1971c2" stroke-width="2" marker-end="url(#abl)"/>
+<line x1="500" y1="1020" x2="390" y2="1020" stroke="#adb5bd" stroke-width="2" marker-end="url(#agy)"/>
+</svg>
