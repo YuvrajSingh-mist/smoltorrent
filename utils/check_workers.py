@@ -75,7 +75,7 @@ def count_remote_shards(
             )
             count = int(proc.stdout.strip())
         except Exception as e:
-            logger.warning("Could not SSH into %s (%s): %s", host_alias, ip, e)
+            logger.warning("[check] Could not SSH into %s (%s): %s", host_alias, ip, e)
             count = 0
         results.append(
             {

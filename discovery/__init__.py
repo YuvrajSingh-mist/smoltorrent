@@ -21,7 +21,8 @@ Worker (advertises itself)::
 
 import sys
 
-from .grove._mdns import WorkerAdvertiser, discover_mdns_workers
+from .grove._mdns import WorkerAdvertiser, WorkerBrowser
+from .grove._utils import setup_grove_logging
 from .grove.transport.p2p import discover_airdrop_workers
 
 
@@ -38,6 +39,7 @@ def advertise_worker(
         port:     TCP port this worker is listening on.
         hostname: Override the advertised hostname (defaults to ``socket.gethostname()``).
     """
+    setup_grove_logging()
     return WorkerAdvertiser(rank=rank, port=port, hostname=hostname)
 
 
@@ -57,15 +59,17 @@ def discover_workers(timeout: float = 10.0) -> list[dict]:
 
             [{"ip": str, "port": int, "rank": int, "hostname": str}, ...]
     """
+    setup_grove_logging()
+
     import threading
 
     mdns_results: list[dict] = []
     airdrop_results: list[dict] = []
 
-    def _run_mdns():
-        mdns_results.extend(discover_mdns_workers(timeout=timeout))
+    def run_mdns():
+        mdns_results.extend(WorkerBrowser(timeout=timeout))
 
-    def _run_airdrop():
+    def run_airdrop():
         if sys.platform != "darwin":
             return
         try:
@@ -73,8 +77,8 @@ def discover_workers(timeout: float = 10.0) -> list[dict]:
         except Exception:
             pass
 
-    t_mdns = threading.Thread(target=_run_mdns, daemon=True)
-    t_awdl = threading.Thread(target=_run_airdrop, daemon=True)
+    t_mdns = threading.Thread(target=run_mdns, daemon=True)
+    t_awdl = threading.Thread(target=run_airdrop, daemon=True)
     t_mdns.start()
     t_awdl.start()
     t_mdns.join()

@@ -2,6 +2,10 @@
 
 Each worker binds a TCP port, handles incoming connections in daemon threads, and
 persists shards to disk under ``shards/worker_{rank}/{rel_path}/shard.safetensors``.
+
+The server / master side lives in ``backend/api.py`` (not a separate ``server.py``).
+It connects to each worker over TCP and sends ``store_shard`` / ``send_shard`` /
+``heartbeat`` / ``checksum_sync`` / ``sync`` / ``all_shards_present`` commands.
 """
 
 import threading
@@ -14,7 +18,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
-from networking.send_receive import receive_message, send_message, _network_metrics
+from networking.send_receive import receive_message, send_message, network_metrics
 from utils.common_utils import (
     compute_checksum,
     load_tensors,
@@ -88,12 +92,12 @@ def _handle_shard_client(
     try:
         msg = receive_message(conn)
         if msg is None:
-            logger.warning(f"Empty message from {caller}")
+            logger.warning(f"[syncps] Empty message from {caller}")
             return
         command, *_ = msg if isinstance(msg, tuple) else (msg,)
         if command == "heartbeat":
             send_message(conn, "alive")
-            logger.info(f"Heartbeat ack → {caller}")
+            logger.info(f"[syncps] Heartbeat ack → {caller}")
 
         elif command == "checksum_sync":
             _, rank, rel_path = msg
@@ -102,14 +106,14 @@ def _handle_shard_client(
             if not checksum_path.exists():
                 cksum = compute_checksum(shard_path)
                 checksum_path.write_text(cksum)
-                logger.info(f"Bootstrapped checksum for rank {rank} at {rel_path}")
+                logger.info(f"[syncps] Bootstrapped checksum for rank {rank} at {rel_path}")
                 send_message(conn, ("checksum_sync_result", "ok", rel_path))
             else:
                 current = compute_checksum(shard_path)
                 stored = checksum_path.read_text().strip()
                 status = "ok" if current == stored else "mismatch"
                 send_message(conn, ("checksum_sync_result", status, rel_path))
-                logger.info(f"Checksum {status} for rank {rank} at {rel_path}")
+                logger.info(f"[syncps] Checksum {status} for rank {rank} at {rel_path}")
 
         elif command == "all_shards_present":
             _, rank, rel_paths = msg
@@ -122,7 +126,7 @@ def _handle_shard_client(
             ]
             send_message(conn, missing)
             logger.info(
-                f"Crosscheck: {len(rel_paths) - len(missing)}/{len(rel_paths)} present, {len(missing)} missing"
+                f"[syncps] Crosscheck: {len(rel_paths) - len(missing)}/{len(rel_paths)} present, {len(missing)} missing"
             )
 
         elif command == "sync":
@@ -135,18 +139,18 @@ def _handle_shard_client(
                 for shard_file in worker_dir.rglob("shard.safetensors"):
                     existing.append(str(shard_file.parent.relative_to(worker_dir)))
             send_message(conn, existing)
-            logger.info(f"Sync: reported {len(existing)} existing path(s) to {caller}")
+            logger.info(f"[syncps] Sync: reported {len(existing)} existing path(s) to {caller}")
 
         elif command == "send_shard":
             _, rank, rel_path = msg
             shard_path = SHARDS_ROOT / f"worker_{rank}" / rel_path / "shard.safetensors"
             if not shard_path.exists():
                 logger.warning(
-                    f"No shard on disk for rank {rank} at {shard_path}, cannot serve to {caller}"
+                    f"[syncps] No shard on disk for rank {rank} at {shard_path}, cannot serve to {caller}"
                 )
                 send_message(conn, None)
                 return
-            logger.info(f"Loading shard from disk for rank {rank}: {shard_path}")
+            logger.info(f"[syncps] Loading shard from disk for rank {rank}: {shard_path}")
             t0 = time.perf_counter()
             shard_bytes = shard_to_bytes(load_tensors(shard_path))
             send_message(conn, shard_bytes)
@@ -155,18 +159,18 @@ def _handle_shard_client(
                 _metrics.bytes_sent.labels(rank=str(rank)).inc(len(shard_bytes))
                 _metrics.send_ops.labels(rank=str(rank)).inc()
                 _metrics.send_duration.labels(rank=str(rank)).observe(elapsed)
-            log_metrics(_network_metrics.get_metrics(), logger, "serve-shard-to-api")
-            logger.info(f"Served shard to {caller}")
+            log_metrics(network_metrics.get_metrics(), logger, "serve-shard-to-api")
+            logger.info(f"[syncps] Served shard to {caller}")
 
         elif command == "store_shard":
             _, rank, shard_bytes, received_checksum, rel_path = msg
             if shard_bytes is None:
-                logger.warning(f"No shard data in store_shard from {caller}")
+                logger.warning(f"[syncps] No shard data in store_shard from {caller}")
                 send_message(conn, ("store_shard_failed", rank, "no shard data"))
                 return
             if received_checksum is not None:
                 if compute_checksum(shard_bytes) != received_checksum:
-                    logger.error(f"Checksum mismatch for rank {rank} from {caller}")
+                    logger.error(f"[syncps] Checksum mismatch for rank {rank} from {caller}")
                     if _metrics:
                         _metrics.store_errors.labels(rank=str(rank)).inc()
                     send_message(
@@ -191,22 +195,22 @@ def _handle_shard_client(
                     _metrics.store_ops.labels(rank=str(rank)).inc()
                     _metrics.store_duration.labels(rank=str(rank)).observe(elapsed)
                 log_metrics(
-                    _network_metrics.get_metrics(), logger, f"store-shard-rank{rank}"
+                    network_metrics.get_metrics(), logger, f"store-shard-rank{rank}"
                 )
                 logger.info(
-                    f"Stored shard for rank {rank} from {caller} → {shard_path}"
+                    f"[syncps] Stored shard for rank {rank} from {caller} → {shard_path}"
                 )
                 send_message(conn, ("store_shard_done", rank, str(shard_path)))
             except Exception as e:
-                logger.error(f"Failed to save shard for rank {rank}: {e}")
+                logger.error(f"[syncps] Failed to save shard for rank {rank}: {e}")
                 if _metrics:
                     _metrics.store_errors.labels(rank=str(rank)).inc()
                 send_message(conn, ("store_shard_failed", rank, str(e)))
 
         else:
-            logger.warning(f"Unknown command '{command}' from {caller}")
+            logger.warning(f"[syncps] Unknown command '{command}' from {caller}")
     except Exception as e:
-        logger.error(f"Error serving from {caller}: {e}")
+        logger.error(f"[syncps] Error serving from {caller}: {e}")
     finally:
         conn.close()
 
@@ -222,18 +226,18 @@ def _shard_listener(port: int, logger: logging.Logger) -> None:
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
     srv.listen()
-    logger.info(f"Shard listener ready on port {port}")
+    logger.info(f"[syncps] Shard listener ready on port {port}")
     while True:
         try:
             conn, addr = srv.accept()
-            logger.info(f"Incoming connection from {_label_caller(addr)}")
+            logger.info(f"[syncps] Incoming connection from {_label_caller(addr)}")
             threading.Thread(
                 target=_handle_shard_client,
                 args=(conn, addr, logger),
                 daemon=True,
             ).start()
         except Exception as e:
-            logger.error(f"Shard listener error: {e}")
+            logger.error(f"[syncps] Shard listener error: {e}")
             break
 
 
@@ -255,7 +259,7 @@ def run_worker(worker_rank: int, hostname: str) -> None:
         log_dir=config.get("log_dir", "/tmp/smolcluster-logs"),
         algorithm="syncps",
     )
-    logger.info("Starting SmolTorrent...")
+    logger.info("[syncps] Starting SmolTorrent...")
 
     my_config = next(
         w for w in config["devices_config"]["workers"] if w["rank"] == worker_rank
@@ -271,13 +275,13 @@ def run_worker(worker_rank: int, hostname: str) -> None:
         daemon=True,
     ).start()
 
-    logger.info(f"Worker {worker_rank} ready — listening on port {my_port}")
+    logger.info(f"[syncps] Worker {worker_rank} ready — listening on port {my_port}")
 
     # Advertise this worker over mDNS so the master can discover it automatically.
     # Runs for the lifetime of the process; close() is called on normal exit.
     _advertiser = advertise_worker(rank=worker_rank, port=my_port, hostname=hostname)
     logger.info(
-        f"Worker {worker_rank} advertising on mDNS as smoltorrent-rank-{worker_rank}"
+        f"[syncps] Worker {worker_rank} advertising on mDNS as smoltorrent-rank-{worker_rank}"
     )
 
     try:

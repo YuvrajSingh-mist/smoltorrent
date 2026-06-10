@@ -259,7 +259,7 @@ def setup_cluster_logging(
     )
     logger.addHandler(fh)
     logger.info(
-        "Logging initialised: %s  [algorithm=%s arch=%s role=%s hardware=%s]",
+        "[log] Logging initialised: %s  [algorithm=%s arch=%s role=%s hardware=%s]",
         log_file,
         algorithm or "?",
         arch or "?",

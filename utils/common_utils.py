@@ -40,7 +40,7 @@ def compute_checksum(src: bytes | str | Path) -> str:
 
 def shard_to_bytes(shard: dict) -> bytes:
     """Serialize a shard dict to safetensors bytes. No temp files, no numpy."""
-    if _IS_MAC:
+    if IS_MAC:
         import mlx.core as mx
 
         mx.eval(*shard.values())
@@ -54,7 +54,7 @@ def shard_to_bytes(shard: dict) -> bytes:
     return st_save(shard)
 
 
-class _NamedBytesIO(io.BytesIO):
+class NamedBytesIO(io.BytesIO):
     """BytesIO subclass with a hard-coded ``.name`` attribute.
 
     MLX's ``mx.load()`` requires a file-like object with a ``.name`` ending in
@@ -66,10 +66,10 @@ class _NamedBytesIO(io.BytesIO):
 
 def shard_from_bytes(data: bytes) -> dict:
     """Deserialize safetensors bytes. Returns MLX arrays on Mac, torch tensors on Pi."""
-    if _IS_MAC:
+    if IS_MAC:
         import mlx.core as mx
 
-        return dict(mx.load(_NamedBytesIO(data)))
+        return dict(mx.load(NamedBytesIO(data)))
     return st_load(data)
 
 
@@ -97,22 +97,22 @@ def fetch_model_metadata(model_id: str, config: dict) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
-        "Downloading tokenizer and config for %s from HuggingFace Hub...", model_id
+        "[model] Downloading tokenizer and config for %s from HuggingFace Hub...", model_id
     )
     snapshot_download(
         repo_id=model_id,
         local_dir=str(dest_dir),
         ignore_patterns=["*.safetensors", "*.bin", "*.pt", "*.gguf", "*.ot"],
     )
-    logger.info("  metadata written to %s", dest_dir)
+    logger.info("[model]   metadata written to %s", dest_dir)
 
 
-_IS_MAC = platform.system() == "Darwin"
+IS_MAC = platform.system() == "Darwin"
 
 
-def _save_shard(shard: dict, path: str) -> None:
+def save_shard(shard: dict, path: str) -> None:
     """Save shard to disk. Mac uses MLX, Pi uses safetensors.torch (shard is already torch tensors)."""
-    if _IS_MAC:
+    if IS_MAC:
         import mlx.core as mx
 
         mx.save_safetensors(path, shard)
@@ -122,7 +122,7 @@ def _save_shard(shard: dict, path: str) -> None:
 
 def load_tensors(path: str | Path) -> dict:
     """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers)."""
-    if _IS_MAC:
+    if IS_MAC:
         import mlx.core as mx
 
         return dict(mx.load(str(path)))
@@ -231,7 +231,7 @@ def save_received_data_shard(
         if metadata:
             merged_metadata.update(dict(metadata))
 
-        _save_shard(shard, str(shard_path))
+        save_shard(shard, str(shard_path))
 
         metadata_payload = dict(merged_metadata)
         metadata_payload["saved_at_utc"] = datetime.now(timezone.utc).isoformat()
@@ -244,11 +244,11 @@ def save_received_data_shard(
             json.dumps(metadata_payload, indent=2, sort_keys=True), encoding="utf-8"
         )
 
-        logger.info("Saved shard to %s with metadata %s", shard_path, metadata_path)
+        logger.info("[model] Saved shard to %s with metadata %s", shard_path, metadata_path)
         return str(shard_path), str(metadata_path), True, ""
 
     except Exception as e:
-        logger.error("Failed to save shard: %s", e)
+        logger.error("[model] Failed to save shard: %s", e)
         return "", "", False, str(e)
 
 
@@ -264,8 +264,8 @@ def save_merged_model(merged_weights: dict, save_path: str | Path) -> Path:
     """Save merged weights as a single safetensors file."""
     dest = Path(save_path).expanduser()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    _save_shard(merged_weights, str(dest))
-    logger.info("Saved merged model → %s", dest)
+    save_shard(merged_weights, str(dest))
+    logger.info("[model] Saved merged model → %s", dest)
     return dest
 
 

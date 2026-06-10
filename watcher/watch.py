@@ -67,7 +67,7 @@ def _sync_worker(worker: dict, extensions: list[str]) -> tuple[bool, set[str]]:
         sock.close()
         return True, set(result) if result else set()
     except Exception as e:
-        logger.warning("Sync failed for rank %d: %s", rank, e)
+        logger.warning("[watcher] Sync failed for rank %d: %s", rank, e)
         return False, set()
 
 
@@ -104,7 +104,7 @@ def _checksum_sync_worker(worker: dict, rel_path: str) -> str:
         return result[1] if result else "missing"
     except Exception as e:
         logger.warning(
-            "Checksum sync failed for rank %d path %s: %s", rank, rel_path, e
+            "[watcher] Checksum sync failed for rank %d path %s: %s", rank, rel_path, e
         )
         return "missing"
 
@@ -130,7 +130,7 @@ def _checksum_sync_all(
             status = f.result()
             if status != "ok":
                 logger.warning(
-                    "Checksum %s — rank %d at %s",
+                    "[watcher] Checksum %s — rank %d at %s",
                     status,
                     worker["rank"],
                     path.parent.relative_to(ckpt_root),
@@ -152,7 +152,7 @@ def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[st
         sock.close()
         return rank, missing if missing else []
     except Exception as e:
-        logger.warning("Crosscheck failed for rank %d: %s", rank, e)
+        logger.warning("[watcher] Crosscheck failed for rank %d: %s", rank, e)
         return rank, rel_paths
 
 
@@ -212,14 +212,14 @@ def _run_pending_loop(
         time.sleep(10)
         if pending:
             logger.info(
-                "Re-evaluating %d pending file(s) for stability...", len(pending)
+                "[watcher] Re-evaluating %d pending file(s) for stability...", len(pending)
             )
             with pending_lock:
                 still_pending, now_stable = [], []
                 for path in pending:
                     if not path.exists():
                         logger.info(
-                            "Pending file no longer exists — dropping: %s", path
+                            "[watcher] Pending file no longer exists — dropping: %s", path
                         )
                         continue
                     (now_stable if _is_stable(path) else still_pending).append(path)
@@ -227,7 +227,7 @@ def _run_pending_loop(
 
             if now_stable:
                 logger.info(
-                    "%d pending file(s) now stable — re-triggering.", len(now_stable)
+                    "[watcher] %d pending file(s) now stable — re-triggering.", len(now_stable)
                 )
                 trigger.set()
 
@@ -294,7 +294,7 @@ def _run_transfer_loop(
                 try:
                     request_store_shards(ckpt_path=str(path), log_fn=logger.info)
                 except Exception as e:
-                    logger.error("Failed to recover %s: %s", path, e)
+                    logger.error("[watcher] Failed to recover %s: %s", path, e)
 
         if to_transfer:
             logger.info("[transfer] sending %d missing file(s)...", len(to_transfer))
@@ -302,10 +302,10 @@ def _run_transfer_loop(
                 try:
                     request_store_shards(ckpt_path=str(path), log_fn=logger.info)
                 except Exception as e:
-                    logger.error("Failed to store %s: %s", path, e)
+                    logger.error("[watcher] Failed to store %s: %s", path, e)
 
         if not checksum_retry and not to_transfer:
-            logger.info("All files in sync — nothing to transfer.")
+            logger.info("[watcher] All files in sync — nothing to transfer.")
 
         # --- crosscheck: ensure every worker has every shard ---
         logger.info(
@@ -322,7 +322,7 @@ def _run_transfer_loop(
                 try:
                     request_store_shards(ckpt_path=str(path), log_fn=logger.info)
                 except Exception as e:
-                    logger.error("Crosscheck re-transfer failed for %s: %s", path, e)
+                    logger.error("[watcher] Crosscheck re-transfer failed for %s: %s", path, e)
         else:
             logger.info("[crosscheck] all workers complete.")
 
@@ -357,11 +357,11 @@ class CheckpointHandler(FileSystemEventHandler):
         path = Path(event.src_path)
         if path.suffix not in self._ext:
             return
-        logger.info("Detected: %s", path)
+        logger.info("[watcher] Detected: %s", path)
         if _is_stable(path):
             self._trigger.set()
         else:
-            logger.info("Not yet stable — adding to pending: %s", path)
+            logger.info("[watcher] Not yet stable — adding to pending: %s", path)
             with self._lock:
                 self._pending.append(path)
 
@@ -397,8 +397,8 @@ def main() -> None:
     observer = Observer()
     observer.schedule(handler, str(ckpt_root), recursive=True)
     observer.start()
-    logger.info("Watching %s for %s", ckpt_root, extensions)
-    logger.info("Waiting 10s for workers to bind before initial sync...")
+    logger.info("[watcher] Watching %s for %s", ckpt_root, extensions)
+    logger.info("[watcher] Waiting 10s for workers to bind before initial sync...")
     time.sleep(10)
     trigger.set()  # initial sync after workers are ready
 

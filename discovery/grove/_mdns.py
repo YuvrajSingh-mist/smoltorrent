@@ -1,8 +1,10 @@
 """mDNS discovery via zeroconf — works on Mac and Linux (Pi workers).
 
 Workers advertise ``_smoltorrent._tcp.local.`` when they start.
-The master calls ``discover_mdns_workers()`` to find them without needing
+The master calls ``WorkerBrowser()`` to find them without needing
 any hardcoded IPs.
+
+Browsers are the listeners that run in the master to discover workers, and advertisers are the broadcasters that run in the workers to announce themselves.
 """
 
 import socket
@@ -11,7 +13,11 @@ import time
 
 from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf
 
-_SERVICE_TYPE = "_smoltorrent._tcp.local."
+from ._utils import get_logger, get_local_ip
+
+log = get_logger("mdns")
+
+SERVICE_TYPE = "_smoltorrent._tcp.local."
 
 
 class WorkerAdvertiser:
@@ -27,12 +33,20 @@ class WorkerAdvertiser:
     """
 
     def __init__(self, rank: int, port: int, hostname: str | None = None) -> None:
+        """Register a ``_smoltorrent._tcp.local.`` service.
+
+        Args:
+            rank:     Integer rank of this worker (must match config).
+            port:     TCP port the worker's shard listener is bound to.
+            hostname: Human-readable hostname for the TXT record.
+                      Defaults to :func:`socket.gethostname`.
+        """
         host = hostname or socket.gethostname()
-        ip = _get_local_ip()
-        self._zc = Zeroconf()
-        self._info = ServiceInfo(
-            _SERVICE_TYPE,
-            f"smoltorrent-rank-{rank}.{_SERVICE_TYPE}",
+        ip = get_local_ip()
+        self.zc = Zeroconf()
+        self.info = ServiceInfo(
+            SERVICE_TYPE,
+            f"smoltorrent-rank-{rank}.{SERVICE_TYPE}",
             addresses=[socket.inet_aton(ip)],
             port=port,
             properties={
@@ -40,11 +54,17 @@ class WorkerAdvertiser:
                 b"hostname": host.encode(),
             },
         )
-        self._zc.register_service(self._info, allow_name_change=True)
+        self.zc.register_service(self.info, allow_name_change=True)
+        log.info(
+            "[mdns] worker advertised: rank=%d host=%s ip=%s port=%d",
+            rank, host, ip, port,
+        )
 
     def close(self) -> None:
-        self._zc.unregister_service(self._info)
-        self._zc.close()
+        """Unregister the mDNS service and release the Zeroconf handle."""
+        self.zc.unregister_service(self.info)
+        self.zc.close()
+        log.info("[mdns] worker advertisement removed")
 
     def __enter__(self):
         return self
@@ -53,18 +73,28 @@ class WorkerAdvertiser:
         self.close()
 
 
-def discover_mdns_workers(timeout: float = 10.0) -> list[dict]:
-    """Browse for ``_smoltorrent._tcp.local.`` services for ``timeout`` seconds.
+def WorkerBrowser(timeout: float = 10.0) -> list[dict]:
+    """Browse for ``_smoltorrent._tcp.local.`` services for *timeout* seconds.
+
+    Spawns a :class:`~zeroconf.ServiceBrowser` that listens for mDNS
+    announcements, collects every worker it hears, then returns them
+    sorted by rank.  Equivalent to :class:`MasterBrowser` but for workers.
+
+    Args:
+        timeout: Seconds to listen before returning (default 10).
 
     Returns:
-        List of worker dicts sorted by rank::
+        List of worker dicts sorted by rank, each containing:
 
-            [{"ip": "192.168.1.x", "port": 5001, "rank": 1, "hostname": "pi4-1"}, ...]
+        * ``"ip"`` (:class:`str`) — IPv4 address
+        * ``"port"`` (:class:`int`) — TCP port
+        * ``"rank"`` (:class:`int`) — worker rank
+        * ``"hostname"`` (:class:`str`) — hostname from the TXT record
     """
     found: dict[int, dict] = {}
     lock = threading.Lock()
 
-    class _Listener:
+    class Listener:
         def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
             info = zc.get_service_info(type_, name)
             if info and info.addresses:
@@ -78,6 +108,7 @@ def discover_mdns_workers(timeout: float = 10.0) -> list[dict]:
                 try:
                     rank = int(props.get("rank", -1))
                 except ValueError:
+                    log.error("[mdns] invalid rank in service %s: %s", name, props.get("rank"))
                     return
                 with lock:
                     found[rank] = {
@@ -86,6 +117,7 @@ def discover_mdns_workers(timeout: float = 10.0) -> list[dict]:
                         "rank": rank,
                         "hostname": props.get("hostname", ""),
                     }
+                    log.info("[mdns] found worker: rank=%d host=%s ip=%s port=%d", rank, props.get("hostname", ""), ip, info.port)
 
         def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
             pass
@@ -94,16 +126,20 @@ def discover_mdns_workers(timeout: float = 10.0) -> list[dict]:
             self.add_service(zc, type_, name)
 
     zc = Zeroconf()
-    browser = ServiceBrowser(zc, _SERVICE_TYPE, _Listener())
+    log.info("[mdns] browsing for %s (timeout=%ss)...", SERVICE_TYPE, timeout)
+    browser = ServiceBrowser(zc, SERVICE_TYPE, Listener())
+    log.info("[mdns] ServiceBrowser started")
     time.sleep(timeout)
     browser.cancel()
     zc.close()
+    log.info("[mdns] ServiceBrowser stopped — processing results...")
+    result = sorted(found.values(), key=lambda x: x["rank"])
+    log.info("[mdns] discovery finished — %d worker(s) found", len(result))
+    return result
 
-    return sorted(found.values(), key=lambda x: x["rank"])
 
-
-_MASTER_SERVICE_TYPE = "_smolt-master._tcp.local."
-_REGISTRATION_PORT = 5999
+MASTER_SERVICE_TYPE = "_smolt-master._tcp.local."
+REGISTRATION_PORT = 5999
 
 
 class MasterAdvertiser:
@@ -112,27 +148,43 @@ class MasterAdvertiser:
     Workers running ``python main.py join`` will see it in their JoinApp TUI.
     """
 
-    def __init__(self, expected_workers: int) -> None:
-        self._zc = Zeroconf()
+    def __init__(self, expected_workers: int = None) -> None:
+        """Advertise this node as a smoltorrent master.
+
+        Args:
+            expected_workers: Number of workers the master will wait for
+                              before launching.  Stored in the TXT record
+                              so the JoinApp TUI can show progress.
+        """
+        self.zc = Zeroconf()
         hostname = socket.gethostname()
-        ip = _get_local_ip()
-        self._info = ServiceInfo(
-            _MASTER_SERVICE_TYPE,
-            f"smoltorrent-{hostname}.{_MASTER_SERVICE_TYPE}",
+        ip = get_local_ip()
+        self.info = ServiceInfo(
+            MASTER_SERVICE_TYPE,
+            f"smoltorrent-{hostname}.{MASTER_SERVICE_TYPE}",
             addresses=[socket.inet_aton(ip)],
-            port=_REGISTRATION_PORT,
+            port=REGISTRATION_PORT,
             properties={
                 b"hostname": hostname.encode(),
-                b"expected": str(expected_workers).encode(),
+                # b"expected": str(expected_workers).encode(),
                 b"current": b"0",
                 b"started": str(time.time()).encode(),
             },
         )
-        self._zc.register_service(self._info, allow_name_change=True)
+        self.zc.register_service(self.info, allow_name_change=True)
+        log.info(
+            "[mdns] master advertised: host=%s ip=%s",
+            hostname, ip
+        )
+        # log.info(
+        #     "[mdns] master advertised: host=%s ip=%s expected_workers=%d",
+        #     hostname, ip, expected_workers,
+        # )
 
     def close(self) -> None:
-        self._zc.unregister_service(self._info)
-        self._zc.close()
+        self.zc.unregister_service(self.info)
+        self.zc.close()
+        log.info("[mdns] master advertisement removed")
 
 
 class MasterBrowser:
@@ -142,10 +194,11 @@ class MasterBrowser:
     """
 
     def __init__(self) -> None:
-        self._masters: dict[str, dict] = {}
-        self._lock = threading.Lock()
-        self._zc = Zeroconf()
-        ServiceBrowser(self._zc, _MASTER_SERVICE_TYPE, self)
+        self.masters: dict[str, dict] = {}
+        self.lock = threading.Lock()
+        self.zc = Zeroconf()
+        ServiceBrowser(self.zc, MASTER_SERVICE_TYPE, self)
+        log.info("[mdns] MasterBrowser started — listening for %s", MASTER_SERVICE_TYPE)
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         info = zc.get_service_info(type_, name)
@@ -157,39 +210,43 @@ class MasterBrowser:
             else v
             for k, v in info.properties.items()
         }
-        with self._lock:
-            self._masters[name] = {
-                "name": f"smoltorrent @ {props.get('hostname', name)}",
+        hostname = props.get("hostname", name)
+        with self.lock:
+            self.masters[name] = {
+                "name": f"smoltorrent @ {hostname}",
                 "uid": name,
-                "hostname": props.get("hostname", name),
+                "hostname": hostname,
                 "ip": socket.inet_ntoa(info.addresses[0]),
                 "port": info.port,
-                "expected": int(props.get("expected", 1)),
+                # "expected": int(props.get("expected", 1)),
                 "current": int(props.get("current", 0)),
                 "started": props.get("started", str(time.time())),
             }
+        log.info("[mdns] MasterBrowser found master: %s (%s)", hostname, socket.inet_ntoa(info.addresses[0]))
 
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         self.add_service(zc, type_, name)
 
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        with self._lock:
-            self._masters.pop(name, None)
+        with self.lock:
+            self.masters.pop(name, None)
+        log.info("[mdns] MasterBrowser lost master: %s", name)
 
     def get_clusters(self) -> list[dict]:
-        with self._lock:
-            return list(self._masters.values())
+        """Return a snapshot of every visible master.
+
+        Returns:
+            List of master dicts, each with keys ``name``, ``uid``,
+            ``hostname``, ``ip``, ``port``, ``current``,
+            ``started``.
+        """
+        with self.lock:
+            return list(self.masters.values())
 
     def close(self) -> None:
-        self._zc.close()
+        """Stop browsing and release the Zeroconf handle."""
+        self.zc.close()
+        log.info("[mdns] MasterBrowser closed")
 
 
-def _get_local_ip() -> str:
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except OSError:
-        return "127.0.0.1"
+

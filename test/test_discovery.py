@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from discovery import discover_workers
-from discovery._mdns import WorkerAdvertiser, discover_mdns_workers
+from discovery._mdns import WorkerAdvertiser, WorkerBrowser
 
 API_BASE = "http://localhost:8000"
 _FAKE_RANK = 99
@@ -40,7 +40,7 @@ class TestMdnsLoopback:
         try:
             # Give mDNS a moment to register before scanning
             time.sleep(1.0)
-            found = discover_mdns_workers(timeout=6.0)
+            found = WorkerBrowser(timeout=6.0)
         finally:
             adv.close()
 
@@ -52,7 +52,7 @@ class TestMdnsLoopback:
     def test_advertised_port_matches(self):
         with WorkerAdvertiser(rank=_FAKE_RANK, port=_FAKE_PORT):
             time.sleep(1.0)
-            found = discover_mdns_workers(timeout=6.0)
+            found = WorkerBrowser(timeout=6.0)
 
         worker = next((w for w in found if w["rank"] == _FAKE_RANK), None)
         assert worker is not None, f"Rank {_FAKE_RANK} not found"
@@ -61,7 +61,7 @@ class TestMdnsLoopback:
     def test_advertised_hostname_matches(self):
         with WorkerAdvertiser(rank=_FAKE_RANK, port=_FAKE_PORT):
             time.sleep(1.0)
-            found = discover_mdns_workers(timeout=6.0)
+            found = WorkerBrowser(timeout=6.0)
 
         worker = next((w for w in found if w["rank"] == _FAKE_RANK), None)
         assert worker is not None
@@ -70,7 +70,7 @@ class TestMdnsLoopback:
     def test_advertised_ip_is_not_loopback(self):
         with WorkerAdvertiser(rank=_FAKE_RANK, port=_FAKE_PORT):
             time.sleep(1.0)
-            found = discover_mdns_workers(timeout=6.0)
+            found = WorkerBrowser(timeout=6.0)
 
         worker = next((w for w in found if w["rank"] == _FAKE_RANK), None)
         assert worker is not None
@@ -95,7 +95,7 @@ class TestMdnsLoopback:
         adv_b = WorkerAdvertiser(rank=98, port=19098)
         try:
             time.sleep(1.0)
-            found = discover_mdns_workers(timeout=6.0)
+            found = WorkerBrowser(timeout=6.0)
         finally:
             adv_a.close()
             adv_b.close()

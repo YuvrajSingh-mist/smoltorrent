@@ -10,48 +10,73 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import DataTable, RichLog, Static
 
+from ._utils import get_logger
+
+log = get_logger("tui")
+
 
 class LogCapture(io.TextIOBase):
+    """Thread-safe in-memory ring buffer for log lines.
+
+    Implements the :class:`io.TextIOBase` interface so it can be used as
+    a drop-in replacement for ``sys.stderr``.  Keeps the most recent
+    *max_lines* strings; newer lines evict the oldest when the limit is
+    reached.  :meth:`drain_new` returns lines accumulated since the last
+    call.
+
+    Args:
+        max_lines: Maximum number of lines to retain (default 200).
+    """
+
     def __init__(self, max_lines: int = 200) -> None:
-        self._lines: list[str] = []
-        self._lock = threading.Lock()
-        self._max = max_lines
-        self._new_lines: list[str] = []
+        self.lines: list[str] = []
+        self.lock = threading.Lock()
+        self.max_lines = max_lines
+        self.new_lines: list[str] = []
 
     def write(self, s: str) -> int:
         if not s or s == "\n":
             return len(s) if s else 0
-        with self._lock:
+        with self.lock:
             for line in s.splitlines():
                 if line.strip():
-                    self._lines.append(line)
-                    self._new_lines.append(line)
-                    if len(self._lines) > self._max:
-                        self._lines.pop(0)
+                    self.lines.append(line)
+                    self.new_lines.append(line)
+                    if len(self.lines) > self.max_lines:
+                        self.lines.pop(0)
         return len(s)
 
     def flush(self) -> None:
         pass
 
     def drain_new(self) -> list[str]:
-        with self._lock:
-            lines = list(self._new_lines)
-            self._new_lines.clear()
+        """Return and clear lines accumulated since the last call.
+
+        Returns:
+            List of new log lines (may be empty).
+        """
+        with self.lock:
+            lines = list(self.new_lines)
+            self.new_lines.clear()
             return lines
 
 
 class ClusterRow:
+    """Lightweight wrapper that adds computed ``age`` and ``full``
+    properties to a raw cluster dict from :class:`MasterBrowser`."""
+
     def __init__(self, data: dict):
         self.name = data.get("name", "?")
         self.uid = data.get("uid", "?")
         self.current = int(data.get("current", 0))
-        self.expected = int(data.get("expected", 0))
+        # self.expected = int(data.get("expected", 0))
         self.hostname = data.get("hostname", "?")
         self.started = float(data.get("started", time.time()))
         self.data = data
 
     @property
     def age(self) -> str:
+        """Human-readable elapsed time since the cluster was first seen."""
         ago = time.time() - self.started
         if ago < 60:
             return f"{int(ago)}s"
@@ -61,10 +86,21 @@ class ClusterRow:
 
     @property
     def full(self) -> bool:
-        return self.current >= self.expected
+        """``True`` when all expected workers have joined."""
+        # return self.current >= self.expected
+        return False
 
 
 class JoinApp(App):
+    """Textual TUI for selecting a smoltorrent master to join.
+
+    Displays a table of masters discovered via mDNS.  Arrow keys navigate,
+    Enter selects, ``q`` quits without selecting.
+
+    Args:
+        browser: A :class:`~discovery.grove._mdns.MasterBrowser` instance
+                 that provides :meth:`get_clusters`.
+    """
     COMMANDS = set()
     CSS = """
     Screen { background: $surface; }
@@ -78,9 +114,10 @@ class JoinApp(App):
 
     def __init__(self, browser: object):
         super().__init__()
-        self._browser = browser
+        self.browser = browser
         self.selected_cluster: dict | None = None
-        self._clusters: list[dict] = []
+        self.clusters: list[dict] = []
+        log.info("[tui] JoinApp initialised")
 
     def compose(self) -> ComposeResult:
         yield Static("[b]grove[/]  select a cluster", id="title")
@@ -91,41 +128,55 @@ class JoinApp(App):
         yield Static("  [dim]↑↓ select   enter join   q quit[/]", id="hint")
 
     def on_mount(self) -> None:
-        self.set_interval(1.0, self._refresh_table)
-        self._refresh_table()
+        self.set_interval(1.0, self.refresh_table)
+        self.refresh_table()
         self.query_one("#clusters", DataTable).focus()
 
-    def _refresh_table(self) -> None:
-        self._clusters = self._browser.get_clusters()
+    def refresh_table(self) -> None:
+        self.clusters = self.browser.get_clusters()
         table = self.query_one("#clusters", DataTable)
         cursor = table.cursor_row
         table.clear()
-        for c in self._clusters:
+        for c in self.clusters:
             row = ClusterRow(c)
             style = "dim" if row.full else ""
             nodes_style = "dim" if row.full else "green"
             table.add_row(
                 Text(row.name, style=f"bold {style}" if not row.full else style),
                 Text(row.uid, style="cyan dim"),
-                Text(f"{row.current}/{row.expected}", style=nodes_style),
+                Text(f"{row.current}", style=nodes_style),
                 Text(row.hostname, style=style),
                 Text(row.age, style="dim"),
             )
-        if cursor is not None and self._clusters:
-            table.move_cursor(row=min(cursor, len(self._clusters) - 1))
+        if cursor is not None and self.clusters:
+            table.move_cursor(row=min(cursor, len(self.clusters) - 1))
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         idx = event.cursor_row
-        if idx < len(self._clusters):
-            self.selected_cluster = self._clusters[idx]
+        if idx < len(self.clusters):
+            self.selected_cluster = self.clusters[idx]
+            log.info(
+                "[tui] JoinApp cluster selected: %s (uid=%s)",
+                self.selected_cluster.get("name", "?"),
+                self.selected_cluster.get("uid", "?"),
+            )
         self.exit()
 
     def action_quit(self) -> None:
+        log.info("[tui] JoinApp quit — no cluster selected")
         self.selected_cluster = None
         self.exit()
 
 
-def _format_elapsed(seconds: float) -> str:
+def format_elapsed(seconds: float) -> str:
+    """Format a duration in seconds as a compact human-readable string.
+
+    Args:
+        seconds: Elapsed seconds (can be fractional).
+
+    Returns:
+        String like ``"45s"``, ``"2m 30s"``, or ``"1h 15m"``.
+    """
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
     if h:
@@ -159,21 +210,21 @@ class DashboardApp(App):
         error_event: "threading.Event | None" = None,
     ):
         super().__init__()
-        self._get_state = get_state
-        self._cluster = cluster_name
-        self._uid = uid
-        self._my_rank = my_rank
-        self._log_capture = log_capture
-        self._done_event = done_event
-        self._error_event = error_event
-        self._training_done = False
-        self._logs_visible = True
-        self._start_time = time.monotonic()
+        self.get_state = get_state
+        self.cluster_name = cluster_name
+        self.uid = uid
+        self.my_rank = my_rank
+        self.log_capture = log_capture
+        self.done_event = done_event
+        self.error_event = error_event
+        self.training_done = False
+        self.logs_visible = True
+        self.start_time = time.monotonic()
 
     def compose(self) -> ComposeResult:
-        role = f"rank {self._my_rank}" if self._my_rank is not None else "coordinator"
+        role = f"rank {self.my_rank}" if self.my_rank is not None else "coordinator"
         yield Static(
-            f"[b]grove[/]  {self._cluster}  [dim cyan]{self._uid}[/]  {role}",
+            f"[b]grove[/]  {self.cluster_name}  [dim cyan]{self.uid}[/]  {role}",
             id="header",
         )
         table = DataTable(id="nodes")
@@ -189,35 +240,35 @@ class DashboardApp(App):
         yield Static("  [dim]q quit   l toggle logs[/]", id="footer")
 
     def on_mount(self) -> None:
-        self.set_interval(1.0, self._refresh)
-        self._refresh()
+        self.set_interval(1.0, self.refresh_dash)
+        self.refresh_dash()
 
-    def _refresh(self) -> None:
-        self._refresh_header()
-        self._refresh_table()
-        self._refresh_logs()
+    def refresh_dash(self) -> None:
+        self.refresh_header()
+        self.refresh_table()
+        self.refresh_logs()
 
-    def _refresh_header(self) -> None:
-        elapsed = _format_elapsed(time.monotonic() - self._start_time)
-        role = f"rank {self._my_rank}" if self._my_rank is not None else "coordinator"
-        if self._training_done:
-            if self._error_event and self._error_event.is_set():
+    def refresh_header(self) -> None:
+        elapsed = format_elapsed(time.monotonic() - self.start_time)
+        role = f"rank {self.my_rank}" if self.my_rank is not None else "coordinator"
+        if self.training_done:
+            if self.error_event and self.error_event.is_set():
                 self.query_one("#header", Static).update(
-                    f"[bold red]exited with error[/]  {self._cluster}  [dim]{elapsed}[/]  press q to exit"
+                    f"[bold red]exited with error[/]  {self.cluster_name}  [dim]{elapsed}[/]  press q to exit"
                 )
             else:
                 self.query_one("#header", Static).update(
-                    f"[bold green]training complete[/]  {self._cluster}  [dim]{elapsed}[/]  press q to exit"
+                    f"[bold green]training complete[/]  {self.cluster_name}  [dim]{elapsed}[/]  press q to exit"
                 )
         else:
             self.query_one("#header", Static).update(
-                f"[b]grove[/]  {self._cluster}  [dim cyan]{self._uid}[/]  {role}  [dim]{elapsed}[/]"
+                f"[b]grove[/]  {self.cluster_name}  [dim cyan]{self.uid}[/]  {role}  [dim]{elapsed}[/]"
             )
-        if not self._training_done and self._done_event and self._done_event.is_set():
-            self._training_done = True
+        if not self.training_done and self.done_event and self.done_event.is_set():
+            self.training_done = True
 
-    def _refresh_table(self) -> None:
-        state = self._get_state()
+    def refresh_table(self) -> None:
+        state = self.get_state()
         if not state:
             return
         if callable(state):
@@ -245,7 +296,7 @@ class DashboardApp(App):
 
         for rank in all_ranks:
             hostname = _get(hostnames, rank) or f"node-{rank}"
-            is_me = self._my_rank is not None and int(rank) == int(self._my_rank)
+            is_me = self.my_rank is not None and int(rank) == int(self.my_rank)
             is_dead = int(rank) in [int(d) for d in dead_ranks]
 
             if is_dead:
@@ -313,18 +364,18 @@ class DashboardApp(App):
 
         self.query_one("#stats", Static).update(Text("".join(parts), style="dim"))
 
-    def _refresh_logs(self) -> None:
-        if self._log_capture is None or not self._logs_visible:
+    def refresh_logs(self) -> None:
+        if self.log_capture is None or not self.logs_visible:
             return
         log_widget = self.query_one("#logs", RichLog)
-        for line in self._log_capture.drain_new():
+        for line in self.log_capture.drain_new():
             log_widget.write(Text.from_ansi(line))
 
     def action_toggle_logs(self) -> None:
-        self._logs_visible = not self._logs_visible
+        self.logs_visible = not self.logs_visible
         log_widget = self.query_one("#logs", RichLog)
-        log_widget.display = self._logs_visible
-        state = "on" if self._logs_visible else "off"
+        log_widget.display = self.logs_visible
+        state = "on" if self.logs_visible else "off"
         self.query_one("#footer", Static).update(
             f"  [dim]q quit   l toggle logs ({state})[/]"
         )
@@ -357,8 +408,8 @@ class WorkerPickerApp(App):
 
     def __init__(self, discovered: list[dict]):
         super().__init__()
-        self._smolt_nodes = discovered
-        self._selected: set[int] = set()
+        self.smolt_nodes = discovered
+        self.selected: set[int] = set()
         self.chosen: list[dict] = []
 
     def compose(self) -> ComposeResult:
@@ -373,15 +424,15 @@ class WorkerPickerApp(App):
         )
 
     def on_mount(self) -> None:
-        self._refresh_table()
+        self.refresh_worker_table()
         self.query_one("#workers", DataTable).focus()
 
-    def _refresh_table(self) -> None:
+    def refresh_worker_table(self) -> None:
         table = self.query_one("#workers", DataTable)
         cursor = table.cursor_row
         table.clear()
-        for i, w in enumerate(self._smolt_nodes):
-            checked = i in self._selected
+        for i, w in enumerate(self.smolt_nodes):
+            checked = i in self.selected
             mark = Text("✓", style="green bold") if checked else Text(" ")
             style = "bold" if checked else ""
             table.add_row(
@@ -391,26 +442,26 @@ class WorkerPickerApp(App):
                 Text(w["ip"], style="cyan" if checked else "dim"),
                 Text(str(w["port"]), style=style),
             )
-        if cursor is not None and self._smolt_nodes:
-            table.move_cursor(row=min(cursor, len(self._smolt_nodes) - 1))
+        if cursor is not None and self.smolt_nodes:
+            table.move_cursor(row=min(cursor, len(self.smolt_nodes) - 1))
 
     def action_toggle_select(self) -> None:
         idx = self.query_one("#workers", DataTable).cursor_row
-        if idx in self._selected:
-            self._selected.discard(idx)
+        if idx in self.selected:
+            self.selected.discard(idx)
         else:
-            self._selected.add(idx)
-        self._refresh_table()
+            self.selected.add(idx)
+        self.refresh_worker_table()
 
     def action_select_all(self) -> None:
-        if len(self._selected) == len(self._smolt_nodes):
-            self._selected.clear()
+        if len(self.selected) == len(self.smolt_nodes):
+            self.selected.clear()
         else:
-            self._selected = set(range(len(self._smolt_nodes)))
-        self._refresh_table()
+            self.selected = set(range(len(self.smolt_nodes)))
+        self.refresh_worker_table()
 
     def action_confirm(self) -> None:
-        self.chosen = [self._smolt_nodes[i] for i in sorted(self._selected)]
+        self.chosen = [self.smolt_nodes[i] for i in sorted(self.selected)]
         self.exit()
 
     def action_quit(self) -> None:

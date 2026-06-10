@@ -22,7 +22,7 @@ from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from networking.send_receive import receive_message, send_message, _network_metrics
+from networking.send_receive import receive_message, send_message, network_metrics
 from utils.common_utils import (
     chunk_data,
     compute_checksum,
@@ -31,7 +31,7 @@ from utils.common_utils import (
     save_merged_model,
     shard_from_bytes,
     shard_to_bytes,
-    _save_shard,
+    save_shard,
 )
 from utils.network_metrics import log_metrics
 from discovery import discover_workers
@@ -128,13 +128,13 @@ def _send_shard_to_worker(
             return False, "no response from worker", {}
         if response[0] == "store_shard_done":
             _, _, shard_path = response
-            logger.info("Worker %d acknowledged shard storage → %s", rank, shard_path)
+            logger.info("[api] Worker %d acknowledged shard storage → %s", rank, shard_path)
             return True, "", {"shard_path": shard_path}
         _, _, err_msg = response
-        logger.error("Worker %d store failed: %s", rank, err_msg)
+        logger.error("[api] Worker %d store failed: %s", rank, err_msg)
         return False, err_msg, {}
     except Exception as e:
-        logger.exception("Unhandled error sending shard to rank %d", rank)
+        logger.exception("[api] Unhandled error sending shard to rank %d", rank)
         try:
             sock.close()
         except Exception:
@@ -167,7 +167,7 @@ def _gather_shard_from_worker(worker: dict, rel_path: str) -> tuple[bool, str, d
             {"rank": rank, "host": host, "_shard": shard_from_bytes(shard_bytes)},
         )
     except Exception as e:
-        logger.exception("Unhandled error gathering shard from rank %d", rank)
+        logger.exception("[api] Unhandled error gathering shard from rank %d", rank)
         return False, str(e), {}
 
 
@@ -185,7 +185,7 @@ def _retry_worker(
         rank = worker["rank"]
         if attempt > MAX_RETRIES:
             logger.error(
-                "Worker %d permanently failed after %d retries", rank, MAX_RETRIES
+                "[api] Worker %d permanently failed after %d retries", rank, MAX_RETRIES
             )
             with lock:
                 dead_letter.append(
@@ -203,7 +203,7 @@ def _retry_worker(
             with lock:
                 recovered.append(result)
         else:
-            logger.warning("Worker %d retry attempt %d failed: %s", rank, attempt, err)
+            logger.warning("[api] Worker %d retry attempt %d failed: %s", rank, attempt, err)
             retry_queue.put({"fn": fn, "worker": worker, "attempt": attempt + 1})
 
         retry_queue.task_done()
@@ -232,18 +232,18 @@ def _connect_with_retry(
         sock.settimeout(5.0)
         try:
             logger.info(
-                f"Connecting to rank {rank} at {ip}:{port} (attempt {attempt}/{retries})"
+                f"[api] Connecting to rank {rank} at {ip}:{port} (attempt {attempt}/{retries})"
             )
             sock.connect((ip, port))
             sock.settimeout(
                 None
             )  # blocking for send/receive — large shards need no deadline
-            logger.info(f"Connected to rank {rank} at {ip}:{port}")
+            logger.info(f"[api] Connected to rank {rank} at {ip}:{port}")
             return sock
         except (OSError, ConnectionRefusedError) as e:
             sock.close()
             logger.warning(
-                f"Attempt {attempt}/{retries} failed for rank {rank} at {ip}:{port}: {e}"
+                f"[api] Attempt {attempt}/{retries} failed for rank {rank} at {ip}:{port}: {e}"
             )
             if attempt < retries:
                 time.sleep(delay * (2 ** (attempt - 1)))
@@ -270,7 +270,7 @@ def store_shard(
 
     def _generate():
         def _log(msg: str) -> str:
-            logger.info(msg)
+            logger.info("[api] %s", msg)
             return msg + "\n"
 
         config = _load_config()
@@ -371,7 +371,7 @@ def store_shard(
             )
 
         total_expected = num_workers * REDUNDANCY
-        log_metrics(_network_metrics.get_metrics(), logger, "store")
+        log_metrics(network_metrics.get_metrics(), logger, "store")
         _store_wall.observe(time.monotonic() - _store_start)
         if failed:
             yield f"ERROR: {len(failed)}/{total_expected} sends failed\n"
@@ -403,7 +403,7 @@ def gather_shards(
 
     def _generate():
         def _log(msg: str) -> str:
-            logger.info(msg)
+            logger.info("[api] %s", msg)
             return msg + "\n"
 
         config = _load_config()
@@ -445,7 +445,7 @@ def gather_shards(
             shard_dir.mkdir(parents=True, exist_ok=True)
             shard_path = shard_dir / "shard.safetensors"
             try:
-                _save_shard(received_shard, str(shard_path))
+                save_shard(received_shard, str(shard_path))
             except Exception as e:
                 with lock:
                     save_errors.append({"rank": rank, "host": host, "error": str(e)})
@@ -520,7 +520,7 @@ def gather_shards(
         yield _log(f"Merging {len(all_gathered)} shards → {save_path}")
         merged = merge_shards([shards_by_index[i] for i in range(num_workers)])
         save_merged_model(merged, save_path)
-        log_metrics(_network_metrics.get_metrics(), logger, "gather")
+        log_metrics(network_metrics.get_metrics(), logger, "gather")
         _gather_wall.observe(time.monotonic() - _gather_start)
         _gather_ops.inc()
         yield _log(f"Done: saved → {save_path}")
@@ -544,7 +544,7 @@ def discover(
             {"workers": [{"ip": "...", "port": 5001, "rank": 1, "hostname": "pi4-1"}, ...]}
     """
     workers = discover_workers(timeout=timeout)
-    logger.info("Discovery found %d worker(s): %s", len(workers), workers)
+    logger.info("[api] Discovery found %d worker(s): %s", len(workers), workers)
     return {"workers": workers}
 
 

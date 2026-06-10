@@ -15,6 +15,40 @@ Master (Mac mini / Apple Silicon)
 
 ---
 
+## Before you start: things to change for your cluster
+
+Three files contain values specific to this setup that you must replace:
+
+**1. `configs/config.yaml`** — the single source of truth for your cluster topology.
+Edit every IP, hostname, and port to match your workers:
+```yaml
+devices_config:
+  master:
+  - host: localhost
+    ip: <your-mac-tailscale-ip>   # run: tailscale ip -4
+    rank: 0
+    port: 5000
+  workers:
+  - host: <ssh-alias-for-worker-1>   # must match Host in ~/.ssh/config
+    ip: <worker-1-tailscale-ip>
+    rank: 1
+    port: 5001
+  # ... one entry per worker
+```
+
+**2. `scripts/smoltorrent_startup.sh`** — two lines at the top:
+```bash
+SMOLTORRENT_DIR="/Users/yuvrajsingh1/smoltorrent"   # ← change to where you cloned the repo
+TAILSCALE_PROBE="100.68.124.90"                      # ← change to your first worker's Tailscale IP
+```
+
+**3. `monitoring/prometheus/prometheus.yml`** — every worker IP is hardcoded there.
+Run `bash scripts/launch_monitoring.sh` instead of editing by hand — it regenerates the file from `configs/config.yaml`.
+
+Everything else (SSH key path, usernames, ports) is read from `configs/config.yaml` at runtime.
+
+---
+
 ## Quick setup
 
 ### 1. Server (macOS)
@@ -59,7 +93,7 @@ Workers find the master via mDNS TUI, register, and start automatically. The mas
 
 ---
 
-### Option B — Production / serious runs (SSH-based)
+### Option B — Serious runs (SSH-based)
 
 Full cluster management via `launch.sh` — rsyncs code to all Pis, installs deps, starts everything in tmux.
 
@@ -187,6 +221,29 @@ curl http://<master-ip>:8000/discover?timeout=10
 | Pi auto-start on reboot | `bash scripts/install_worker_service.sh` |
 | Server auto-start on reboot | `bash scripts/launch.sh --daemons` |
 | Monitoring (Prometheus + Grafana) | `cd monitoring && docker compose up -d` — no SSH needed |
+
+### Auto-start on reboot (macOS 26 Tahoe)
+
+`bash scripts/launch.sh --daemons` does the following:
+
+1. Copies `scripts/smoltorrent_startup.sh` to `/usr/local/bin/` (system daemons can't read `~/Desktop`, `~/Documents`, or `~/Downloads` — keep code and data outside those folders)
+2. Writes a plist to `/Library/LaunchDaemons/com.smoltorrent.startup.plist`
+3. Registers it with:
+
+```bash
+sudo launchctl enable system/com.smoltorrent.startup
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
+```
+
+**Why not `~/Library/LaunchAgents/`?** macOS 26 silently ignores user-level LaunchAgents unless registered via `SMAppService` from a Swift app. Use `/Library/LaunchDaemons/` instead.
+
+**If bootstrap fails (error 5):**
+
+```bash
+sudo launchctl bootout system/com.smoltorrent.startup 2>/dev/null || true
+sudo launchctl enable system/com.smoltorrent.startup
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.plist
+```
 
 **[Full setup guide with all options →](https://yuvrajsingh-mist.github.io/smoltorrent/setup.html)**
 

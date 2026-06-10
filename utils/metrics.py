@@ -12,7 +12,7 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 logger = logging.getLogger(__name__)
 
-_DURATION_BUCKETS = [1, 5, 10, 30, 60, 120, 300]
+DURATION_BUCKETS = [1, 5, 10, 30, 60, 120, 300]
 
 
 @dataclass
@@ -53,17 +53,17 @@ def init_worker_metrics(rank: int) -> WorkerMetrics:
             "worker_store_duration_seconds",
             "store_shard duration",
             ["rank"],
-            buckets=_DURATION_BUCKETS,
+            buckets=DURATION_BUCKETS,
         ),
         send_duration=Histogram(
             "worker_send_duration_seconds",
             "send_shard duration",
             ["rank"],
-            buckets=_DURATION_BUCKETS,
+            buckets=DURATION_BUCKETS,
         ),
     )
     start_http_server(port)
-    logger.info("Worker Prometheus metrics on port %d", port)
+    logger.info("[metrics] Worker Prometheus metrics on port %d", port)
     return m
 
 
@@ -77,5 +77,5 @@ def init_watcher_metrics(port: int = 8001) -> WatcherMetrics:
     )
     m.up.set(1)
     start_http_server(port)
-    logger.info("Watcher Prometheus metrics on port %d", port)
+    logger.info("[metrics] Watcher Prometheus metrics on port %d", port)
     return m

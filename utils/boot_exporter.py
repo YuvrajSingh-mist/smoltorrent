@@ -12,7 +12,7 @@ boot_time = Gauge(
 )
 
 
-def _get_boot_time_ms() -> float:
+def get_boot_time_ms() -> float:
     if platform.system() == "Darwin":
         out = subprocess.check_output(["sysctl", "-n", "kern.boottime"], text=True)
         m = re.search(r"sec\s*=\s*(\d+)", out)
@@ -27,5 +27,5 @@ def _get_boot_time_ms() -> float:
 if __name__ == "__main__":
     start_http_server(9101)
     while True:
-        boot_time.set(_get_boot_time_ms())
+        boot_time.set(get_boot_time_ms())
         time.sleep(15)
