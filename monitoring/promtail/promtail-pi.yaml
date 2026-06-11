@@ -1,3 +1,14 @@
+# Promtail config template for Pi workers.
+#
+# Do NOT edit manually — deploy via:
+#   bash scripts/launch_monitoring.sh --install-pi-promtail
+#
+# The script reads configs/config.yaml and substitutes all placeholders:
+#   LOKI_IP    — master Tailscale IP
+#   NODE_LABEL — SSH host alias for this worker
+#   RANK       — worker rank number
+#   PI_USER    — resolved on each Pi via `whoami`
+
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
@@ -15,10 +26,12 @@ scrape_configs:
           - localhost
         labels:
           job: smoltorrent
-          node: __HOSTNAME__
-          __path__: /tmp/smolcluster-logs/*.log
+          node: NODE_LABEL
+          rank: "RANK"
+          __path__: /home/PI_USER/Desktop/smoltorrent/logging/cluster-logs/*.log
     pipeline_stages:
       - regex:
-          expression: '(?P<level>INFO|WARNING|ERROR|CRITICAL|DEBUG)'
+          expression: '(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+(?P<level>\w+)\s+.*\[(?P<component>[^\]]+)\]'
       - labels:
           level:
+          component:

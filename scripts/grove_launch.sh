@@ -96,9 +96,9 @@ if [[ "$worker_count" -eq 0 ]]; then
 fi
 ok "Config OK — $worker_count worker(s) registered"
 
-# 7. Free ports before launch
-fuser -k 8000/tcp 2>/dev/null || true
-fuser -k 8001/tcp 2>/dev/null || true
+# 7. Free ports before launch (lsof works on both macOS and Linux; fuser -k is Linux-only)
+lsof -ti :8000 | xargs kill -9 2>/dev/null || true
+lsof -ti :8001 | xargs kill -9 2>/dev/null || true
 
 # ── Launch ───────────────────────────────────────────────────────────────────
 

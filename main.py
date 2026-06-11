@@ -21,7 +21,12 @@ from pathlib import Path
 
 import yaml
 
-from utils.common_utils import fetch_model_metadata, load_config
+from utils.common_utils import (
+    API_BASE,
+    fetch_model_metadata,
+    load_config,
+    model_id_to_dir_name,
+)
 from utils.shard_ops import request_gather_shards, request_store_shards
 
 logging.basicConfig(
@@ -36,6 +41,24 @@ LAUNCH_SCRIPT = Path(__file__).parent / "scripts" / "grove_launch.sh"
 # ---------------------------------------------------------------------------
 # start — master side
 # ---------------------------------------------------------------------------
+
+
+def _write_config(registered: list[dict]) -> None:
+    """Rewrite configs/config.yaml with the current worker list.
+
+    Reads existing config, updates ``num_workers`` and ``devices_config.workers``,
+    then writes it back with ``"w"`` (full replace — YAML cannot be appended to).
+    Called every time a worker registers, so late-joining workers are recorded.
+    """
+    with CONFIG_PATH.open() as f:
+        cfg = yaml.safe_load(f)
+    cfg["num_workers"] = len(registered)
+    cfg["devices_config"]["workers"] = [
+        {"host": f"{w['user']}@{w['ip']}", "ip": w["ip"], "rank": w["rank"], "port": w["port"]}
+        for w in registered
+    ]
+    with CONFIG_PATH.open("w") as f:
+        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
 def cmd_start(n: int) -> None:
@@ -57,8 +80,10 @@ def cmd_start(n: int) -> None:
                 body["rank"] = rank
                 body.setdefault("port", 5000 + rank)
                 registered.append(body)
+                # Write config.yaml immediately so late-joining workers are recorded
+                _write_config(registered)
             logger.info(
-                f"  ✓ {body['user']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}/{n}]"
+                f"  ✓ {body['user']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}]"
             )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -69,7 +94,7 @@ def cmd_start(n: int) -> None:
             pass
 
     server = HTTPServer(("0.0.0.0", REGISTRATION_PORT), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=server.serve_forever).start()  # non-daemon keeps process alive
 
     advertiser = MasterAdvertiser(expected_workers=n)
     logger.info(f"\n  smoltorrent master ready — waiting for {n} worker(s)")
@@ -81,30 +106,9 @@ def cmd_start(n: int) -> None:
                 break
         time.sleep(0.5)
 
-    # server.shutdown()
-    # advertiser.close()
-
-    # Write config.yaml
-    with CONFIG_PATH.open() as f:
-        cfg = yaml.safe_load(f)
-        
-    with lock:
-        cfg["num_workers"] = len(registered)
-        cfg["devices_config"]["workers"] = [
-            {
-                "host": f"{w['user']}@{w['ip']}",
-                "ip": w["ip"],
-                "rank": w["rank"],
-                "port": w["port"],
-            }
-            for w in registered
-        ]
-    with CONFIG_PATH.open("w") as f:
-        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    logger.info(f"\n✓ configs/config.yaml updated with {len(registered)} worker(s)")
-
-    logger.info("\nLaunching cluster…\n")
-    subprocess.run(["bash", str(LAUNCH_SCRIPT)])
+    logger.info(f"\n✓ {len(registered)} worker(s) registered — configs/config.yaml kept up to date")
+    logger.info("\nLaunching cluster… (additional workers can still 'grove join', Ctrl+C to stop)\n")
+    subprocess.Popen(["bash", str(LAUNCH_SCRIPT)])
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +157,7 @@ def cmd_join() -> None:
 
     # Start worker.py in foreground so the user sees its logs
     subprocess.run(
-        [sys.executable, "algorithms/SyncPS/worker.py", str(rank), my_hostname]
+        [sys.executable, "algorithms/SyncPS/worker.py", str(rank), my_hostname, "--port", str(port)]
     )
 
 

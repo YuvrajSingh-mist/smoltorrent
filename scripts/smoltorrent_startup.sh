@@ -20,15 +20,6 @@ until ping -c1 -W1 "$TAILSCALE_PROBE" >/dev/null 2>&1; do
     sleep 5
 done
 
-echo "[$(date)] smoltorrent_startup: starting node_exporter..."
-NODE_EXPORTER=/opt/homebrew/opt/node_exporter/bin/node_exporter
-if [ -x "$NODE_EXPORTER" ]; then
-    "$NODE_EXPORTER" --web.listen-address=":9100" >> /tmp/node_exporter.log 2>&1 &
-    echo "[$(date)] smoltorrent_startup: node_exporter started (pid $!)"
-else
-    echo "[$(date)] smoltorrent_startup: node_exporter not found at $NODE_EXPORTER — skipping"
-fi
-
 echo "[$(date)] smoltorrent_startup: network ready — launching cluster..."
 bash "$SMOLTORRENT_DIR/scripts/launch.sh"
 echo "[$(date)] smoltorrent_startup: launch.sh exited $?"

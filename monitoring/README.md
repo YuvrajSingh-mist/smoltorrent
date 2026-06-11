@@ -90,7 +90,7 @@ sudo rm /usr/local/bin/smoltorrent_monitoring_startup.sh
 
 ## Pi worker logs
 
-Pi workers write logs to `/tmp/smolcluster-logs/` on each Pi. Install Promtail there once to ship them to Loki:
+Pi workers write logs to `~/Desktop/smoltorrent/logging/cluster-logs/` on each Pi. Install Promtail once to ship them to Loki:
 
 ```bash
 # All 4 workers
@@ -355,4 +355,4 @@ Alert rules and contact points are provisioned from `monitoring/grafana/provisio
 |---|---|---|
 | Server API | `~/smoltorrent/logging/cluster-logs/syncps_api__localhost.log` | Promtail Docker container (always running) |
 | Server watcher | `~/smoltorrent/logging/cluster-logs/syncps_watcher*.log` | Promtail Docker container (always running) |
-| Pi workers | `/tmp/smolcluster-logs/syncps-worker-rank{N}-{host}.log` | Promtail systemd service on each Pi (install once with `--install-pi-promtail`) |
+| Pi workers | `~/Desktop/smoltorrent/logging/cluster-logs/syncps-worker-rank{N}-{host}.log` | Promtail systemd service on each Pi (install once with `--install-pi-promtail`) |

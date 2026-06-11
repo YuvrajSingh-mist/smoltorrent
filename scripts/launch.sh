@@ -1,4 +1,16 @@
 #!/bin/bash
+# Cluster orchestration: rsync code, install deps, and launch API + watcher + workers
+# across all Pi nodes defined in configs/config.yaml.
+#
+# Usage: launch.sh [--dry-run] [--api-only] [--daemons] [--workers <rank,...>] [--ext <exts>]
+#
+#   (default)          rsync → install deps → launch syncps_api, syncps_watcher, syncps_worker_N
+#   --api-only         skip workers; check heartbeats first, then launch API only
+#   --workers 1,3      launch only the specified worker ranks
+#   --ext .pt,.pth     override file extensions the watcher monitors (default: .safetensors)
+#   --daemons          one-time macOS setup: register smoltorrent, node_exporter, and
+#                      boot_exporter as LaunchDaemons so they survive reboots
+#   --dry-run          print what would run without executing anything
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -570,7 +582,7 @@ if [[ "$DRY_RUN" != "true" ]]; then
         if is_local_host "$worker_host"; then
             info "Cleaning local tmux session: syncps_worker_${worker_rank} (host: $worker_host)"
             tmux kill-session -t "syncps_worker_${worker_rank}" 2>/dev/null || true
-            fuser -k "$((9200 + worker_rank))/tcp" 2>/dev/null || true
+            lsof -ti ":$((9200 + worker_rank))" | xargs kill -9 2>/dev/null || true
         else
             info "Cleaning remote tmux session: syncps_worker_${worker_rank} (host: $worker_host)"
             ssh -o StrictHostKeyChecking=no "$worker_host" "tmux kill-session -t syncps_worker_${worker_rank} 2>/dev/null || true; fuser -k $((9200 + worker_rank))/tcp 2>/dev/null || true"
@@ -579,8 +591,8 @@ if [[ "$DRY_RUN" != "true" ]]; then
 
     # Free API + watcher metrics ports on master
     if is_local_host "$MASTER_HOST"; then
-        fuser -k 8000/tcp 2>/dev/null || true
-        fuser -k 8001/tcp 2>/dev/null || true
+        lsof -ti :8000 | xargs kill -9 2>/dev/null || true
+        lsof -ti :8001 | xargs kill -9 2>/dev/null || true
     else
         ssh -o StrictHostKeyChecking=no "$MASTER_HOST" "fuser -k 8000/tcp 2>/dev/null || true; fuser -k 8001/tcp 2>/dev/null || true"
     fi

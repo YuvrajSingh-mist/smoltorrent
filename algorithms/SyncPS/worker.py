@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 import logging
 import yaml
+import argparse
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
@@ -25,9 +26,9 @@ from utils.common_utils import (
     shard_from_bytes,
     shard_to_bytes,
 )
-from utils.log_utils import setup_cluster_logging
 from utils.network_metrics import log_metrics
-from utils.metrics import init_worker_metrics, WorkerMetrics
+from utils.observability import setup_worker
+from utils.prometheus_utils import WorkerMetrics
 from discovery import advertise_worker
 
 _metrics: WorkerMetrics | None = None
@@ -241,33 +242,30 @@ def _shard_listener(port: int, logger: logging.Logger) -> None:
             break
 
 
-def run_worker(worker_rank: int, hostname: str) -> None:
+def run_worker(worker_rank: int, hostname: str, port: int | None = None) -> None:
     """Initialise logging, start the shard listener, and block forever.
 
     Args:
-        worker_rank: Integer rank of this worker (must match a rank in config).
+        worker_rank: Integer rank of this worker.
         hostname: Human-readable hostname used in log file naming.
+        port: TCP port to bind. If not given, looked up from config by rank.
     """
     logger = logging.getLogger(f"[WORKER-{worker_rank}]")
 
-    # Configure centralized logging
-    setup_cluster_logging(
-        logger=logger,
-        component="worker",
+    global _metrics
+    _metrics = setup_worker(
         rank=worker_rank,
         hostname=hostname,
-        log_dir=config.get("log_dir", "/tmp/smolcluster-logs"),
-        algorithm="syncps",
+        log_dir=config.get("log_dir"),
     )
     logger.info("[syncps] Starting SmolTorrent...")
 
-    my_config = next(
-        w for w in config["devices_config"]["workers"] if w["rank"] == worker_rank
-    )
-    my_port = my_config["port"]
-
-    global _metrics
-    _metrics = init_worker_metrics(worker_rank)
+    if port is None:
+        my_config = next(
+            w for w in config["devices_config"]["workers"] if w["rank"] == worker_rank
+        )
+        port = my_config["port"]
+    my_port = port
 
     threading.Thread(
         target=_shard_listener,
@@ -291,12 +289,13 @@ def run_worker(worker_rank: int, hostname: str) -> None:
 
 
 def main() -> None:
-    """CLI entry-point. Expects ``<worker_rank>`` and ``<hostname>`` as positional args."""
-    if len(sys.argv) < 3:
-        raise SystemExit(
-            "Usage: python algorithms/SyncPS/worker.py <worker_rank> <hostname>"
-        )
-    run_worker(int(sys.argv[1]), sys.argv[2])
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("rank", type=int)
+    parser.add_argument("hostname")
+    parser.add_argument("--port", type=int, default=None)
+    args = parser.parse_args()
+    run_worker(args.rank, args.hostname, port=args.port)
 
 
 if __name__ == "__main__":

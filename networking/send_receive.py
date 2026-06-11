@@ -12,54 +12,17 @@ from typing import Any, Optional
 import logging
 
 from utils.network_metrics import NetworkMetrics
+from utils.prometheus_utils import (
+    HAS_PROM,
+    PROM_BYTES_SENT, PROM_BYTES_RECV,
+    PROM_SEND_SECONDS, PROM_RECV_SECONDS,
+    update_prom_gauges,
+)
 
 logger = logging.getLogger(__name__)
 
 network_metrics = NetworkMetrics()
 
-# Optional — only available on master (Mac). Pi workers don't expose /metrics.
-try:
-    from prometheus_client import Counter, Gauge, Histogram
-
-    PROM_BYTES_SENT = Counter(
-        "smoltorrent_bytes_sent_total", "Total bytes sent over TCP"
-    )
-    PROM_BYTES_RECV = Counter(
-        "smoltorrent_bytes_recv_total", "Total bytes received over TCP"
-    )
-    PROM_SEND_SECONDS = Histogram(
-        "smoltorrent_send_duration_seconds",
-        "Duration of each TCP send",
-        buckets=[0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 120, 300],
-    )
-    PROM_RECV_SECONDS = Histogram(
-        "smoltorrent_recv_duration_seconds",
-        "Duration of each TCP receive",
-        buckets=[0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 120, 300],
-    )
-    # Derived gauges — same fields as FSDP's get_network_metrics() dict, readable directly in Grafana
-    # without needing rate() PromQL on raw counters.
-    PROM_SEND_BW_MBPS = Gauge(
-        "smoltorrent_send_bandwidth_mbps", "Send bandwidth Mbps (rolling)"
-    )
-    PROM_RECV_BW_MBPS = Gauge(
-        "smoltorrent_recv_bandwidth_mbps", "Recv bandwidth Mbps (rolling)"
-    )
-    PROM_AVG_SEND_LAT_MS = Gauge(
-        "smoltorrent_avg_send_latency_ms", "Avg send latency ms (rolling)"
-    )
-    PROM_AVG_RECV_LAT_MS = Gauge(
-        "smoltorrent_avg_recv_latency_ms", "Avg recv latency ms (rolling)"
-    )
-    PROM_AVG_BUF_KB = Gauge(
-        "smoltorrent_avg_buffer_size_kb", "Average TCP message buffer size KB"
-    )
-    PROM_MAX_BUF_KB = Gauge(
-        "smoltorrent_max_buffer_size_kb", "Max TCP message buffer size KB"
-    )
-    HAS_PROM = True
-except ImportError:
-    HAS_PROM = False
 
 
 def get_network_metrics(reset: bool = True) -> dict:
@@ -77,23 +40,6 @@ def get_network_metrics(reset: bool = True) -> dict:
     """
     return network_metrics.get_metrics(reset=reset)
 
-
-def update_prom_gauges(metrics: dict) -> None:
-    """Push derived metrics to Prometheus gauges."""
-    if not HAS_PROM or not metrics:
-        return
-    if "send_bandwidth_mbps" in metrics:
-        PROM_SEND_BW_MBPS.set(metrics["send_bandwidth_mbps"])
-    if "recv_bandwidth_mbps" in metrics:
-        PROM_RECV_BW_MBPS.set(metrics["recv_bandwidth_mbps"])
-    if "avg_send_latency_ms" in metrics:
-        PROM_AVG_SEND_LAT_MS.set(metrics["avg_send_latency_ms"])
-    if "avg_recv_latency_ms" in metrics:
-        PROM_AVG_RECV_LAT_MS.set(metrics["avg_recv_latency_ms"])
-    if "avg_buffer_size_kb" in metrics:
-        PROM_AVG_BUF_KB.set(metrics["avg_buffer_size_kb"])
-    if "max_buffer_size_kb" in metrics:
-        PROM_MAX_BUF_KB.set(metrics["max_buffer_size_kb"])
 
 
 def send_message(sock: socket.socket, message: Any) -> None:
@@ -166,7 +112,7 @@ def receive_message(sock: socket.socket) -> Optional[Any]:
 
     result = pickle.loads(buf)
     elapsed = time.time() - start_time
-    _network_metrics.record_recv(msglen, elapsed)
+    network_metrics.record_recv(msglen, elapsed)
     if HAS_PROM:
         PROM_BYTES_RECV.inc(msglen)
         PROM_RECV_SECONDS.observe(elapsed)

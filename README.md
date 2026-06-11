@@ -13,8 +13,6 @@ Master (Mac mini / Apple Silicon)
   └── Workers × N      algorithms/SyncPS/worker.py  ← TCP listener + mDNS advertiser on each Pi
 ```
 
----
-
 ## Before you start: things to change for your cluster
 
 Three files contain values specific to this setup that you must replace:
@@ -47,8 +45,6 @@ Run `bash scripts/launch_monitoring.sh` instead of editing by hand — it regene
 
 Everything else (SSH key path, usernames, ports) is read from `configs/config.yaml` at runtime.
 
----
-
 ## Quick setup
 
 ### 1. Server (macOS)
@@ -59,11 +55,16 @@ git clone https://github.com/YuvrajSingh-mist/smoltorrent
 cd smoltorrent && uv sync
 ```
 
-Add the `grove` command to your shell (one time):
+Add the `grove` command to your shell (one time). Replace `<path-to-smoltorrent>` with where you cloned the repo (e.g. `~/smoltorrent` on macOS, `~/Desktop/smoltorrent` on a Pi):
 
 ```bash
-echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
+# macOS (zsh)
+echo 'export PATH="<path-to-smoltorrent>/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+
+# Linux / Pi (bash)
+echo 'export PATH="<path-to-smoltorrent>/.venv/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 ---
@@ -76,7 +77,8 @@ Workers discover the master over mDNS and self-register. No `config.yaml` editin
 
 ```bash
 git clone https://github.com/YuvrajSingh-mist/smoltorrent
-cd smoltorrent && uv pip install -e .
+uv sync
+source .venv/bin/activate
 ```
 
 **Master:**
@@ -135,8 +137,6 @@ Rsyncs code to all Pis, installs deps, starts API + watcher + workers in tmux.
 
 > **Warning:** both `launch.sh` and `grove start` forcibly free ports before starting. On the coordinator: ports **8000** (API) and **8001** (watcher metrics). On each worker Pi: port **9200+rank** (Prometheus metrics, e.g. 9201–9204). Any process already using those ports will be killed.
 
----
-
 ## Usage
 
 > **Recommended:** point `ckpt_root` in `config.yaml` to your checkpoint directory and let the watcher handle everything automatically. The watcher runs the full pipeline — `file_sync → checksum_sync → transfer → crosscheck` — which includes SHA-256 verification, retries, and a final crosscheck to confirm every worker received every shard. The `store` and `gather` commands below skip the crosscheck step, so they're best for one-off manual operations only.
@@ -191,8 +191,6 @@ curl -N -X POST \
 
 `ckpt_path` must be absolute and under `ckpt_root` from `config.yaml`. Use `-N` with curl to stream output as it arrives. In Python use `httpx.Client(timeout=None)` with `client.stream()` + `iter_lines()`. Full API reference: **[docs →](https://yuvrajsingh-mist.github.io/smoltorrent/docs.html)**
 
----
-
 ## Redundancy
 
 Every shard is stored on two workers. Store sends two rounds:
@@ -200,8 +198,6 @@ Every shard is stored on two workers. Store sends two rounds:
 - **Round 1** — shard `i` → `workers[(i+1) % n]`
 
 If a worker is unreachable during gather, the API automatically falls back to the worker that holds the round-1 replica. No data loss as long as no two adjacent workers fail simultaneously.
-
----
 
 ## Discoverability
 
@@ -212,15 +208,13 @@ Workers advertise themselves over mDNS (`_smoltorrent._tcp.local.`) on startup. 
 curl http://<master-ip>:8000/discover?timeout=10
 ```
 
----
-
 ## Optional
 
 | Feature | Command |
 |---|---|
 | Pi auto-start on reboot | `bash scripts/install_worker_service.sh` |
 | Server auto-start on reboot | `bash scripts/launch.sh --daemons` |
-| Monitoring (Prometheus + Grafana) | `cd monitoring && docker compose up -d` — no SSH needed |
+| Monitoring (Prometheus + Grafana) | `cd monitoring && docker compose up -d` — see [Monitoring](#monitoring-prometheus--grafana--loki) section |
 
 ### Auto-start on reboot (macOS 26 Tahoe)
 
@@ -247,7 +241,61 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.p
 
 **[Full setup guide with all options →](https://yuvrajsingh-mist.github.io/smoltorrent/setup.html)**
 
----
+## Monitoring (Prometheus + Grafana + Loki)
+
+All monitoring runs in Docker on the master node — no SSH needed.
+
+**Start:**
+
+```bash
+cd monitoring
+docker compose up -d
+```
+
+**URLs:**
+
+| Service | URL | Login |
+|---|---|---|
+| Grafana | http://localhost:3000 | `admin` / `smoltorrent` |
+| Prometheus | http://localhost:9090 | — |
+| Loki | http://localhost:3100 | — |
+
+**Useful commands:**
+
+```bash
+# check all containers are healthy
+docker compose -f monitoring/docker-compose.yml ps
+
+# tail logs for a service
+docker compose -f monitoring/docker-compose.yml logs -f prometheus
+
+# stop everything
+docker compose -f monitoring/docker-compose.yml down
+```
+
+**Pi workers — ship logs to Loki:**
+
+Once the cluster is up (`grove start` / `grove join` or `launch.sh`), `configs/config.yaml` has all the IPs and ranks. One command installs and starts Promtail on every Pi automatically:
+
+```bash
+bash scripts/launch_monitoring.sh --install-pi-promtail
+```
+
+It reads `configs/config.yaml`, generates a per-Pi config (filling in Loki IP, rank, SSH alias, and Linux username via `whoami` on each Pi), installs Promtail as a systemd service, and starts it. Promtail survives reboots automatically.
+
+To target specific workers only:
+
+```bash
+bash scripts/launch_monitoring.sh --install-pi-promtail --workers 1,3
+```
+
+Pi logs appear in Grafana → Explore → Loki:
+
+```
+{job="smoltorrent"}              # all nodes
+{job="smoltorrent", node="pi4-2"} # one Pi
+{job="smoltorrent", level="ERROR"} # errors only
+```
 
 ## License
 

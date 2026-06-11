@@ -16,7 +16,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -25,7 +24,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import receive_message, send_message
-from utils.metrics import init_watcher_metrics, WatcherMetrics
+from utils.common_utils import connect_with_retry, load_config
+from utils.observability import setup_watcher
+from utils.prometheus_utils import WatcherMetrics
 from utils.shard_ops import request_store_shards
 
 _metrics: WatcherMetrics | None = None
@@ -34,13 +35,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("smoltorrent.watcher")
-
-_CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
-
-
-def _load_config() -> dict:
-    with _CONFIG_PATH.open() as f:
-        return yaml.safe_load(f)
 
 
 def _is_stable(path: Path, wait: float = 1.0) -> bool:
@@ -58,10 +52,7 @@ def _sync_worker(worker: dict, extensions: list[str]) -> tuple[bool, set[str]]:
     Returns (success, set_of_rel_paths). Failed workers return (False, set())."""
     rank = worker["rank"]
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.2)
-        sock.connect((worker["ip"], worker["port"]))
-        sock.settimeout(None)
+        sock = connect_with_retry(worker["ip"], worker["port"], rank, retries=1, delay=0, connect_timeout=0.2)
         send_message(sock, ("sync", rank, extensions))
         result = receive_message(sock)
         sock.close()
@@ -94,10 +85,7 @@ def _checksum_sync_worker(worker: dict, rel_path: str) -> str:
     Returns 'ok', 'mismatch', or 'missing'."""
     rank = worker["rank"]
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.2)
-        sock.connect((worker["ip"], worker["port"]))
-        sock.settimeout(None)
+        sock = connect_with_retry(worker["ip"], worker["port"], rank, retries=1, delay=0, connect_timeout=0.2)
         send_message(sock, ("checksum_sync", rank, rel_path))
         result = receive_message(sock)
         sock.close()
@@ -144,9 +132,7 @@ def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[st
     Returns (rank, missing_rel_paths). Unreachable workers report all as missing."""
     rank = worker["rank"]
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1.0)
-        sock.connect((worker["ip"], worker["port"]))
+        sock = connect_with_retry(worker["ip"], worker["port"], rank, retries=1, delay=0, connect_timeout=1.0)
         send_message(sock, ("all_shards_present", rank, rel_paths))
         missing = receive_message(sock)
         sock.close()
@@ -376,13 +362,13 @@ def main() -> None:
     args = parser.parse_args()
     extensions = [e.strip() for e in args.ext.split(",")]
 
-    config = _load_config()
+    config = load_config()
     ckpt_root = Path(config["ckpt_root"]).expanduser()
     workers = config["devices_config"]["workers"]
     ckpt_root.mkdir(parents=True, exist_ok=True)
 
     global _metrics
-    _metrics = init_watcher_metrics()
+    _metrics = setup_watcher(hostname=socket.gethostname())
     trigger = threading.Event()
     pending: list = []
     pending_lock = threading.Lock()

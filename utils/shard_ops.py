@@ -4,9 +4,9 @@ import logging
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from utils.common_utils import API_BASE
 
-API_BASE = "http://localhost:8000"
+logger = logging.getLogger(__name__)
 
 
 def request_store_shards(ckpt_path: str, log_fn=logger.info) -> None:

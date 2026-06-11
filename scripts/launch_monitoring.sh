@@ -340,8 +340,14 @@ if [[ "$MODE" == "pi" ]]; then
             continue
         fi
 
+        # NODE_LABEL = SSH alias (strip @ip suffix if host field is user@ip)
+        node_label="${host%%@*}"
         # base64-encode config to survive heredoc expansion (yaml regex has special chars)
-        CFG_B64=$(sed -e "s|LOKI_IP|$LOKI_IP|g" -e "s|__HOSTNAME__|$host|g" "$PROMTAIL_CFG" | base64)
+        # PI_USER (linux username) is unknown here — resolved on the Pi via whoami after writing
+        CFG_B64=$(sed -e "s|LOKI_IP|$LOKI_IP|g" \
+                      -e "s|NODE_LABEL|$node_label|g" \
+                      -e "s|RANK|$rank|g" \
+                      "$PROMTAIL_CFG" | base64)
 
         ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$host" bash -s <<REMOTE
 set -e
@@ -366,6 +372,8 @@ sudo mkdir -p /etc/promtail
 mkdir -p /tmp/smolcluster-logs
 
 echo '$CFG_B64' | base64 -d | sudo tee /etc/promtail/config.yaml >/dev/null
+# Resolve PI_USER to the actual linux username and fix the log path
+sudo sed -i "s|PI_USER|$(whoami)|g" /etc/promtail/config.yaml
 
 sudo tee /etc/systemd/system/smoltorrent-promtail.service >/dev/null <<SVC
 [Unit]

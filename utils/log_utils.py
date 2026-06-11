@@ -179,7 +179,7 @@ def setup_cluster_logging(
     """Add structured file logging to an existing logger."""
 
     def _project_log_dir() -> Path:
-        return Path(__file__).resolve().parents[3] / "logging" / "cluster-logs"
+        return Path(__file__).resolve().parents[1] / "logging" / "cluster-logs"
 
     def _pick_writable(preferred: Optional[str]) -> Path:
         default = _project_log_dir()

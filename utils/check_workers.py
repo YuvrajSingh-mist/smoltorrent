@@ -18,7 +18,7 @@ from networking.send_receive import receive_message, send_message
 
 logger = logging.getLogger(__name__)
 
-REMOTE_SHARDS_ROOT = "~/Desktop/smoltorrent/shards/incoming_shards"
+REMOTE_SHARDS_ROOT = "~/Desktop/smoltorrent/shards"
 
 
 def count_remote_shards(
@@ -29,65 +29,45 @@ def count_remote_shards(
     """SSH into each worker and count shard files matching ``extensions``.
 
     Args:
-        model_name: Model subdirectory to search under the remote shards root.
+        model_name: Model subdirectory under each worker's shards dir.
         workers: List of worker config dicts from config.yaml.
-        extensions: File extensions to match (e.g. ``['.safetensors', '.pth']``).
-                    Defaults to ``['.safetensors']``.
+        extensions: File extensions to match. Defaults to ``['.safetensors']``.
 
     Returns:
-        Tuple of (total_count, per_worker_results) where each result has
+        Tuple of (workers_with_any_shards, per_worker_results). Each result has
         keys: ``rank``, ``host``, ``ip``, ``remote_dir``, ``found``.
     """
     if extensions is None:
         extensions = [".safetensors"]
 
-    # Build a find expression that matches any of the requested extensions:
-    #   -name '*.safetensors' -o -name '*.pth' ...
     name_clauses = " -o ".join(f"-name '*{ext}'" for ext in extensions)
     find_expr = (
-        f"\\( {name_clauses} \\)"
-        if len(extensions) > 1
-        else f"-name '*{extensions[0]}'"
+        f"\\( {name_clauses} \\)" if len(extensions) > 1 else f"-name '*{extensions[0]}'"
     )
 
     results = []
-    total = 0
+    workers_with_shards = 0
     for worker in workers:
         host_alias = worker.get("host")
         ip = worker["ip"]
         rank = worker["rank"]
-        remote_dir = f"{REMOTE_SHARDS_ROOT}/{model_name}/worker-{rank}"
-        cmd = f"find {remote_dir} -maxdepth 1 {find_expr} 2>/dev/null | wc -l"
+        remote_dir = f"{REMOTE_SHARDS_ROOT}/worker_{rank}/{model_name}"
+        cmd = f"find {remote_dir} {find_expr} 2>/dev/null | wc -l"
         try:
             proc = subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=10",
-                    host_alias,
-                    cmd,
-                ],
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host_alias, cmd],
                 capture_output=True,
                 text=True,
                 timeout=15,
             )
-            count = int(proc.stdout.strip())
+            count = int(proc.stdout.strip() or "0")
         except Exception as e:
             logger.warning("[check] Could not SSH into %s (%s): %s", host_alias, ip, e)
             count = 0
-        results.append(
-            {
-                "rank": rank,
-                "host": host_alias,
-                "ip": ip,
-                "remote_dir": remote_dir,
-                "found": count,
-            }
-        )
-        total += count
-    return total, results
+        results.append({"rank": rank, "host": host_alias, "ip": ip, "remote_dir": remote_dir, "found": count})
+        if count > 0:
+            workers_with_shards += 1
+    return workers_with_shards, results
 
 
 def ping_worker(

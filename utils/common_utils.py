@@ -7,10 +7,12 @@ import logging
 import os
 import platform
 import socket
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+import httpx
 import torch
 import yaml
 from safetensors.torch import load as st_load
@@ -23,6 +25,7 @@ from utils.dtypes import MLX_TO_TORCH
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
+API_BASE = "http://localhost:8000"
 
 
 def compute_checksum(src: bytes | str | Path) -> str:
@@ -129,6 +132,28 @@ def load_tensors(path: str | Path) -> dict:
     return st_load_file(str(path))
 
 
+def connect_with_retry(
+    ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0,
+    connect_timeout: float = 5.0,
+) -> socket.socket:
+    """Open a TCP connection to a worker, retrying on failure with exponential backoff."""
+    for attempt in range(1, retries + 1):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(connect_timeout)
+        try:
+            logger.info("[tcp] Connecting to rank %d at %s:%d (attempt %d/%d)", rank, ip, port, attempt, retries)
+            sock.connect((ip, port))
+            sock.settimeout(None)
+            logger.info("[tcp] Connected to rank %d at %s:%d", rank, ip, port)
+            return sock
+        except (OSError, ConnectionRefusedError) as e:
+            sock.close()
+            logger.warning("[tcp] Attempt %d/%d failed for rank %d at %s:%d: %s", attempt, retries, rank, ip, port, e)
+            if attempt < retries:
+                time.sleep(delay * (2 ** (attempt - 1)))
+    raise ConnectionError(f"Could not connect to rank {rank} at {ip}:{port} after {retries} attempts")
+
+
 def model_id_to_dir_name(model_id: str) -> str:
     """Convert a HuggingFace model ID to a safe directory name.
 
@@ -136,6 +161,28 @@ def model_id_to_dir_name(model_id: str) -> str:
     →  ``mlx-community--Qwen2.5-0.5B-Instruct-bf16``
     """
     return model_id.replace("/", "--")
+
+
+def gather_shards(model_id: str) -> dict:
+    """Call POST /gather-shards, collect streamed output, return structured result."""
+    cfg = load_config()
+    dir_name = model_id_to_dir_name(model_id)
+    ckpt_path = str(Path(cfg["ckpt_root"]).expanduser() / dir_name)
+    gathered = []
+    save_path = ""
+    with httpx.stream("POST", f"{API_BASE}/gather-shards",
+                      params={"ckpt_path": ckpt_path}, timeout=None) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            if line.startswith("ERROR:"):
+                raise httpx.HTTPStatusError(line, request=resp.request, response=resp)
+            if "✓ shard" in line:
+                gathered.append(line.strip())
+            if line.startswith("Done: saved →"):
+                save_path = line.split("→", 1)[-1].strip()
+    return {"save_path": save_path, "gathered": gathered}
 
 
 def chunk_data(data, n_chunks: int = 10) -> dict:
