@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <title>smoltorrent — Distributed ML Checkpoint Sharding</title>
+  <title>smoltorrent - Distributed ML Checkpoint Sharding</title>
   <meta name="description" content="smoltorrent: Distributed ML checkpoint sharding across any cluster of Linux/macOS nodes. Shards .safetensors checkpoints over TCP with SHA-256 verification, replication factor 2, and automatic watcher sync.">
   <meta name="keywords" content="smoltorrent, distributed ML, checkpoint sharding, safetensors, distributed training, MLX, PyTorch, parameter server, checkpoint storage, linux cluster">
   <meta name="author" content="Yuvraj Singh">
@@ -15,11 +15,11 @@
 
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://yuvrajsingh-mist.github.io/smoltorrent/">
-  <meta property="og:title" content="smoltorrent — Distributed ML Checkpoint Sharding">
+  <meta property="og:title" content="smoltorrent - Distributed ML Checkpoint Sharding">
   <meta property="og:description" content="Shards .safetensors checkpoints across worker nodes over TCP with SHA-256 checksums, replication factor 2, auto watcher sync, and mDNS discovery.">
 
   <meta property="twitter:card" content="summary_large_image">
-  <meta property="twitter:title" content="smoltorrent — Distributed ML Checkpoint Sharding">
+  <meta property="twitter:title" content="smoltorrent - Distributed ML Checkpoint Sharding">
   <meta property="twitter:description" content="Shards .safetensors checkpoints across worker nodes over TCP with SHA-256 checksums, replication factor 2, auto watcher sync, and mDNS discovery.">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -256,7 +256,7 @@
       font-size: inherit;
     }
 
-    /* Prism token overrides — warm palette */
+    /* Prism token overrides - warm palette */
     .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #9a9a9a; font-style: italic; }
     .token.keyword { color: #8a7355; font-weight: 600; }
     .token.string { color: #5a7a52; }
@@ -444,7 +444,7 @@
   <div class="container">
     <h1>smoltorrent</h1>
     <p class="subtitle">
-      Shards <code>.safetensors</code> checkpoints across worker nodes over TCP —<br>
+      Shards <code>.safetensors</code> checkpoints across worker nodes over TCP -<br>
       with SHA-256 verification, replication, and automatic sync.
     </p>
     <div class="hero-buttons">
@@ -456,6 +456,9 @@
       </a>
       <a href="./docs.html" class="btn-outline">
         <i class="fas fa-book"></i> API Docs
+      </a>
+      <a href="https://www.smolhub.com/posts/smoltorrent/" class="btn-outline" target="_blank" rel="noopener noreferrer">
+        <i class="fas fa-pen-nib"></i> How it was built
       </a>
     </div>
   </div>
@@ -470,14 +473,14 @@
       <strong>smoltorrent</strong> is a distributed checkpoint storage system that shards <code>.safetensors</code> ML model
       checkpoints across a cluster of worker nodes over <strong>raw TCP</strong>, coordinated from a central machine. Each shard
       is stored on <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. Workers are
-      discovered automatically via <strong>mDNS</strong> — no hardcoded IPs. On macOS, peer-to-peer <strong>AirDrop / AWDL</strong>
+      discovered automatically via <strong>mDNS</strong> - no hardcoded IPs. On macOS, peer-to-peer <strong>AirDrop / AWDL</strong>
       discovery runs in parallel for router-free Mac-to-Mac networking. A watcher daemon monitors your checkpoint directory and
-      pushes new files automatically — no manual intervention needed.
+      pushes new files automatically - no manual intervention needed.
     </p>
     <figure>
       <img src="./img/my-pi-cluster.jpeg"
            alt="4× Raspberry Pi 4 in a rack enclosure connected to a TP-Link PoE switch">
-      <figcaption>The worker cluster — 4× Raspberry Pi 4 (4 GB) in a rack enclosure, connected over Ethernet via a TP-Link LS110P PoE switch. Each Pi runs one smoltorrent worker process.</figcaption>
+      <figcaption>The worker cluster - 4× Raspberry Pi 4 (4 GB) in a rack enclosure, connected over Ethernet via a TP-Link LS110P PoE switch. Each Pi runs one smoltorrent worker process.</figcaption>
     </figure>
   </div>
 </section>
@@ -494,7 +497,7 @@
     <div class="perf-grid">
       <figure>
         <img src="img/perf_wall_time.png" alt="Wall-clock time">
-        <figcaption>Wall-clock time — store, gather, sequential baseline</figcaption>
+        <figcaption>Wall-clock time - store, gather, sequential baseline</figcaption>
       </figure>
       <figure>
         <img src="img/perf_throughput.png" alt="Aggregate throughput">
@@ -502,7 +505,7 @@
       </figure>
       <figure>
         <img src="img/perf_bandwidth_per_node.png" alt="Per-node bandwidth MB/s">
-        <figcaption>Per-node bandwidth MB/s — live Prometheus</figcaption>
+        <figcaption>Per-node bandwidth MB/s - live Prometheus</figcaption>
       </figure>
       <figure>
         <img src="img/perf_latency.png" alt="Avg TCP send latency">
@@ -510,7 +513,7 @@
       </figure>
     </div>
     <div class="pill-row">
-      <span class="pill pill-blue">Store RF2: ~321 s &nbsp;·&nbsp; Gather: ~95 s — Prometheus, 9 runs</span>
+      <span class="pill pill-blue">Store RF2: ~321 s &nbsp;·&nbsp; Gather: ~95 s - Prometheus, 9 runs</span>
       <span class="pill pill-blue">Sequential gather: ~968 s (measured) &nbsp;·&nbsp; ~10&times; speedup</span>
       <span class="pill pill-green">Gather agg: 9.9 MB/s &nbsp;·&nbsp; Store agg: 5.9 MB/s (2× data, RF2)</span>
     </div>
@@ -523,13 +526,13 @@
   <div class="container">
     <h2 class="section-title">Key Features</h2>
     <ul>
-      <li><strong>Replication factor 2</strong> — each shard lives on two nodes; single-node failure loses no data, gather falls back to replica automatically.</li>
-      <li><strong>SHA-256 checksums</strong> — every shard has a <code>.checksum</code> sidecar; corruption detected at store and re-verified on gather.</li>
-      <li><strong>Watcher daemon</strong> — inotify/watchdog triggers on new files; pending loop handles files still being written.</li>
-      <li><strong>mDNS discovery</strong> — zero-config worker discovery via Zeroconf on all platforms; AirDrop/AWDL on macOS for Mac-to-Mac.</li>
-      <li><strong>Auto-start</strong> — macOS LaunchDaemons bring the cluster up after coordinator reboot; systemd service restarts workers after node reboot.</li>
-      <li><strong>Monitoring</strong> — Prometheus + Grafana + Loki in Docker on the coordinator; no SSH required. Workers expose metrics on <code>9200+rank</code>.</li>
-      <li><strong>Fully config-driven</strong> — all topology in <a href="./setup.html#clone"><code>configs/config.yaml</code></a>; no IPs hardcoded anywhere.</li>
+      <li><strong>Replication factor 2</strong> - each shard lives on two nodes; single-node failure loses no data, gather falls back to replica automatically.</li>
+      <li><strong>SHA-256 checksums</strong> - every shard has a <code>.checksum</code> sidecar; corruption detected at store and re-verified on gather.</li>
+      <li><strong>Watcher daemon</strong> - inotify/watchdog triggers on new files; pending loop handles files still being written.</li>
+      <li><strong>mDNS discovery</strong> - zero-config worker discovery via Zeroconf on all platforms; AirDrop/AWDL on macOS for Mac-to-Mac.</li>
+      <li><strong>Auto-start</strong> - macOS LaunchDaemons bring the cluster up after coordinator reboot; systemd service restarts workers after node reboot.</li>
+      <li><strong>Monitoring</strong> - Prometheus + Grafana + Loki in Docker on the coordinator; no SSH required. Workers expose metrics on <code>9200+rank</code>.</li>
+      <li><strong>Fully config-driven</strong> - all topology in <a href="./setup.html#clone"><code>configs/config.yaml</code></a>; no IPs hardcoded anywhere.</li>
     </ul>
     <div class="pill-row">
       <span class="pill">safetensors</span>
@@ -562,7 +565,7 @@
     <h3 style="font-size:1.35rem; font-weight:400; margin-bottom:0.5rem; margin-top:1.5rem; font-family:'Cormorant Garamond',Georgia,serif;">Discovery</h3>
     <p>
       Workers advertise themselves over mDNS (<code>_smoltorrent._tcp.local.</code>) on startup. The coordinator scans the
-      network and finds all workers without any hardcoded IPs — useful for initial setup or when DHCP reassigns addresses.
+      network and finds all workers without any hardcoded IPs - useful for initial setup or when DHCP reassigns addresses.
       On macOS, AirDrop/AWDL discovery runs in parallel for Mac-to-Mac scenarios.
     </p>
   </div>
@@ -579,7 +582,7 @@
     </p>
     <div class="diagram-wrap">
       <img src="./img/workflow-flowchart.svg"
-           alt="SmolTorrent pipeline workflow — store and gather flows">
+           alt="SmolTorrent pipeline workflow - store and gather flows">
     </div>
   </div>
 </section>
@@ -628,7 +631,7 @@ Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscal
     <h2 class="section-title">Usage</h2>
 
     <p style="color: var(--text-sec); margin-bottom: 0.5rem; font-size: 0.95rem;">
-      <strong>Quick start / testing</strong> — no SSH config needed. Workers discover the master over mDNS and self-register:
+      <strong>Quick start / testing</strong> - no SSH config needed. Workers discover the master over mDNS and self-register:
     </p>
 <pre class="language-bash"><code># Master: advertise and wait for N workers to join
 grove start -n 4
@@ -637,13 +640,13 @@ grove start -n 4
 grove join</code></pre>
 
     <p style="color: var(--text-sec); margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 0.95rem;">
-      <strong>Production / serious runs</strong> — SSH-based setup with rsync, tmux, and full cluster management:
+      <strong>Production / serious runs</strong> - SSH-based setup with rsync, tmux, and full cluster management:
     </p>
 <pre class="language-bash"><code># Edit configs/config.yaml with worker SSH aliases + IPs, then:
 bash scripts/launch.sh
 
 # ── cluster is now up, API server at localhost:8000 ──
-# Store / gather manually (watcher handles this automatically — grove CLI preferred over curl):
+# Store / gather manually (watcher handles this automatically - grove CLI preferred over curl):
 grove store --ckpt-path /path/to/checkpoints/model.safetensors
 grove gather --ckpt-path /path/to/checkpoints/model.safetensors
 
@@ -709,7 +712,7 @@ curl http://&lt;master-ip&gt;:8000/discover</code></pre>
     </div>
 
     <p style="color: var(--text-ter); font-size: 0.82rem; margin-top: 0.9rem;">
-      Workers can be any Linux or macOS machine — not Pi-specific. Coordinator requires Apple Silicon for MLX tensor ops; workers are platform-agnostic (PyTorch only).
+      Workers can be any Linux or macOS machine - not Pi-specific. Coordinator requires Apple Silicon for MLX tensor ops; workers are platform-agnostic (PyTorch only).
     </p>
   </div>
 </section>
@@ -720,7 +723,6 @@ curl http://&lt;master-ip&gt;:8000/discover</code></pre>
   <div class="container">
     <h2 class="section-title">License</h2>
     <p>smoltorrent is released under the MIT License.</p>
-    <p>Contributions welcome — visit the <a href="https://github.com/YuvrajSingh-mist/smoltorrent" target="_blank" rel="noopener noreferrer">GitHub repository</a>.</p>
   </div>
 </section>
 
@@ -731,7 +733,7 @@ curl http://&lt;master-ip&gt;:8000/discover</code></pre>
     <a href="https://github.com/YuvrajSingh-mist/smoltorrent" aria-label="smoltorrent on GitHub" target="_blank" rel="noopener noreferrer">
       <i class="fab fa-github"></i>
     </a>
-    <p><strong>smoltorrent</strong> — Distributed ML Checkpoint Sharding</p>
+    <p><strong>smoltorrent</strong> - Distributed ML Checkpoint Sharding</p>
     <p><small>MIT License · <a href="https://github.com/YuvrajSingh-mist/smoltorrent">github.com/YuvrajSingh-mist/smoltorrent</a></small></p>
   </div>
 </footer>
