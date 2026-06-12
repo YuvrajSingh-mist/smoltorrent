@@ -180,7 +180,7 @@
       },
       "targets": [
         {
-          "expr": "(time() - process_start_time_seconds{job=\"smoltorrent-api\"}) / 3600",
+          "expr": "(time() - smoltorrent_process_start_time_seconds{job=\"smoltorrent-api\"}) / 3600",
           "legendFormat": "API uptime"
         }
       ],
@@ -262,7 +262,7 @@
     {
       "id": 1,
       "title": "Bandwidth (Mbps)",
-      "description": "Send and receive bandwidth as reported directly by the API. A curve that starts fast and decelerates exponentially = O(n\u00b2) copying bug.",
+      "description": "Real-time transfer bandwidth derived from byte counters. Drops to 0 when idle (unlike stale gauges).",
       "type": "timeseries",
       "gridPos": {
         "y": 21,
@@ -276,11 +276,11 @@
       },
       "targets": [
         {
-          "expr": "smoltorrent_send_bandwidth_mbps",
+          "expr": "rate(smoltorrent_bytes_sent_total[1m]) * 8 / 1024 / 1024",
           "legendFormat": "send Mbps"
         },
         {
-          "expr": "smoltorrent_recv_bandwidth_mbps",
+          "expr": "rate(smoltorrent_bytes_recv_total[1m]) * 8 / 1024 / 1024",
           "legendFormat": "recv Mbps"
         }
       ],
@@ -506,7 +506,7 @@
     {
       "id": 5,
       "title": "Avg Latency (ms)",
-      "description": "Rolling average send and receive latency per message.",
+      "description": "Average TCP transfer latency derived from duration histograms. Accurate per-interval, not a frozen last-value.",
       "type": "timeseries",
       "gridPos": {
         "y": 29,
@@ -520,11 +520,11 @@
       },
       "targets": [
         {
-          "expr": "smoltorrent_avg_send_latency_ms",
+          "expr": "rate(smoltorrent_send_duration_seconds_sum[5m]) / rate(smoltorrent_send_duration_seconds_count[5m]) * 1000",
           "legendFormat": "send avg ms"
         },
         {
-          "expr": "smoltorrent_avg_recv_latency_ms",
+          "expr": "rate(smoltorrent_recv_duration_seconds_sum[5m]) / rate(smoltorrent_recv_duration_seconds_count[5m]) * 1000",
           "legendFormat": "recv avg ms"
         }
       ],
@@ -640,7 +640,7 @@
     {
       "id": 22,
       "title": "Memory Usage",
-      "description": "Active + wired memory vs total. macOS does not report a single 'used' counter; active+wired is the closest equivalent.",
+      "description": "RAM used per node. macOS: active+wired. Linux Pi: MemTotal-MemAvailable.",
       "type": "timeseries",
       "gridPos": {
         "y": 43,
@@ -654,12 +654,20 @@
       },
       "targets": [
         {
-          "expr": "(node_memory_active_bytes{job=\"node\"} + node_memory_wired_bytes{job=\"node\"}) / 1024 / 1024 / 1024",
-          "legendFormat": "used GB"
+          "expr": "(node_memory_active_bytes{job=\"node\",node=\"master\"} + node_memory_wired_bytes{job=\"node\",node=\"master\"}) / 1024 / 1024 / 1024",
+          "legendFormat": "master used GB"
         },
         {
-          "expr": "node_memory_total_bytes{job=\"node\"} / 1024 / 1024 / 1024",
-          "legendFormat": "total GB"
+          "expr": "node_memory_total_bytes{job=\"node\",node=\"master\"} / 1024 / 1024 / 1024",
+          "legendFormat": "master total GB"
+        },
+        {
+          "expr": "(node_memory_MemTotal_bytes{job=\"node\",node!=\"master\"} - node_memory_MemAvailable_bytes{job=\"node\",node!=\"master\"}) / 1024 / 1024 / 1024",
+          "legendFormat": "{{node}} used GB"
+        },
+        {
+          "expr": "node_memory_MemTotal_bytes{job=\"node\",node!=\"master\"} / 1024 / 1024 / 1024",
+          "legendFormat": "{{node}} total GB"
         }
       ],
       "fieldConfig": {
@@ -708,7 +716,7 @@
     {
       "id": 24,
       "title": "Disk I/O (MB/s)",
-      "description": "Read and write throughput on disk0.",
+      "description": "Disk read/write throughput. master=disk0 (NVMe), Pi workers=mmcblk0 (SD card).",
       "type": "timeseries",
       "gridPos": {
         "y": 49,
@@ -723,11 +731,19 @@
       "targets": [
         {
           "expr": "rate(node_disk_read_bytes_total{job=\"node\",device=\"disk0\"}[1m]) / 1024 / 1024",
-          "legendFormat": "read MB/s"
+          "legendFormat": "master read MB/s"
         },
         {
           "expr": "rate(node_disk_written_bytes_total{job=\"node\",device=\"disk0\"}[1m]) / 1024 / 1024",
-          "legendFormat": "write MB/s"
+          "legendFormat": "master write MB/s"
+        },
+        {
+          "expr": "rate(node_disk_read_bytes_total{job=\"node\",device=\"mmcblk0\"}[1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} read MB/s"
+        },
+        {
+          "expr": "rate(node_disk_written_bytes_total{job=\"node\",device=\"mmcblk0\"}[1m]) / 1024 / 1024",
+          "legendFormat": "{{node}} write MB/s"
         }
       ],
       "fieldConfig": {
@@ -780,7 +796,7 @@
     {
       "id": 26,
       "title": "Swap Used",
-      "description": "macOS swap usage. Non-zero means memory pressure is causing pages to be compressed/swapped.",
+      "description": "Swap usage per node. macOS: swap_used + compressed. Linux Pi: SwapTotal - SwapFree.",
       "type": "timeseries",
       "gridPos": {
         "y": 49,
@@ -794,12 +810,12 @@
       },
       "targets": [
         {
-          "expr": "node_memory_swap_used_bytes{job=\"node\"} / 1024 / 1024",
-          "legendFormat": "swap used MB"
+          "expr": "(node_memory_swap_used_bytes{job=\"node\",node=\"master\"} + node_memory_compressed_bytes{job=\"node\",node=\"master\"}) / 1024 / 1024",
+          "legendFormat": "master swap+compressed MB"
         },
         {
-          "expr": "node_memory_compressed_bytes{job=\"node\"} / 1024 / 1024",
-          "legendFormat": "compressed MB"
+          "expr": "(node_memory_SwapTotal_bytes{job=\"node\",node!=\"master\"} - node_memory_SwapFree_bytes{job=\"node\",node!=\"master\"}) / 1024 / 1024",
+          "legendFormat": "{{node}} swap used MB"
         }
       ],
       "fieldConfig": {

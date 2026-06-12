@@ -152,13 +152,13 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: (smoltorrent_send_bandwidth_mbps > 0) < 10
+              expr: (rate(smoltorrent_bytes_sent_total[1m]) * 8 / 1024 / 1024 > 0) < 5
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
         annotations:
-          summary: "Send bandwidth below 10 Mbps during active transfer"
-          description: "A transfer is in progress but send bandwidth has dropped below 10 Mbps for 2 min. Expected ~25 Mbps per worker on a 100 Mbps link. Check network or Pi load."
+          summary: "Send bandwidth below 5 Mbps during active transfer"
+          description: "A transfer is in progress but send bandwidth has dropped below 5 Mbps for 2 min. WiFi baseline is ~9 Mbps — this indicates severe congestion or Pi load. Check network or Pi health."
         labels:
           severity: warning
 
@@ -195,7 +195,7 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: smoltorrent_avg_send_latency_ms > 5000
+              expr: (rate(smoltorrent_send_duration_seconds_sum[5m]) / rate(smoltorrent_send_duration_seconds_count[5m]) * 1000) > 5000
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true

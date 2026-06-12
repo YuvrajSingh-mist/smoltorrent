@@ -7,6 +7,7 @@ import logging
 import os
 import platform
 import socket
+import struct
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -328,5 +329,55 @@ def main() -> None:
         print(i)
 
 
+
+def handle_json_header(ckpt_path: str) -> dict:
+    
+    with open(ckpt_path, 'rb') as f:
+        
+        header_len = struct.unpack('<Q', f.read(8))[0]  # Read 8-byte header length
+        header = json.loads(f.read(header_len))
+      
+        
+    return header
+
+def get_shard_sizes(header: dict) -> int:
+    """
+    Calculate and print the sizes of each shard in the given header.
+
+    Args:
+        header: Dictionary containing tensor metadata.
+    
+    Returns:
+        Total size of all shards in bytes.
+    """
+
+    weight_data = {}
+    for key, value in header.items():
+        
+        if key.startswith('model.'):
+            weight_data[key] = value 
+        
+        
+    data = chunk_data(weight_data, 4)
+
+
+    shard_size = 0
+    start = 0
+    end = 0
+    
+    for shard_idx, tensors in data.items():
+        for tensor_name, tensor_meta in tensors.items():
+            start = tensor_meta['data_offsets'][0]
+            break
+        
+        for tensor_name, tensor_meta in tensors.items():
+            end += tensor_meta['data_offsets'][1]
+    
+    shard_size = (end - start)
+    
+    return shard_size
+
+
 if __name__ == "__main__":
     main()
+

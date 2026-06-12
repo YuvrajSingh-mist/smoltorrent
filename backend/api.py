@@ -27,7 +27,6 @@ from utils.common_utils import (
     load_tensors,
     merge_shards,
     save_merged_model,
-    save_shard,
     shard_to_bytes,
 )
 from utils.network_metrics import log_network_metrics
@@ -46,6 +45,7 @@ from utils.worker_ops import (
     send_shard_to_worker,
 )
 from discovery import discover_workers
+from utils.shard_tracker import add_shard, get_ranks
 
 logging.basicConfig(
     level=logging.INFO,
@@ -130,13 +130,14 @@ def store_shard(
         # Round 1: shard i → workers[(i+1) % n]  (replica)
         # Sequential rounds prevent two concurrent 235 MB receives on the same Pi.
         for round_idx in range(REDUNDANCY):
+            shard_filename = f"shard_{round_idx}.safetensors"
             round_jobs = [
                 (workers[(i + round_idx) % num_workers], sb, cs)
                 for i, (sb, cs) in enumerate(shards)
             ]
             with ThreadPoolExecutor(max_workers=num_workers) as pool:
                 future_to_job = {
-                    pool.submit(send_shard_to_worker, worker, shard_bytes, checksum, rel_path): (worker, shard_bytes, checksum)
+                    pool.submit(send_shard_to_worker, worker, shard_bytes, checksum, rel_path, shard_filename): (worker, shard_bytes, checksum)
                     for worker, shard_bytes, checksum in round_jobs
                 }
                 for future in as_completed(future_to_job):
@@ -147,16 +148,20 @@ def store_shard(
                     if ok:
                         with lock:
                             sent.append({"rank": rank, "host": host, "shard_path": result.get("shard_path")})
-                        yield _log(f"  ✓ rank {rank} ({host}) [round {round_idx}]")
+                        yield _log(f"  ✓ rank {rank} ({host}) [{shard_filename}]")
                     else:
                         yield _log(f"  ↻ rank {rank} ({host}) failed — queuing retry: {err}")
                         store_queue.put({
-                            "fn": lambda w=worker, sb=shard_bytes, cs=checksum: send_shard_to_worker(w, sb, cs, rel_path),
+                            "fn": lambda w=worker, sb=shard_bytes, cs=checksum, sf=shard_filename: send_shard_to_worker(w, sb, cs, rel_path, sf),
                             "worker": worker,
                             "attempt": 1,
                         })
 
         store_queue.join()
+
+        # Record shard placements in the tracker (BitTorrent-style who-has-what map).
+        for s in sent:
+            add_shard(rank=s["rank"], shard_key=rel_path)
 
         failed = list(dead_letter)
         succeeded = list(sent)
@@ -205,6 +210,17 @@ def gather_shards(
             yield f"ERROR: {ckpt_file} is not under ckpt_root {ckpt_root}\n"
             return
 
+        # Consult the shard tracker — ask only workers that actually hold this shard.
+        # Falls back to all workers if the tracker has no entry (first gather, or
+        # workers registered before the tracker existed).
+        tracked_ranks = get_ranks(rel_path)
+        if tracked_ranks:
+            gather_workers = [w for w in workers if w["rank"] in tracked_ranks]
+            yield _log(f"Tracker: {len(gather_workers)}/{len(workers)} worker(s) known to hold this shard")
+        else:
+            gather_workers = workers
+            yield _log("Tracker: no entry — broadcasting to all workers (first gather?)")
+
         gather_start = time.monotonic()
 
         gathered: list = []
@@ -216,54 +232,54 @@ def gather_shards(
         lock = threading.Lock()
         gather_queue: Queue = Queue()
 
-        def _gather_and_save(worker: dict, shard_index: int) -> tuple[bool, str, dict]:
-            ok, err, result = gather_shard_from_worker(worker, rel_path)
-            if not ok:
-                return False, err, {}
-            rank = result["rank"]
-            host = result["host"]
-            received_shard = result.pop("_shard")
+        def _gather_and_save(
+            worker: dict, shard_index: int, shard_filename: str = "shard_0.safetensors"
+        ) -> tuple[bool, str, dict]:
+            rank = worker["rank"]
+            host = worker.get("host") or worker.get("device")
             shard_dir = SHARDS_ROOT / f"worker_{rank}" / rel_path
             shard_dir.mkdir(parents=True, exist_ok=True)
-            shard_path = shard_dir / "shard.safetensors"
+            local_path = shard_dir / shard_filename
+            ok, err = gather_shard_from_worker(worker, rel_path, str(local_path), shard_filename)
+            if not ok:
+                return False, err, {}
             try:
-                save_shard(received_shard, str(shard_path))
+                tensors = load_tensors(local_path)
             except Exception as e:
                 with lock:
                     save_errors.append({"rank": rank, "host": host, "error": str(e)})
                 return False, str(e), {}
-            result["shard_path"] = str(shard_path)
             with lock:
-                shards_by_index[shard_index] = received_shard
-            return True, "", result
+                shards_by_index[shard_index] = tensors
+            return True, "", {"rank": rank, "host": host, "shard_path": str(local_path)}
 
         threading.Thread(target=run_retry_worker, args=(gather_queue, gathered, dead_letter, lock), daemon=True).start()
 
         def _gather_one(i: int, worker: dict):
             rank = worker["rank"]
             host = worker.get("host") or worker.get("device")
-            ok, err, result = _gather_and_save(worker, shard_index=i)
+            ok, err, result = _gather_and_save(worker, shard_index=i, shard_filename="shard_0.safetensors")
             if not ok and REDUNDANCY > 1:
                 replica = workers[(i + 1) % num_workers]
-                ok, err, result = _gather_and_save(replica, shard_index=i)
+                ok, err, result = _gather_and_save(replica, shard_index=i, shard_filename="shard_1.safetensors")
                 if not ok:
                     return i, rank, host, False, err, result
                 return i, replica["rank"], replica.get("host") or replica.get("device"), True, "", result
             return i, rank, host, ok, err, result
 
-        with ThreadPoolExecutor(max_workers=num_workers) as pool:
-            future_to_idx = {pool.submit(_gather_one, i, w): i for i, w in enumerate(workers)}
-            for future in as_completed(future_to_idx):
-                i, rank, host, ok, err, result = future.result()
+        with ThreadPoolExecutor(max_workers=len(gather_workers)) as pool:
+            future_to_worker = {pool.submit(_gather_one, i, w): (i, w) for i, w in enumerate(gather_workers)}
+            for future in as_completed(future_to_worker):
+                i, w = future_to_worker[future]
+                si, rank, host, ok, err, result = future.result()
                 if ok:
                     gathered.append(result)
-                    yield _log(f"  ✓ shard {i} — saved → {result['shard_path']}")
+                    yield _log(f"  ✓ shard {si} — saved → {result['shard_path']}")
                 else:
-                    yield _log(f"  ↻ shard {i} (rank {rank}) failed — queuing retry: {err}")
-                    worker = workers[i]
+                    yield _log(f"  ↻ shard {si} (rank {rank}) failed — queuing retry: {err}")
                     gather_queue.put({
-                        "fn": lambda w=worker, si=i: _gather_and_save(w, si),
-                        "worker": worker,
+                        "fn": lambda w=w, si=si: _gather_and_save(w, si),
+                        "worker": w,
                         "attempt": 1,
                     })
 

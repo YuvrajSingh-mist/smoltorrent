@@ -205,6 +205,7 @@ curl http://<master-ip>:8000/discover?timeout=10
 |---|---|
 | Pi auto-start on reboot | `bash scripts/install_worker_service.sh` |
 | Server auto-start on reboot | `bash scripts/bootstrap.sh` (registers LaunchDaemons - run once) |
+| Monitoring auto-start on reboot | `bash scripts/install_worker_service.sh --monitoring-daemon` |
 | Monitoring (Prometheus + Grafana) | `cd monitoring && docker compose up -d` - see [Monitoring](#monitoring-prometheus--grafana--loki) section |
 
 ### Auto-start on reboot (macOS 26 Tahoe)
@@ -236,33 +237,46 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.smoltorrent.startup.p
 
 All monitoring runs in Docker on the master node - no SSH needed.
 
-**Start:**
+**First-time setup (regenerates `prometheus.yml` from config and starts all containers):**
+
+```bash
+bash scripts/launch_monitoring.sh
+```
+
+This is the canonical way to start monitoring — it regenerates `monitoring/prometheus/prometheus.yml` from `configs/config.yaml` (worker IPs, ports) before bringing containers up. Run it whenever the cluster topology changes.
+
+**Start / stop individual containers:**
 
 ```bash
 cd monitoring
+
+# start everything
 docker compose up -d
+
+# stop everything
+docker compose down
+
+# restart a single service
+docker compose restart prometheus
+
+# check container status
+docker compose ps
+
+# tail logs for a service
+docker compose logs -f grafana
 ```
 
 **URLs:**
 
-| Service | URL | Login |
-|---|---|---|
-| Grafana | http://localhost:3000 | `admin` / `smoltorrent` |
-| Prometheus | http://localhost:9090 | - |
-| Loki | http://localhost:3100 | - |
+> **Accessing from a different machine (e.g. your MacBook when monitoring runs on mini1 / a remote node):**
+> Replace `localhost` with the IP of the machine running Docker. For example, if monitoring runs on mini1 at `10.10.0.1`, use `http://10.10.0.1:3000` for Grafana.
+> The ports below are bound to `0.0.0.0` in `docker-compose.yml`, so any machine on the same network or VPN can reach them directly.
 
-**Useful commands:**
-
-```bash
-# check all containers are healthy
-docker compose -f monitoring/docker-compose.yml ps
-
-# tail logs for a service
-docker compose -f monitoring/docker-compose.yml logs -f prometheus
-
-# stop everything
-docker compose -f monitoring/docker-compose.yml down
-```
+| Service | URL (local) | Remote (example) | Login |
+|---|---|---|---|
+| Grafana | http://localhost:3000 | http://\<master-ip\>:3000 | `admin` / `smoltorrent` |
+| Prometheus | http://localhost:9091 | http://\<master-ip\>:9091 | - |
+| Loki | http://localhost:3100 | http://\<master-ip\>:3100 | - |
 
 **Pi workers - ship logs to Loki:**
 

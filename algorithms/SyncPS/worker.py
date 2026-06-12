@@ -24,7 +24,6 @@ from networking.send_receive import receive_message, send_message, network_metri
 from utils.common_utils import (
     compute_checksum,
     load_tensors,
-    shard_from_bytes,
     shard_to_bytes,
 )
 from utils.network_metrics import log_network_metrics
@@ -34,10 +33,8 @@ from discovery import advertise_worker
 
 metrics: Optional["WorkerMetrics"] = None
 
-# Setup logging (will be replaced by setup_cluster_logging in run_syncps_server)
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+from utils.log_utils import setup_logging
+setup_logging()
 
 with open("configs/config.yaml", "r") as f:
     config = yaml.safe_load(f)
@@ -104,6 +101,10 @@ def _handle_shard_client(
         elif command == "checksum_sync":
             _, rank, rel_path = msg
             shard_path = SHARDS_ROOT / f"worker_{rank}" / rel_path / "shard.safetensors"
+            if not shard_path.exists():
+                send_message(conn, ("checksum_sync_result", "missing", rel_path))
+                logger.info(f"[syncps] Checksum missing for rank {rank} at {rel_path}")
+                return
             checksum_path = shard_path.parent / "shard.checksum"
             if not checksum_path.exists():
                 cksum = compute_checksum(shard_path)
@@ -166,37 +167,34 @@ def _handle_shard_client(
             logger.info(f"[syncps] Served shard to {caller}")
 
         elif command == "store_shard":
-            _, rank, shard_bytes, received_checksum, rel_path = msg
-            if shard_bytes is None:
-                logger.warning(f"[syncps] No shard data in store_shard from {caller}")
-                send_message(conn, ("store_shard_failed", rank, "no shard data"))
-                return
-            if received_checksum is not None:
-                if compute_checksum(shard_bytes) != received_checksum:
-                    logger.error(f"[syncps] Checksum mismatch for rank {rank} from {caller}")
-                    if metrics:
-                        metrics.store_errors.labels(rank=str(rank)).inc()
-                    send_message(
-                        conn, ("store_shard_failed", rank, "checksum mismatch")
-                    )
-                    return
-            if metrics:
-                metrics.bytes_recv.labels(rank=str(rank)).inc(len(shard_bytes))
-            shard = shard_from_bytes(shard_bytes)
+            _, rank, received_checksum, rel_path = msg
             shard_dir = SHARDS_ROOT / f"worker_{rank}" / rel_path
             shard_dir.mkdir(parents=True, exist_ok=True)
             shard_path = shard_dir / "shard.safetensors"
+
             t0 = time.perf_counter()
             try:
-                from safetensors.torch import save_file
+                from networking.send_receive import receive_file_mmap
 
-                save_file(shard, str(shard_path))
+                receive_file_mmap(conn, str(shard_path))
                 elapsed = time.perf_counter() - t0
-                cksum = compute_checksum(shard_path)
-                (shard_dir / "shard.checksum").write_text(cksum)
+
+                if received_checksum is not None:
+                    if compute_checksum(shard_path) != received_checksum:
+                        logger.error(f"[syncps] Checksum mismatch for rank {rank} from {caller}")
+                        shard_path.unlink(missing_ok=True)
+                        if metrics:
+                            metrics.store_errors.labels(rank=str(rank)).inc()
+                        send_message(conn, ("store_shard_failed", rank, "checksum mismatch"))
+                        return
+
                 if metrics:
+                    metrics.bytes_recv.labels(rank=str(rank)).inc(shard_path.stat().st_size)
                     metrics.store_ops.labels(rank=str(rank)).inc()
                     metrics.store_duration.labels(rank=str(rank)).observe(elapsed)
+
+                cksum = compute_checksum(shard_path)
+                (shard_dir / "shard.checksum").write_text(cksum)
                 log_network_metrics(
                     network_metrics.get_metrics(), logger, f"store-shard-rank{rank}"
                 )

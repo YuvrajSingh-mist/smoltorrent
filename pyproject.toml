@@ -42,6 +42,7 @@ pythonpath = ["."]
 addopts = "-m 'not api'"
 markers = [
     "integration: end-to-end tests that require model weights and a full cluster environment",
+    "large: large-file stress tests (1–8 GB sparse files, socketpair only, no RAM load)",
     "ssh: tests that SSH into live Pi workers via Fabric (requires cluster reachable)",
     "api: tests that hit the real FastAPI server at API_BASE (requires server running)",
     "discovery: tests that require network interfaces (mDNS loopback)",

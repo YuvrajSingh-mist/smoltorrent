@@ -1,6 +1,7 @@
 """Worker orchestration: shard transfer, retry logic, and heartbeat checks."""
 
 import logging
+import struct
 import threading
 import time
 from queue import Queue
@@ -8,7 +9,6 @@ from queue import Queue
 from networking.send_receive import send_message, receive_message
 from utils.common_utils import connect_with_retry
 from utils.check_workers import ping_worker
-from utils.common_utils import shard_from_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,8 @@ MAX_RETRIES = 6
 
 
 def send_shard_to_worker(
-    worker: dict, shard_bytes: bytes, checksum: str, rel_path: str
+    worker: dict, shard_bytes: bytes, checksum: str, rel_path: str,
+    shard_filename: str = "shard_0.safetensors",
 ) -> tuple[bool, str, dict]:
     """Send one serialized shard to a worker and verify the ack.
 
@@ -27,14 +28,16 @@ def send_shard_to_worker(
     sock = None
     try:
         sock = connect_with_retry(worker["ip"], worker["port"], rank)
-        send_message(sock, ("store_shard", rank, shard_bytes, checksum, rel_path))
+        send_message(sock, ("store_shard", rank, checksum, rel_path, shard_filename))
+        sock.sendall(struct.pack(">I", len(shard_bytes)))
+        sock.sendall(shard_bytes)
         response = receive_message(sock)
         sock.close()
         if response is None:
             return False, "no response from worker", {}
         if response[0] == "store_shard_done":
             _, _, shard_path = response
-            logger.info("[ops] Worker %d acknowledged shard → %s", rank, shard_path)
+            logger.info("[ops] Worker %d acknowledged %s → %s", rank, shard_filename, shard_path)
             return True, "", {"shard_path": shard_path}
         _, _, err_msg = response
         logger.error("[ops] Worker %d store failed: %s", rank, err_msg)
@@ -49,25 +52,36 @@ def send_shard_to_worker(
         return False, str(e), {}
 
 
-def gather_shard_from_worker(worker: dict, rel_path: str) -> tuple[bool, str, dict]:
-    """Pull one shard from a worker.
+def gather_shard_from_worker(
+    worker: dict, rel_path: str, dest_path: str,
+    shard_filename: str = "shard_0.safetensors",
+) -> tuple[bool, str]:
+    """Pull one shard from a worker directly into dest_path via mmap.
 
     Returns:
-        (ok, error_msg, result) — result contains ``rank``, ``host``, ``_shard``.
+        (ok, error_msg)
     """
     rank = worker["rank"]
-    host = worker.get("host") or worker.get("device")
+    sock = None
     try:
+        from networking.send_receive import receive_file_mmap
         sock = connect_with_retry(worker["ip"], worker["port"], rank)
-        send_message(sock, ("send_shard", rank, rel_path))
-        shard_bytes = receive_message(sock)
+        send_message(sock, ("send_shard", rank, rel_path, shard_filename))
+        status = receive_message(sock)
+        if status is None or status[0] != "send_shard_ok":
+            sock.close()
+            return False, f"shard not available on rank {rank}: {status}"
+        receive_file_mmap(sock, dest_path)
         sock.close()
-        if shard_bytes is None:
-            return False, "no shard received", {}
-        return True, "", {"rank": rank, "host": host, "_shard": shard_from_bytes(shard_bytes)}
+        return True, ""
     except Exception as e:
         logger.exception("[ops] Unhandled error gathering shard from rank %d", rank)
-        return False, str(e), {}
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        return False, str(e)
 
 
 def run_retry_worker(

@@ -70,6 +70,7 @@ def cmd_start(n: int) -> None:
 
     registered: list[dict] = []
     lock = threading.Lock()
+    advertiser = MasterAdvertiser(expected_workers=n)
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -80,8 +81,8 @@ def cmd_start(n: int) -> None:
                 body["rank"] = rank
                 body.setdefault("port", 5000 + rank)
                 registered.append(body)
-                # Write config.yaml immediately so late-joining workers are recorded
                 _write_config(registered)
+                advertiser.update_current(len(registered))
             logger.info(
                 f"  ✓ {body['hostname']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}]"
             )
@@ -95,8 +96,6 @@ def cmd_start(n: int) -> None:
 
     server = HTTPServer(("0.0.0.0", REGISTRATION_PORT), Handler)
     threading.Thread(target=server.serve_forever).start()  # non-daemon keeps process alive
-
-    advertiser = MasterAdvertiser(expected_workers=n)
     logger.info(f"\n  smoltorrent master ready — waiting for {n} worker(s)")
     logger.info("  On each worker node: grove join\n")
 

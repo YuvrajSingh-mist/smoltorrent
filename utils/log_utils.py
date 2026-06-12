@@ -14,16 +14,26 @@ from typing import Any, Optional
 RESET = "\033[0m"
 
 LEVEL_COLOURS = {
-    logging.DEBUG: "\033[36m",  # cyan
-    logging.INFO: "\033[32m",  # green
-    logging.WARNING: "\033[33m",  # yellow
-    logging.ERROR: "\033[31m",  # red
-    logging.CRITICAL: "\033[1;31m",  # bold red
+    logging.DEBUG:    "\033[38;5;244m",  # grey
+    logging.INFO:     "\033[38;5;114m",  # soft green
+    logging.WARNING:  "\033[38;5;214m",  # amber
+    logging.ERROR:    "\033[38;5;203m",  # coral red
+    logging.CRITICAL: "\033[1;38;5;196m",  # bold bright red
 }
 
-TAG_COLOUR = "\033[35m"  # magenta — for bracketed tags like [MODEL], [LORA]
-DIM = "\033[2m"
-CTX_COLOUR = "\033[1;35m"  # bold magenta — for the context prefix
+LEVEL_BG = {
+    logging.WARNING:  "\033[48;5;52m",   # dark red bg for WARNING badge
+    logging.ERROR:    "\033[48;5;52m",   # dark red bg for ERROR badge
+    logging.CRITICAL: "\033[48;5;88m",   # deeper red bg for CRITICAL
+}
+
+TAG_COLOUR  = "\033[38;5;183m"  # soft lavender — bracketed [tags]
+DIM         = "\033[2m"
+BOLD        = "\033[1m"
+TS_COLOUR   = "\033[38;5;240m"  # dark grey for timestamp
+NAME_COLOUR = "\033[38;5;110m"  # steel blue for logger name
+CTX_COLOUR  = "\033[1;38;5;183m"  # bold lavender for context prefix
+SEP         = f"{DIM}│{RESET}"   # subtle column separator
 
 # ---------------------------------------------------------------------------
 # Global log context — set once at process startup via set_log_context()
@@ -74,37 +84,48 @@ def set_log_context(
 class ColourFormatter(logging.Formatter):
     """Single-line coloured formatter.
 
-    Format:  YYYY-MM-DD HH:MM:SS  LEVEL     [ctx]  logger.name  message
-    Bracketed tags like [MODEL], [checkpoint], [vllm worker 0] are highlighted.
-    Context prefix (arch | algorithm | role | hardware) is shown when set via set_log_context().
+    Format:  HH:MM:SS │ LEVEL    │ [ctx] │ logger.name  message
+    Bracketed tags like [syncps], [mdns] are highlighted in lavender.
+    Context prefix (role | hardware) shown when set via set_log_context().
     """
 
-    FMT = "{dim}{asctime}{reset}  {level_col}{levelname:<8}{reset}  {ctx}{dim}{name}{reset}  {msg}"
+    _LEVEL_LABELS = {
+        logging.DEBUG:    "DEBUG",
+        logging.INFO:     "INFO ",
+        logging.WARNING:  "WARN ",
+        logging.ERROR:    "ERROR",
+        logging.CRITICAL: "CRIT ",
+    }
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003
-        """Format ``record`` as a coloured single-line string."""
         record.message = record.getMessage()
-        record.asctime = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        record.asctime = self.formatTime(record, "%H:%M:%S")
+
+        lvl_col  = LEVEL_COLOURS.get(record.levelno, "")
+        lvl_bg   = LEVEL_BG.get(record.levelno, "")
+        lvl_label = self._LEVEL_LABELS.get(record.levelno, record.levelname[:5])
+
+        if lvl_bg:
+            level_str = f"{lvl_bg}{lvl_col}{BOLD} {lvl_label} {RESET}"
+        else:
+            level_str = f"{lvl_col}{lvl_label}{RESET}"
 
         msg = re.sub(
             r"(\[[^\]]{1,40}\])",
             rf"{TAG_COLOUR}\1{RESET}",
             record.message,
         )
+        # Colour the message itself at warning+
+        if record.levelno >= logging.WARNING:
+            msg = f"{lvl_col}{msg}{RESET}"
 
         ctx_parts = [CTX[k] for k in CTX_ORDER if CTX.get(k)]
-        ctx = f"{CTX_COLOUR}[{' | '.join(ctx_parts)}]{RESET}  " if ctx_parts else ""
+        ctx = f" {CTX_COLOUR}[{' | '.join(ctx_parts)}]{RESET} {SEP}" if ctx_parts else ""
 
-        line = self.FMT.format(
-            dim=DIM,
-            asctime=record.asctime,
-            reset=RESET,
-            level_col=LEVEL_COLOURS.get(record.levelno, ""),
-            levelname=record.levelname,
-            ctx=ctx,
-            name=record.name,
-            msg=msg,
-        )
+        name = f"{NAME_COLOUR}{record.name}{RESET}"
+        ts   = f"{TS_COLOUR}{record.asctime}{RESET}"
+
+        line = f"{ts} {SEP} {level_str} {SEP}{ctx} {name}  {msg}"
 
         if record.exc_info:
             line = f"{line}\n{LEVEL_COLOURS.get(logging.ERROR, '')}{self.formatException(record.exc_info)}{RESET}"

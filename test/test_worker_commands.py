@@ -7,6 +7,7 @@ Markers: integration — requires cluster running (bash scripts/launch.sh).
 """
 
 import socket
+import struct
 import sys
 from pathlib import Path
 from typing import Optional
@@ -17,7 +18,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from networking.send_receive import receive_message, send_message
+from networking.send_receive import receive_file_mmap, receive_message, send_message
 from utils.common_utils import compute_checksum, shard_to_bytes, shard_from_bytes
 
 _CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
@@ -97,11 +98,11 @@ class TestAllShardsPresent:
         return result[:3] if result else []
 
     def test_no_missing_for_present_paths(self):
-        known = self._get_known_paths()
-        if not known:
-            pytest.skip("No shards on workers yet")
         for w in WORKERS:
-            missing = _send_recv(w, ("all_shards_present", w["rank"], known))
+            known = _send_recv(w, ("sync", w["rank"], [".safetensors"]))
+            if not known:
+                continue
+            missing = _send_recv(w, ("all_shards_present", w["rank"], known[:3]))
             assert missing == [], f"rank {w['rank']} wrongly reports missing: {missing}"
 
     def test_fake_paths_reported_missing(self):
@@ -125,80 +126,76 @@ class TestChecksumSync:
         return result[0] if result else None
 
     def test_existing_shard_returns_ok(self):
-        path = self._get_one_path()
-        if not path:
-            pytest.skip("No shards on workers yet")
         for w in WORKERS:
-            result = _send_recv(w, ("checksum_sync", w["rank"], path))
-            assert result is not None
-            status = result[0].replace("checksum_", "")
-            assert status in ("ok", "missing"), f"Unexpected status: {status}"
+            paths = _send_recv(w, ("sync", w["rank"], [".safetensors"]))
+            if not paths:
+                continue
+            result = _send_recv(w, ("checksum_sync", w["rank"], paths[0]))
+            assert result is not None, f"rank {w['rank']} returned None"
+            assert result[0] == "checksum_sync_result", f"Unexpected type: {result[0]}"
+            assert result[1] in ("ok", "mismatch"), f"Unexpected status: {result[1]}"
 
     def test_fake_path_returns_missing(self):
         for w in WORKERS:
             result = _send_recv(w, ("checksum_sync", w["rank"], "__fake__/path/latest"))
-            assert result is not None
-            status = result[0].replace("checksum_", "")
-            assert status == "missing"
+            assert result is not None, f"rank {w['rank']} closed connection instead of sending missing"
+            assert result[0] == "checksum_sync_result"
+            assert result[1] == "missing"
+
+
+def _store_shard(worker: dict, rank: int, shard_bytes: bytes, checksum: str, rel_path: str):
+    """New store_shard protocol: metadata message then raw bytes stream."""
+    sock = _connect(worker, timeout=30.0)
+    send_message(sock, ("store_shard", rank, checksum, rel_path))
+    sock.sendall(struct.pack(">I", len(shard_bytes)))
+    sock.sendall(shard_bytes)
+    result = receive_message(sock)
+    sock.close()
+    return result
 
 
 @pytest.mark.integration
 class TestStoreShard:
     def test_store_and_ack(self):
-        """Store a small synthetic shard on rank 1 and check ack."""
         worker = WORKERS[0]
         shard = {"test.weight": mx.ones([8, 8])}
         shard_bytes = shard_to_bytes(shard)
         checksum = compute_checksum(shard_bytes)
 
-        result = _send_recv(
-            worker,
-            ("store_shard", worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH),
-            timeout=30.0,
-        )
+        result = _store_shard(worker, worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
+
         assert result is not None
-        assert result[0] == "store_shard_done", (
-            f"Expected store_shard_done, got: {result}"
-        )
+        assert result[0] == "store_shard_done", f"Expected store_shard_done, got: {result}"
 
     def test_bad_checksum_rejected(self):
         worker = WORKERS[0]
         shard_bytes = shard_to_bytes({"w": mx.zeros([4, 4])})
-        bad_checksum = "0" * 64
 
-        result = _send_recv(
-            worker,
-            ("store_shard", worker["rank"], shard_bytes, bad_checksum, _FAKE_REL_PATH),
-            timeout=30.0,
-        )
+        result = _store_shard(worker, worker["rank"], shard_bytes, "0" * 64, _FAKE_REL_PATH)
+
         assert result is not None
         assert result[0] == "store_shard_failed"
 
 
 @pytest.mark.integration
 class TestSendShard:
-    def test_send_returns_bytes_for_existing(self):
-        """Store a shard then retrieve it — bytes should round-trip."""
+    def test_send_returns_file_for_existing(self, tmp_path):
+        """Store a shard then retrieve it via receive_file_mmap — bytes must round-trip."""
         worker = WORKERS[0]
         original = {"w": mx.ones([8, 8]) * 42}
         shard_bytes = shard_to_bytes(original)
         checksum = compute_checksum(shard_bytes)
 
-        # Store first
-        _send_recv(
-            worker,
-            ("store_shard", worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH),
-            timeout=30.0,
-        )
+        _store_shard(worker, worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
 
-        # Retrieve
-        received = _send_recv(
-            worker, ("send_shard", worker["rank"], _FAKE_REL_PATH), timeout=30.0
-        )
-        assert received is not None, "send_shard returned None for existing shard"
-        assert isinstance(received, bytes)
+        sock = _connect(worker, timeout=30.0)
+        send_message(sock, ("send_shard", worker["rank"], _FAKE_REL_PATH))
+        dest = tmp_path / "received.safetensors"
+        receive_file_mmap(sock, str(dest))
+        sock.close()
 
-        restored = shard_from_bytes(received)
+        assert dest.exists()
+        restored = shard_from_bytes(dest.read_bytes())
         assert "w" in restored
 
     def test_send_nonexistent_returns_none(self):

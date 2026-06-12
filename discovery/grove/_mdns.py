@@ -183,6 +183,11 @@ class MasterAdvertiser:
         #     hostname, ip, expected_workers,
         # )
 
+    def update_current(self, count: int) -> None:
+        """Update the ``current`` worker count in the live mDNS TXT record."""
+        self.info.properties[b"current"] = str(count).encode()
+        self.zc.update_service(self.info)
+
     def close(self) -> None:
         self.zc.unregister_service(self.info)
         self.zc.close()

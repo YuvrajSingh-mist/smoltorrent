@@ -56,6 +56,80 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── --monitoring-daemon: register monitoring stack as macOS LaunchDaemon ──────
+
+if [[ "$MONITORING_DAEMON" == "true" ]]; then
+    PLIST_LABEL="com.smoltorrent.monitoring"
+    PLIST_DST="/Library/LaunchDaemons/${PLIST_LABEL}.plist"
+    STARTUP_SCRIPT_DST="/usr/local/bin/smoltorrent_monitoring_startup.sh"
+    CURRENT_USER="$(whoami)"
+
+    info "Writing startup script to $STARTUP_SCRIPT_DST..."
+    sudo tee "$STARTUP_SCRIPT_DST" > /dev/null <<STARTUP
+#!/bin/bash
+# Runs at boot via LaunchDaemon: waits for colima, then brings up monitoring stack.
+set -euo pipefail
+LOG=/tmp/smoltorrent-monitoring-startup.log
+log() { echo "[\$(date)] smoltorrent-monitoring: \$*" | tee -a "\$LOG"; }
+log "startup triggered"
+sleep 10
+PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
+for i in \$(seq 1 60); do
+    if colima status 2>&1 | grep -q "colima is running"; then
+        log "colima ready"; break
+    fi
+    [[ \$i -eq 1 ]] && { log "starting colima..."; colima start &>/dev/null &; }
+    sleep 5
+    [[ \$i -eq 60 ]] && { log "ERROR: colima did not start after 5 min"; exit 1; }
+done
+log "starting docker-compose..."
+cd "$MONITORING_DIR"
+docker-compose up -d >> "\$LOG" 2>&1
+log "monitoring stack launched"
+STARTUP
+    sudo chmod +x "$STARTUP_SCRIPT_DST"
+    ok "Startup script written"
+
+    info "Writing LaunchDaemon plist to $PLIST_DST..."
+    sudo tee "$PLIST_DST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>${PLIST_LABEL}</string>
+    <key>UserName</key><string>${CURRENT_USER}</string>
+    <key>ProgramArguments</key>
+    <array><string>/bin/bash</string><string>${STARTUP_SCRIPT_DST}</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><false/>
+    <key>StandardOutPath</key><string>/tmp/smoltorrent-monitoring-startup.log</string>
+    <key>StandardErrorPath</key><string>/tmp/smoltorrent-monitoring-startup.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key><string>/Users/${CURRENT_USER}</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+    sudo chmod 644 "$PLIST_DST"
+    ok "Plist written"
+
+    info "Registering with launchctl..."
+    sudo launchctl bootout system/"$PLIST_LABEL" 2>/dev/null || true
+    sudo launchctl bootstrap system "$PLIST_DST"
+    sudo launchctl enable system/"$PLIST_LABEL"
+    ok "LaunchDaemon registered — monitoring stack will auto-start on boot"
+
+    echo
+    echo -e "  Verify:    ${C_YELLOW}sudo launchctl print system/${PLIST_LABEL}${C_RESET}"
+    echo -e "  Boot log:  ${C_YELLOW}tail -f /tmp/smoltorrent-monitoring-startup.log${C_RESET}"
+    echo -e "  Uninstall: ${C_YELLOW}sudo launchctl bootout system/${PLIST_LABEL} && sudo rm $PLIST_DST $STARTUP_SCRIPT_DST${C_RESET}"
+    exit 0
+fi
+
+# ── Pi worker systemd service ──────────────────────────────────────────────────
+
 if ! command -v yq >/dev/null 2>&1; then
     err "yq is required to parse $CONFIG_FILE (brew install yq)"
     exit 1

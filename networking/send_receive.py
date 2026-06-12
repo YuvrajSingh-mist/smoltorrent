@@ -199,14 +199,20 @@ def receive_file_mmap(sock: socket.socket, dest_path: str) -> None:
             # mm[offset:] would return a bytes copy; recv_into would write into it
             # and the data would never reach the file.
             view = memoryview(mm)
-            offset = 0
-            while offset < filesize:
-                n = sock.recv_into(view[offset:], min(65536, filesize - offset))
-                if not n:
-                    raise ConnectionError("Socket connection broken while receiving file")
-                offset += n
-            mm.flush()
-
+            try:
+                offset = 0
+                while offset < filesize:
+                    n = sock.recv_into(view[offset:], min(65536, filesize - offset))
+                    if not n:
+                        raise ConnectionError("Socket connection broken while receiving file")
+                    offset += n
+                mm.flush()
+                
+            finally:
+                # Python 3.13: mmap.__exit__ calls close() which raises BufferError if
+                # any memoryview export is still alive — release unconditionally.
+                view.release()
+                
     elapsed = time.time() - start_time
     network_metrics.record_recv(filesize, elapsed)
     if HAS_PROM:

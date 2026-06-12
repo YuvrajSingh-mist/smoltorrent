@@ -22,3 +22,6 @@ devices_config:
     ip: 100.77.162.23
     rank: 3
     port: 5003
+  - host: pi4-2
+    ip:  100.79.150.107
+    rank: 1
