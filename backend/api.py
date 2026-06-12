@@ -30,7 +30,7 @@ from utils.common_utils import (
     save_shard,
     shard_to_bytes,
 )
-from utils.network_metrics import log_metrics
+from utils.network_metrics import log_network_metrics
 from utils.prometheus_utils import (
     make_asgi_app,
     api_store_ops,
@@ -63,7 +63,7 @@ REDUNDANCY = 2  # replicas per shard (1 = no redundancy, 2 = one primary + one r
 def _init_error_labels() -> None:
     cfg = load_config()
     for w in cfg["devices_config"]["workers"]:
-        apiapi_xfer_errors.labels(rank=str(w["rank"]))
+        api_xfer_errors.labels(rank=str(w["rank"]))
 
 
 try:
@@ -109,7 +109,7 @@ def store_shard(
             yield f"ERROR: {ckpt_file} is not under ckpt_root {ckpt_root}\n"
             return
 
-        _store_start = time.monotonic()
+        store_start = time.monotonic()
         tensors = load_tensors(ckpt_file)
         total_mb = sum(v.nbytes for v in tensors.values()) / 1024**2
         yield _log(f"Loaded {len(tensors)} tensors ({total_mb:.1f} MB) from {rel_path} — chunking into {num_workers} shards")
@@ -166,8 +166,8 @@ def store_shard(
             yield _log(f"  ✗ rank {f['rank']} ({f.get('host')}) permanently failed: {f.get('error')}")
 
         total_expected = num_workers * REDUNDANCY
-        log_metrics(network_metrics.get_metrics(), logger, "store")
-        api_store_wall.observe(time.monotonic() - _store_start)
+        log_network_metrics(network_metrics.get_metrics(), logger, "store")
+        api_store_wall.observe(time.monotonic() - store_start)
         if failed:
             yield f"ERROR: {len(failed)}/{total_expected} sends failed\n"
         else:
@@ -205,7 +205,7 @@ def gather_shards(
             yield f"ERROR: {ckpt_file} is not under ckpt_root {ckpt_root}\n"
             return
 
-        _gather_start = time.monotonic()
+        gather_start = time.monotonic()
 
         gathered: list = []
         # Keyed by shard index (0..n-1), not worker rank — matters when a replica
@@ -283,8 +283,8 @@ def gather_shards(
         yield _log(f"Merging {len(all_gathered)} shards → {save_path}")
         merged = merge_shards([shards_by_index[i] for i in range(num_workers)])
         save_merged_model(merged, save_path)
-        log_metrics(network_metrics.get_metrics(), logger, "gather")
-        api_gather_wall.observe(time.monotonic() - _gather_start)
+        log_network_metrics(network_metrics.get_metrics(), logger, "gather")
+        api_gather_wall.observe(time.monotonic() - gather_start)
         api_gather_ops.inc()
         yield _log(f"Done: saved → {save_path}")
 

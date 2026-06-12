@@ -13,25 +13,26 @@ import socket
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 import logging
 import yaml
 import argparse
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
-from networking.send_receive import receive_message, send_message, network_metrics
+from networking.send_receive import receive_message, send_message, network_metrics, serve_file_sendfile
 from utils.common_utils import (
     compute_checksum,
     load_tensors,
     shard_from_bytes,
     shard_to_bytes,
 )
-from utils.network_metrics import log_metrics
+from utils.network_metrics import log_network_metrics
 from utils.observability import setup_worker
 from utils.prometheus_utils import WorkerMetrics
 from discovery import advertise_worker
 
-_metrics: WorkerMetrics | None = None
+metrics: Optional["WorkerMetrics"] = None
 
 # Setup logging (will be replaced by setup_cluster_logging in run_syncps_server)
 logging.basicConfig(
@@ -153,14 +154,15 @@ def _handle_shard_client(
                 return
             logger.info(f"[syncps] Loading shard from disk for rank {rank}: {shard_path}")
             t0 = time.perf_counter()
-            shard_bytes = shard_to_bytes(load_tensors(shard_path))
-            send_message(conn, shard_bytes)
+            # shard_bytes = shard_to_bytes(load_tensors(shard_path))
+            # send_message(conn, shard_bytes)
+            shard_bytes = serve_file_sendfile(conn, str(shard_path))
             elapsed = time.perf_counter() - t0
-            if _metrics:
-                _metrics.bytes_sent.labels(rank=str(rank)).inc(len(shard_bytes))
-                _metrics.send_ops.labels(rank=str(rank)).inc()
-                _metrics.send_duration.labels(rank=str(rank)).observe(elapsed)
-            log_metrics(network_metrics.get_metrics(), logger, "serve-shard-to-api")
+            if metrics:
+                metrics.bytes_sent.labels(rank=str(rank)).inc(shard_bytes)
+                metrics.send_ops.labels(rank=str(rank)).inc()
+                metrics.send_duration.labels(rank=str(rank)).observe(elapsed)
+            log_network_metrics(network_metrics.get_metrics(), logger, "serve-shard-to-api")
             logger.info(f"[syncps] Served shard to {caller}")
 
         elif command == "store_shard":
@@ -172,14 +174,14 @@ def _handle_shard_client(
             if received_checksum is not None:
                 if compute_checksum(shard_bytes) != received_checksum:
                     logger.error(f"[syncps] Checksum mismatch for rank {rank} from {caller}")
-                    if _metrics:
-                        _metrics.store_errors.labels(rank=str(rank)).inc()
+                    if metrics:
+                        metrics.store_errors.labels(rank=str(rank)).inc()
                     send_message(
                         conn, ("store_shard_failed", rank, "checksum mismatch")
                     )
                     return
-            if _metrics:
-                _metrics.bytes_recv.labels(rank=str(rank)).inc(len(shard_bytes))
+            if metrics:
+                metrics.bytes_recv.labels(rank=str(rank)).inc(len(shard_bytes))
             shard = shard_from_bytes(shard_bytes)
             shard_dir = SHARDS_ROOT / f"worker_{rank}" / rel_path
             shard_dir.mkdir(parents=True, exist_ok=True)
@@ -192,10 +194,10 @@ def _handle_shard_client(
                 elapsed = time.perf_counter() - t0
                 cksum = compute_checksum(shard_path)
                 (shard_dir / "shard.checksum").write_text(cksum)
-                if _metrics:
-                    _metrics.store_ops.labels(rank=str(rank)).inc()
-                    _metrics.store_duration.labels(rank=str(rank)).observe(elapsed)
-                log_metrics(
+                if metrics:
+                    metrics.store_ops.labels(rank=str(rank)).inc()
+                    metrics.store_duration.labels(rank=str(rank)).observe(elapsed)
+                log_network_metrics(
                     network_metrics.get_metrics(), logger, f"store-shard-rank{rank}"
                 )
                 logger.info(
@@ -204,8 +206,8 @@ def _handle_shard_client(
                 send_message(conn, ("store_shard_done", rank, str(shard_path)))
             except Exception as e:
                 logger.error(f"[syncps] Failed to save shard for rank {rank}: {e}")
-                if _metrics:
-                    _metrics.store_errors.labels(rank=str(rank)).inc()
+                if metrics:
+                    metrics.store_errors.labels(rank=str(rank)).inc()
                 send_message(conn, ("store_shard_failed", rank, str(e)))
 
         else:
@@ -242,7 +244,7 @@ def _shard_listener(port: int, logger: logging.Logger) -> None:
             break
 
 
-def run_worker(worker_rank: int, hostname: str, port: int | None = None) -> None:
+def run_worker(worker_rank: int, hostname: str, port: Optional[int] = None) -> None:
     """Initialise logging, start the shard listener, and block forever.
 
     Args:
@@ -252,8 +254,8 @@ def run_worker(worker_rank: int, hostname: str, port: int | None = None) -> None
     """
     logger = logging.getLogger(f"[WORKER-{worker_rank}]")
 
-    global _metrics
-    _metrics = setup_worker(
+    global metrics
+    metrics = setup_worker(
         rank=worker_rank,
         hostname=hostname,
         log_dir=config.get("log_dir"),
@@ -264,8 +266,8 @@ def run_worker(worker_rank: int, hostname: str, port: int | None = None) -> None
         my_config = next(
             w for w in config["devices_config"]["workers"] if w["rank"] == worker_rank
         )
-        port = my_config["port"]
-    my_port = port
+        port = int(my_config["port"])
+    my_port: int = port
 
     threading.Thread(
         target=_shard_listener,
@@ -277,7 +279,7 @@ def run_worker(worker_rank: int, hostname: str, port: int | None = None) -> None
 
     # Advertise this worker over mDNS so the master can discover it automatically.
     # Runs for the lifetime of the process; close() is called on normal exit.
-    _advertiser = advertise_worker(rank=worker_rank, port=my_port, hostname=hostname)
+    advertiser = advertise_worker(rank=worker_rank, port=my_port, hostname=hostname)
     logger.info(
         f"[syncps] Worker {worker_rank} advertising on mDNS as smoltorrent-rank-{worker_rank}"
     )
@@ -285,7 +287,7 @@ def run_worker(worker_rank: int, hostname: str, port: int | None = None) -> None
     try:
         threading.Event().wait()  # block forever; shard listener runs as daemon threads
     finally:
-        _advertiser.close()
+        advertiser.close()
 
 
 def main() -> None:

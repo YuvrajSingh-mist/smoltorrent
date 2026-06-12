@@ -4,7 +4,7 @@ import logging
 import time
 
 
-def log_metrics(metrics: dict, logger: logging.Logger, label: str) -> None:
+def log_network_metrics(metrics: dict, logger: logging.Logger, label: str) -> None:
     """Log a formatted summary of network metrics at INFO level.
 
     Args:

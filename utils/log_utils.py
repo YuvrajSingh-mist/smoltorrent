@@ -5,15 +5,15 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
 # ANSI colour palette
 # ---------------------------------------------------------------------------
 
-_RESET = "\033[0m"
+RESET = "\033[0m"
 
-_LEVEL_COLOURS = {
+LEVEL_COLOURS = {
     logging.DEBUG: "\033[36m",  # cyan
     logging.INFO: "\033[32m",  # green
     logging.WARNING: "\033[33m",  # yellow
@@ -21,16 +21,16 @@ _LEVEL_COLOURS = {
     logging.CRITICAL: "\033[1;31m",  # bold red
 }
 
-_TAG_COLOUR = "\033[35m"  # magenta — for bracketed tags like [MODEL], [LORA]
-_DIM = "\033[2m"
-_CTX_COLOUR = "\033[1;35m"  # bold magenta — for the context prefix
+TAG_COLOUR = "\033[35m"  # magenta — for bracketed tags like [MODEL], [LORA]
+DIM = "\033[2m"
+CTX_COLOUR = "\033[1;35m"  # bold magenta — for the context prefix
 
 # ---------------------------------------------------------------------------
 # Global log context — set once at process startup via set_log_context()
 # ---------------------------------------------------------------------------
 
-_CTX: dict[str, str] = {}
-_CTX_ORDER = ("arch", "algorithm", "role", "hardware")
+CTX: dict[str, str] = {}
+CTX_ORDER = ("arch", "algorithm", "role", "hardware")
 
 
 def _infer_hardware(hostname: str) -> str:
@@ -68,7 +68,7 @@ def set_log_context(
         ("hardware", hardware),
     ):
         if val:
-            _CTX[key] = val
+            CTX[key] = val
 
 
 class ColourFormatter(logging.Formatter):
@@ -79,7 +79,7 @@ class ColourFormatter(logging.Formatter):
     Context prefix (arch | algorithm | role | hardware) is shown when set via set_log_context().
     """
 
-    _FMT = "{dim}{asctime}{reset}  {level_col}{levelname:<8}{reset}  {ctx}{dim}{name}{reset}  {msg}"
+    FMT = "{dim}{asctime}{reset}  {level_col}{levelname:<8}{reset}  {ctx}{dim}{name}{reset}  {msg}"
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003
         """Format ``record`` as a coloured single-line string."""
@@ -88,18 +88,18 @@ class ColourFormatter(logging.Formatter):
 
         msg = re.sub(
             r"(\[[^\]]{1,40}\])",
-            rf"{_TAG_COLOUR}\1{_RESET}",
+            rf"{TAG_COLOUR}\1{RESET}",
             record.message,
         )
 
-        ctx_parts = [_CTX[k] for k in _CTX_ORDER if _CTX.get(k)]
-        ctx = f"{_CTX_COLOUR}[{' | '.join(ctx_parts)}]{_RESET}  " if ctx_parts else ""
+        ctx_parts = [CTX[k] for k in CTX_ORDER if CTX.get(k)]
+        ctx = f"{CTX_COLOUR}[{' | '.join(ctx_parts)}]{RESET}  " if ctx_parts else ""
 
-        line = self._FMT.format(
-            dim=_DIM,
+        line = self.FMT.format(
+            dim=DIM,
             asctime=record.asctime,
-            reset=_RESET,
-            level_col=_LEVEL_COLOURS.get(record.levelno, ""),
+            reset=RESET,
+            level_col=LEVEL_COLOURS.get(record.levelno, ""),
             levelname=record.levelname,
             ctx=ctx,
             name=record.name,
@@ -107,7 +107,7 @@ class ColourFormatter(logging.Formatter):
         )
 
         if record.exc_info:
-            line = f"{line}\n{_LEVEL_COLOURS.get(logging.ERROR, '')}{self.formatException(record.exc_info)}{_RESET}"
+            line = f"{line}\n{LEVEL_COLOURS.get(logging.ERROR, '')}{self.formatException(record.exc_info)}{RESET}"
 
         return line
 
@@ -328,7 +328,7 @@ def emit_transport_event(phase: str, **fields) -> None:
     The dashboard listens for lines in the form:
             [TRANSPORT_EVENT] {"phase":"request"|"response", ...}
     """
-    payload = {"phase": str(phase or "").strip().lower()}
+    payload: dict[str, Any] = {"phase": str(phase or "").strip().lower()}
     for k, v in fields.items():
         if v is None:
             continue

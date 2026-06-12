@@ -30,11 +30,11 @@ def _prepare_node_shards(
     saved = []
     for rank, shard in chunks.items():
         node_dir = shard_root / f"node-{rank}"
-        shard_path, _ = save_received_data_shard(
+        shard_path = save_received_data_shard(
             shard=shard,
             metadata={"rank": rank, "step": 0, "node": f"node-{rank}"},
             output_dir=str(node_dir),
-        )
+        )[0]
         saved.append(Path(shard_path))
 
     return saved
@@ -64,7 +64,7 @@ def _load_shard(path: Path) -> dict:
     safetensors.torch.load_file returns torch.Tensor values.
     We use mx.load here because the shards were created by mx.save_safetensors.
     """
-    return mx.load(str(path))
+    return mx.load(str(path))  # type: ignore[return-value]
 
 
 def _save_merged(weights: dict, path: Path) -> None:
@@ -232,7 +232,7 @@ def test_gather_all_node_shards_to_master_and_generate_text(cluster_shards) -> N
     master_model_dir = ROOT / "received_model"
     _prepare_master_model_dir(source_model_dir, merged_weights_path, master_model_dir)
 
-    model, tokenizer = load(str(master_model_dir))
+    model, tokenizer = load(str(master_model_dir))  # type: ignore[misc]
     prompt = "Explain what a BitTorrent tracker does in one short paragraph."
     formatted_prompt = _format_prompt(tokenizer, prompt)
     response = generate(

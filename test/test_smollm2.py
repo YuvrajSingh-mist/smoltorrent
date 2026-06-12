@@ -8,7 +8,7 @@ from mlx_lm import load, generate
 MODEL_ID = "test/fixtures/mlx-community--SmolLM2-135M-Instruct"
 
 print(f"Loading model: {MODEL_ID}")
-model, tokenizer = load(MODEL_ID)
+model, tokenizer = load(MODEL_ID)  # type: ignore[misc]
 print("Model loaded successfully.\n")
 
 prompt = "What is a BitTorrent tracker?"

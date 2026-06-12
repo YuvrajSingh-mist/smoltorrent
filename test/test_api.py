@@ -5,12 +5,14 @@ Run with:  pytest -m api
 """
 
 from pathlib import Path
+from typing import Optional
 
 import httpx
 import pytest
 import yaml
 
-from main import gather_shards, API_BASE
+from backend.api import gather_shards  # type: ignore[attr-defined]
+from utils.common_utils import API_BASE
 from utils.common_utils import model_id_to_dir_name
 
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
@@ -34,12 +36,12 @@ class TestGatherShards:
 
     def test_success_returns_body(self, model_id):
         result = gather_shards(model_id)
-        assert "save_path" in result
-        assert "gathered" in result
+        assert "save_path" in result  # type: ignore[operator]
+        assert "gathered" in result  # type: ignore[operator]
 
     def test_gathered_list_nonempty(self, model_id):
         result = gather_shards(model_id)
-        assert len(result["gathered"]) > 0, (
+        assert len(result["gathered"]) > 0, (  # type: ignore[index]
             f"No shards gathered for {model_id} — are the workers running?"
         )
 
@@ -71,7 +73,7 @@ class TestStoreShard:
     def model_id(self, config) -> str:
         return Path(config["data_path"]).parent.name.replace("--", "/", 1)
 
-    def _post(self, model_id: str = None) -> httpx.Response:
+    def _post(self, model_id: Optional[str] = None) -> httpx.Response:
         with httpx.Client() as client:
             params = {"model_id": model_id} if model_id else {}
             return client.post(f"{API_BASE}/store-shard", params=params, timeout=120.0)

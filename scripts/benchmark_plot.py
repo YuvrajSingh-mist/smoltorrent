@@ -211,7 +211,7 @@ bars = ax.bar(
     zorder=3,
 )
 ax.axhline(1.0, color="#aaa", linestyle="--", linewidth=1)
-ax.set_ylabel("Speedup vs. sequential baseline", **FONT)
+ax.set_ylabel("Speedup vs. sequential baseline", **FONT)  # type: ignore[arg-type]
 ax.set_title(
     "Parallel Speedup\n(ThreadPoolExecutor gather vs. sequential for-loop; store theoretical)",
     fontsize=13,

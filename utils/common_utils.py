@@ -10,7 +10,7 @@ import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Union, cast
 
 import httpx
 import torch
@@ -28,7 +28,7 @@ CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 API_BASE = "http://localhost:8000"
 
 
-def compute_checksum(src: bytes | str | Path) -> str:
+def compute_checksum(src: Union[bytes, str, Path]) -> str:
     """SHA-256 in 64 KB chunks. Accepts in-memory bytes or a file path."""
     h = hashlib.sha256()
     if isinstance(src, bytes):
@@ -72,8 +72,9 @@ def shard_from_bytes(data: bytes) -> dict:
     if IS_MAC:
         import mlx.core as mx
 
-        return dict(mx.load(NamedBytesIO(data)))
-    return st_load(data)
+        return cast(dict, mx.load(NamedBytesIO(data)))
+    return cast(dict, st_load(data))
+
 
 
 def load_config(config_path: Path = CONFIG_PATH) -> dict:
@@ -123,12 +124,12 @@ def save_shard(shard: dict, path: str) -> None:
         st_save_file(shard, path)
 
 
-def load_tensors(path: str | Path) -> dict:
+def load_tensors(path: Union[str, Path]) -> dict:
     """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers)."""
     if IS_MAC:
         import mlx.core as mx
 
-        return dict(mx.load(str(path)))
+        return cast(dict, mx.load(str(path)))
     return st_load_file(str(path))
 
 
@@ -218,7 +219,7 @@ def chunk_data(data, n_chunks: int = 10) -> dict:
 def save_received_data_shard(
     shard: Any,
     metadata: Optional[Mapping[str, Any]] = None,
-    output_dir: Optional[str | Path] = None,
+    output_dir: Optional[Union[str, Path]] = None,
     config_path: Optional[str] = None,
 ) -> tuple[str, str, bool, str]:
     """Save a received shard using config ``save_path`` + metadata.
@@ -307,7 +308,7 @@ def merge_shards(shards: list[dict]) -> dict:
     return merged
 
 
-def save_merged_model(merged_weights: dict, save_path: str | Path) -> Path:
+def save_merged_model(merged_weights: dict, save_path: Union[str, Path]) -> Path:
     """Save merged weights as a single safetensors file."""
     dest = Path(save_path).expanduser()
     dest.parent.mkdir(parents=True, exist_ok=True)

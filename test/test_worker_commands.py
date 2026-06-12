@@ -9,6 +9,7 @@ Markers: integration — requires cluster running (bash scripts/launch.sh).
 import socket
 import sys
 from pathlib import Path
+from typing import Optional
 
 import mlx.core as mx
 import pytest
@@ -73,14 +74,14 @@ class TestSync:
     )
     def test_paths_are_strings(self, worker):
         result = _send_recv(worker, ("sync", worker["rank"], [".safetensors"]))
-        for p in result:
+        for p in (result or []):
             assert isinstance(p, str)
 
     def test_all_workers_have_same_keys(self):
         results = []
         for w in WORKERS:
             r = _send_recv(w, ("sync", w["rank"], [".safetensors"]))
-            results.append(set(r))
+            results.append(set(r or []))
         intersection = results[0]
         for s in results[1:]:
             intersection &= s
@@ -107,7 +108,7 @@ class TestAllShardsPresent:
         fake = ["__nonexistent__/run/latest", "__also_fake__/run/latest"]
         for w in WORKERS:
             missing = _send_recv(w, ("all_shards_present", w["rank"], fake))
-            assert set(fake) == set(missing), (
+            assert set(fake) == set(missing or []), (
                 f"rank {w['rank']} should report all fake paths missing, got: {missing}"
             )
 
@@ -119,7 +120,7 @@ class TestAllShardsPresent:
 
 @pytest.mark.integration
 class TestChecksumSync:
-    def _get_one_path(self) -> str | None:
+    def _get_one_path(self) -> Optional[str]:
         result = _send_recv(WORKERS[0], ("sync", WORKERS[0]["rank"], [".safetensors"]))
         return result[0] if result else None
 

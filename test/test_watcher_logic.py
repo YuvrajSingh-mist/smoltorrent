@@ -283,7 +283,7 @@ class TestWatcherFileTrigger:
         rel = "__pytest_pth_test__/latest"
         for w in WORKERS:
             missing = _send_recv(w, ("all_shards_present", w["rank"], [rel]))
-            assert rel in missing, (
+            assert missing is not None and rel in missing, (
                 f"rank {w['rank']} should NOT have .pth shard, but reported it present"
             )
 
@@ -380,7 +380,7 @@ class TestPartialTransferRecovery:
         # Confirm worker 4 does not have the shard
         w4 = WORKERS[3]
         missing = _send_recv(w4, ("all_shards_present", w4["rank"], [self._REL]))
-        assert self._REL in missing, (
+        assert missing is not None and self._REL in missing, (
             "Worker 4 should be missing the shard at this point"
         )
 

@@ -11,7 +11,9 @@ import socket
 import threading
 import time
 
-from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf
+from typing import Optional
+
+from zeroconf import ServiceBrowser, ServiceInfo, ServiceListener, Zeroconf
 
 from ._utils import get_logger, get_local_ip
 
@@ -32,7 +34,7 @@ class WorkerAdvertiser:
     Also usable as a context manager.
     """
 
-    def __init__(self, rank: int, port: int, hostname: str | None = None) -> None:
+    def __init__(self, rank: int, port: int, hostname: Optional[str] = None) -> None:
         """Register a ``_smoltorrent._tcp.local.`` service.
 
         Args:
@@ -94,7 +96,7 @@ def WorkerBrowser(timeout: float = 10.0) -> list[dict]:
     found: dict[int, dict] = {}
     lock = threading.Lock()
 
-    class Listener:
+    class Listener(ServiceListener):
         def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
             info = zc.get_service_info(type_, name)
             if info and info.addresses:
@@ -106,7 +108,7 @@ def WorkerBrowser(timeout: float = 10.0) -> list[dict]:
                     for k, v in info.properties.items()
                 }
                 try:
-                    rank = int(props.get("rank", -1))
+                    rank = int(props.get("rank") or -1)
                 except ValueError:
                     log.error("[mdns] invalid rank in service %s: %s", name, props.get("rank"))
                     return
@@ -148,7 +150,7 @@ class MasterAdvertiser:
     Workers running ``python main.py join`` will see it in their JoinApp TUI.
     """
 
-    def __init__(self, expected_workers: int = None) -> None:
+    def __init__(self, expected_workers: Optional[int] = None) -> None:
         """Advertise this node as a smoltorrent master.
 
         Args:
@@ -187,7 +189,7 @@ class MasterAdvertiser:
         log.info("[mdns] master advertisement removed")
 
 
-class MasterBrowser:
+class MasterBrowser(ServiceListener):
     """Live mDNS browser for smoltorrent masters.
 
     Returns data in the format ``JoinApp`` expects via ``get_clusters()``.
@@ -219,7 +221,7 @@ class MasterBrowser:
                 "ip": socket.inet_ntoa(info.addresses[0]),
                 "port": info.port,
                 # "expected": int(props.get("expected", 1)),
-                "current": int(props.get("current", 0)),
+                "current": int(props.get("current") or 0),
                 "started": props.get("started", str(time.time())),
             }
         log.info("[mdns] MasterBrowser found master: %s (%s)", hostname, socket.inet_ntoa(info.addresses[0]))

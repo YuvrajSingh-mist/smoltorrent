@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 import yaml
 
@@ -24,8 +25,8 @@ REMOTE_SHARDS_ROOT = "~/Desktop/smoltorrent/shards"
 def count_remote_shards(
     model_name: str,
     workers: list[dict],
-    extensions: list[str] | None = None,
-) -> tuple[int, list[dict]]:
+    extensions: Optional[List[str]] = None,
+) -> Tuple[int, list]:
     """SSH into each worker and count shard files matching ``extensions``.
 
     Args:
@@ -55,7 +56,7 @@ def count_remote_shards(
         cmd = f"find {remote_dir} {find_expr} 2>/dev/null | wc -l"
         try:
             proc = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host_alias, cmd],
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", str(host_alias or ip), cmd],
                 capture_output=True,
                 text=True,
                 timeout=15,

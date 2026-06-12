@@ -28,8 +28,9 @@ from utils.common_utils import connect_with_retry, load_config
 from utils.observability import setup_watcher
 from utils.prometheus_utils import WatcherMetrics
 from utils.shard_ops import request_store_shards
+from typing import Optional
 
-_metrics: WatcherMetrics | None = None
+metrics: Optional[WatcherMetrics] = None
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -312,9 +313,9 @@ def _run_transfer_loop(
         else:
             logger.info("[crosscheck] all workers complete.")
 
-        if _metrics:
-            _metrics.syncs_total.inc()
-            _metrics.last_sync.set(time.time())
+        if metrics:
+            metrics.syncs_total.inc()
+            metrics.last_sync.set(time.time())
 
         # # Re-evaluate pending files
         # with pending_lock:
@@ -340,7 +341,8 @@ class CheckpointHandler(FileSystemEventHandler):
     def on_created(self, event) -> None:
         if event.is_directory:
             return
-        path = Path(event.src_path)
+        src = event.src_path
+        path = Path(src.decode() if isinstance(src, bytes) else src)
         if path.suffix not in self._ext:
             return
         logger.info("[watcher] Detected: %s", path)
@@ -367,8 +369,8 @@ def main() -> None:
     workers = config["devices_config"]["workers"]
     ckpt_root.mkdir(parents=True, exist_ok=True)
 
-    global _metrics
-    _metrics = setup_watcher(hostname=socket.gethostname())
+    global metrics
+    metrics = setup_watcher(hostname=socket.gethostname())
     trigger = threading.Event()
     pending: list = []
     pending_lock = threading.Lock()

@@ -16,10 +16,13 @@ Each process calls one function at startup:
 """
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from utils.log_utils import setup_logging, setup_cluster_logging
 from utils.prometheus_utils import HAS_PROM
+
+if TYPE_CHECKING:
+    from utils.prometheus_utils import WatcherMetrics, WorkerMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,7 @@ def setup_api() -> None:
     setup_logging()
 
 
-def setup_worker(rank: int, hostname: str, log_dir: Optional[str] = None) -> object:
+def setup_worker(rank: int, hostname: str, log_dir: Optional[str] = None) -> "Optional[WorkerMetrics]":
     """Init worker metrics server and structured file logging.
 
     Returns a WorkerMetrics instance (or None if prometheus_client is unavailable).
@@ -51,7 +54,7 @@ def setup_worker(rank: int, hostname: str, log_dir: Optional[str] = None) -> obj
     return init_worker_metrics(rank)
 
 
-def setup_watcher(hostname: Optional[str] = None, log_dir: Optional[str] = None) -> object:
+def setup_watcher(hostname: Optional[str] = None, log_dir: Optional[str] = None) -> "Optional[WatcherMetrics]":
     """Init watcher metrics server and structured file logging.
 
     Returns a WatcherMetrics instance (or None if prometheus_client is unavailable).

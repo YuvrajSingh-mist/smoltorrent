@@ -4,6 +4,7 @@ import io
 import threading
 import time
 from collections.abc import Callable
+from typing import Any, Optional
 
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -112,10 +113,10 @@ class JoinApp(App):
 
     BINDINGS = [Binding("q", "quit", "Quit", show=False)]
 
-    def __init__(self, browser: object):
+    def __init__(self, browser: Any):
         super().__init__()
         self.browser = browser
-        self.selected_cluster: dict | None = None
+        self.selected_cluster: Optional[dict] = None
         self.clusters: list[dict] = []
         log.info("[tui] JoinApp initialised")
 
@@ -162,7 +163,7 @@ class JoinApp(App):
             )
         self.exit()
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         log.info("[tui] JoinApp quit — no cluster selected")
         self.selected_cluster = None
         self.exit()
@@ -204,10 +205,10 @@ class DashboardApp(App):
         get_state: Callable,
         cluster_name: str,
         uid: str,
-        my_rank: int | None = None,
-        log_capture: "LogCapture | None" = None,
-        done_event: "threading.Event | None" = None,
-        error_event: "threading.Event | None" = None,
+        my_rank: Optional[int] = None,
+        log_capture: Optional["LogCapture"] = None,
+        done_event: Optional["threading.Event"] = None,
+        error_event: Optional["threading.Event"] = None,
     ):
         super().__init__()
         self.get_state = get_state
@@ -268,7 +269,7 @@ class DashboardApp(App):
             self.training_done = True
 
     def refresh_table(self) -> None:
-        state = self.get_state()
+        state: Any = self.get_state()
         if not state:
             return
         if callable(state):
@@ -380,7 +381,7 @@ class DashboardApp(App):
             f"  [dim]q quit   l toggle logs ({state})[/]"
         )
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         self.exit()
 
 
@@ -464,6 +465,6 @@ class WorkerPickerApp(App):
         self.chosen = [self.smolt_nodes[i] for i in sorted(self.selected)]
         self.exit()
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         self.chosen = []
         self.exit()

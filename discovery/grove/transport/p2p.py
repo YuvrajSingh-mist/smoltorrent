@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Optional
 
 from .._utils import get_logger, setup_grove_logging
 
@@ -41,7 +41,7 @@ def read_line(sock: socket.socket) -> str:
     return buf.decode().strip()
 
 
-def parse_node(text: str) -> dict | None:
+def parse_node(text: str) -> Optional[dict]:
     """Parse a ``found <name> <uid> ...`` line into a node dict.
 
     Args:
@@ -82,7 +82,7 @@ def log_stderr(proc: subprocess.Popen, label: str) -> None:
 
 
 @contextmanager
-def swift_discover(label: str) -> Generator[socket.socket, None, None]:
+def swift_discover(label: str) -> Generator[Optional[socket.socket], None, None]:
     """Launch the Swift helper in discover mode and yield a connected UDS socket.
 
     Context manager that handles the full lifecycle: compilation check,

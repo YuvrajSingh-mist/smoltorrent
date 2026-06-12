@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 from pathlib import Path
+from typing import Optional
 
 from ._types import DEFAULT_SOCK_BUF_SIZE
 
@@ -14,13 +15,13 @@ log = logging.getLogger("grove.utils")
 # ---------------------------------------------------------------------------
 
 FILE_LOGGING_SETUP = False
-GROVE_LOG_DIR: Path | None = None
+GROVE_LOG_DIR: Optional[Path] = None
 
 
 def setup_grove_logging(
     level: int = logging.INFO,
     *,
-    log_dir: str | None = None,
+    log_dir: Optional[str] = None,
 ) -> Path:
     """Add a file handler to the ``grove`` parent logger.
 

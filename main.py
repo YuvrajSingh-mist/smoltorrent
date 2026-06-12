@@ -90,7 +90,7 @@ def cmd_start(n: int) -> None:
             self.end_headers()
             self.wfile.write(dumps({"rank": rank, "port": body["port"]}).encode())
 
-        def log_message(self, *_):
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
     server = HTTPServer(("0.0.0.0", REGISTRATION_PORT), Handler)

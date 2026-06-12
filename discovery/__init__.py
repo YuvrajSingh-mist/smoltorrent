@@ -20,6 +20,7 @@ Worker (advertises itself)::
 """
 
 import sys
+from typing import Optional
 
 from .grove._mdns import WorkerAdvertiser, WorkerBrowser
 from .grove._utils import setup_grove_logging
@@ -27,7 +28,7 @@ from .grove.transport.p2p import discover_airdrop_workers
 
 
 def advertise_worker(
-    rank: int, port: int, hostname: str | None = None
+    rank: int, port: int, hostname: Optional[str] = None
 ) -> WorkerAdvertiser:
     """Register this worker over mDNS so the master can find it without IPs.
 
