@@ -54,7 +54,7 @@ def _write_config(registered: list[dict]) -> None:
         cfg = yaml.safe_load(f)
     cfg["num_workers"] = len(registered)
     cfg["devices_config"]["workers"] = [
-        {"host": f"{w['user']}@{w['ip']}", "ip": w["ip"], "rank": w["rank"], "port": w["port"]}
+        {"host": f"{w['hostname']}", "ip": w["ip"], "rank": w["rank"], "port": w["port"]}
         for w in registered
     ]
     with CONFIG_PATH.open("w") as f:
@@ -83,7 +83,7 @@ def cmd_start(n: int) -> None:
                 # Write config.yaml immediately so late-joining workers are recorded
                 _write_config(registered)
             logger.info(
-                f"  ✓ {body['user']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}]"
+                f"  ✓ {body['hostname']}@{body['ip']}:{body['port']} ({body['hostname']}) → rank {rank}  [{len(registered)}]"
             )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -141,12 +141,12 @@ def cmd_join() -> None:
     master_port = selected["port"]
     my_ip = get_local_ip()
     my_hostname = socket.gethostname()
-    my_user = os.environ.get("USER") or os.environ.get("LOGNAME") or my_hostname
+    # my_user = os.environ.get("USER") or os.environ.get("LOGNAME") or my_hostname
 
     logger.info(f"\n  Registering with master at {master_ip}:{master_port}…")
     resp = httpx.post(
         f"http://{master_ip}:{master_port}",
-        json={"hostname": my_hostname, "ip": my_ip, "user": my_user},
+        json={"hostname": my_hostname, "ip": my_ip},
         timeout=10,
     )
     resp.raise_for_status()

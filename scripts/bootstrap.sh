@@ -1,6 +1,7 @@
 #!/bin/bash
 # One-time cluster setup: rsync code to all Pi workers and install all dependencies
 # (uv, tmux, node_exporter, Python venv, zeroconf, boot_exporter service) on every node.
+# On macOS also registers smoltorrent, node_exporter, and boot_exporter as LaunchDaemons.
 #
 # Run this once before your first launch, or after adding a new worker.
 # After it completes you can go straight to grove or launch.sh — no further setup needed.
@@ -142,6 +143,143 @@ ensure_local_dependencies() {
 
     info "Running local uv sync..."
     (cd "$PROJECT_DIR" && uv sync)
+
+    if [[ "$os" == "Darwin" ]]; then
+        info "Registering macOS LaunchDaemons (smoltorrent, node_exporter, boot_exporter)..."
+        register_macos_daemons
+    fi
+}
+
+register_macos_daemons() {
+    # macOS 26 Tahoe notes:
+    #   - launchctl load          -> SIGABRT exit 134 (API removed)
+    #   - launchctl bootstrap gui -> error 125 (GUI domain broken in beta)
+    #   - ~/Library/LaunchAgents  -> silently ignored (needs SMAppService from Swift)
+    #   - /Library/LaunchDaemons  + sudo launchctl enable + bootstrap system -> WORKS
+    #
+    # TCC blocks system daemons from ~/Desktop. Script lives at /usr/local/bin/ to sidestep TCC.
+    local STARTUP_SCRIPT="$SCRIPT_DIR/smoltorrent_startup.sh"
+    local PLIST_LABEL="com.smoltorrent.startup"
+    local PLIST_DST="/Library/LaunchDaemons/${PLIST_LABEL}.plist"
+    local SCRIPT_DST="/usr/local/bin/smoltorrent_startup.sh"
+    local CURRENT_USER; CURRENT_USER="$(whoami)"
+
+    info "Registering smoltorrent LaunchDaemon..."
+    sudo cp "$STARTUP_SCRIPT" "$SCRIPT_DST"
+    sudo chmod +x "$SCRIPT_DST"
+    sudo tee "$PLIST_DST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${PLIST_LABEL}</string>
+    <key>UserName</key>
+    <string>${CURRENT_USER}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${SCRIPT_DST}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/smoltorrent-startup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/smoltorrent-startup.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/${CURRENT_USER}</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+    sudo chmod 644 "$PLIST_DST"
+    sudo launchctl bootout system/"$PLIST_LABEL" 2>/dev/null || true
+    sudo launchctl bootstrap system "$PLIST_DST"
+    sudo launchctl enable system/"$PLIST_LABEL"
+    ok "smoltorrent LaunchDaemon registered — auto-starts on next boot."
+    info "Logs: tail -f /tmp/smoltorrent-startup.log"
+
+    local NODE_EXP_PLIST="/Library/LaunchDaemons/com.node-exporter.plist"
+    local NODE_EXP_LABEL="com.node-exporter"
+    if command -v node_exporter >/dev/null 2>&1; then
+        local NODE_EXP_BIN; NODE_EXP_BIN="$(command -v node_exporter)"
+        info "Registering node_exporter LaunchDaemon..."
+        sudo tee "$NODE_EXP_PLIST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${NODE_EXP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${NODE_EXP_BIN}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/node-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/node-exporter.log</string>
+</dict>
+</plist>
+PLIST
+        sudo chmod 644 "$NODE_EXP_PLIST"
+        sudo launchctl bootout system/"$NODE_EXP_LABEL" 2>/dev/null || true
+        sudo launchctl bootstrap system "$NODE_EXP_PLIST"
+        sudo launchctl enable system/"$NODE_EXP_LABEL"
+        ok "node_exporter LaunchDaemon registered — metrics on port 9100 survive reboots."
+        info "Verify: curl http://localhost:9100/metrics | grep node_boot_time_seconds"
+    fi
+
+    local BOOT_EXP_PLIST="/Library/LaunchDaemons/com.smoltorrent.boot-exporter.plist"
+    local BOOT_EXP_LABEL="com.smoltorrent.boot-exporter"
+    local BOOT_EXP_SCRIPT="$PROJECT_DIR/utils/boot_exporter.py"
+    local BOOT_EXP_UV; BOOT_EXP_UV="$(command -v uv || echo /opt/homebrew/bin/uv)"
+    info "Registering boot_exporter LaunchDaemon..."
+    sudo tee "$BOOT_EXP_PLIST" > /dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${BOOT_EXP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${BOOT_EXP_UV}</string>
+        <string>run</string>
+        <string>${BOOT_EXP_SCRIPT}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${PROJECT_DIR}</string>
+    <key>UserName</key>
+    <string>${CURRENT_USER}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/smoltorrent-boot-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/smoltorrent-boot-exporter.log</string>
+</dict>
+</plist>
+PLIST
+    sudo chmod 644 "$BOOT_EXP_PLIST"
+    sudo launchctl bootout system/"$BOOT_EXP_LABEL" 2>/dev/null || true
+    sudo launchctl bootstrap system "$BOOT_EXP_PLIST"
+    sudo launchctl enable system/"$BOOT_EXP_LABEL"
+    ok "boot_exporter LaunchDaemon registered — boot time metric on port 9101 survives reboots."
+    info "Verify: curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms"
 }
 
 ensure_remote_dependencies() {

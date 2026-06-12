@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# Install a systemd service on each Pi worker so worker.py auto-starts on boot
-# and restarts automatically if it crashes.
+# Register auto-start services for the cluster.
 #
-# Run from the master:
-#   bash scripts/install_worker_service.sh            # all workers
-#   bash scripts/install_worker_service.sh --workers 1,3   # specific ranks
-#   bash scripts/install_worker_service.sh --uninstall     # remove service from all workers
+#   Pi workers (systemd):
+#     bash scripts/install_worker_service.sh            # all workers
+#     bash scripts/install_worker_service.sh --workers 1,3
+#     bash scripts/install_worker_service.sh --uninstall
+#
+#   macOS monitoring stack (LaunchDaemon — run once on coordinator):
+#     bash scripts/install_worker_service.sh --monitoring-daemon
 #
 # Requirements: SSH key at ~/.ssh/smolcluster_key, yq in PATH on master.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$PROJECT_DIR/configs/config.yaml"
+CONFIG_FILE="$PROJECT_DIR/configs/dev-config.yaml"
+MONITORING_DIR="$PROJECT_DIR/monitoring"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/Desktop/smoltorrent}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/smolcluster_key}"
 WORKER_RANKS=""
 UNINSTALL=false
+MONITORING_DAEMON=false
 SERVICE_NAME="smoltorrent-worker"
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -39,13 +43,15 @@ while [[ $# -gt 0 ]]; do
             WORKER_RANKS="$1"; shift ;;
         --uninstall)
             UNINSTALL=true; shift ;;
+        --monitoring-daemon)
+            MONITORING_DAEMON=true; shift ;;
         --ssh-key)
             shift
             [[ $# -eq 0 ]] && { err "--ssh-key requires a path"; exit 1; }
             SSH_KEY="$1"; shift ;;
         *)
             err "Unknown option: $1"
-            warn "Usage: $0 [--workers <rank,...>] [--uninstall] [--ssh-key <path>]"
+            warn "Usage: $0 [--workers <rank,...>] [--uninstall] [--monitoring-daemon] [--ssh-key <path>]"
             exit 1 ;;
     esac
 done

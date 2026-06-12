@@ -2,6 +2,8 @@
 
 Distributed ML checkpoint sharding across a Raspberry Pi cluster, coordinated from a macOS master. Shards `.safetensors` checkpoints across workers over TCP with SHA-256 verification, replication factor 2, automatic watcher sync, and zero-config device discovery over mDNS and AirDrop.
 
+*This is an educational project built to learn distributed systems concepts hands-on.*
+
 **[→ Full documentation & setup guide](https://yuvrajsingh-mist.github.io/smoltorrent/)** · **[→ How it was built](https://www.smolhub.com/posts/smoltorrent/)**
 
 ```
@@ -93,23 +95,9 @@ Rsyncs code to every Pi and installs all dependencies (uv, tmux, node_exporter, 
 bash scripts/bootstrap.sh
 ```
 
-After this completes, every node has everything it needs. You can go straight to `grove` or `launch.sh` - no further setup needed.
+After this completes, every node has everything it needs.
 
 ### 4. Launch the cluster
-
-```bash
-bash scripts/launch.sh
-```
-
-Rsyncs latest code to workers (fast, no dep install), kills stale sessions, starts API + watcher + workers in tmux.
-
-> **Warning:** `launch.sh` forcibly frees ports before starting. On the coordinator: ports **8000** (API) and **8001** (watcher metrics). On each worker Pi: port **9200+rank** (Prometheus metrics, e.g. 9201–9204). Any process already using those ports will be killed.
-
----
-
-### No-SSH alternative: grove start / join
-
-Once bootstrap has run on every node, you can skip `launch.sh` entirely and use grove instead. Good for testing and same-network setups - no SSH config, no manual `config.yaml` editing needed.
 
 Add the `grove` command to your shell once:
 
@@ -121,17 +109,26 @@ echo 'export PATH="<path-to-smoltorrent>/.venv/bin:$PATH"' >> ~/.zshrc && source
 echo 'export PATH="<path-to-smoltorrent>/.venv/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
-**Master:**
+On the coordinator:
 ```bash
 grove start -n 4
 ```
 
-**Each worker:**
+On each worker:
 ```bash
 grove join
 ```
 
-Workers find the master via mDNS TUI, register, and start automatically. The master writes `configs/config.yaml` and launches the API + watcher when all N workers have joined.
+Workers find the master via mDNS TUI, register, and start automatically. Once all N workers join, the API + watcher start on the coordinator.
+
+**If you have code changes to push to workers first** (contributor workflow):
+
+`launch.sh` uses `configs/dev-config.yaml` — fill in your SSH aliases and Tailscale IPs there before running.
+
+```bash
+bash scripts/launch.sh        # rsync code to all workers (skips configs/)
+bash scripts/grove_launch.sh  # restart API + watcher
+```
 
 ## Usage
 
@@ -139,14 +136,12 @@ Workers find the master via mDNS TUI, register, and start automatically. The mas
 
 ```bash
 # Step 1 - bring the cluster up:
-
-# SSH-based (primary - rsyncs latest code and starts everything; run bootstrap.sh first):
-bash scripts/launch.sh
-
-# No-SSH alternative (mDNS auto-discovery):
-grove start -n 4   # master: advertise, wait for 4 workers
-grove join         # (on each worker Pi) TUI → select master → auto-registers
+grove start -n 4   # coordinator: advertise, wait for 4 workers
+grove join         # (on each worker) TUI → select master → auto-registers
                    # once all N workers join, API + watcher start automatically
+
+# (contributors) push code changes to workers first:
+bash scripts/launch.sh
 
 # ── cluster is now up, API server running at localhost:8000 ──────────────────
 
@@ -209,12 +204,12 @@ curl http://<master-ip>:8000/discover?timeout=10
 | Feature | Command |
 |---|---|
 | Pi auto-start on reboot | `bash scripts/install_worker_service.sh` |
-| Server auto-start on reboot | `bash scripts/launch.sh --daemons` |
+| Server auto-start on reboot | `bash scripts/bootstrap.sh` (registers LaunchDaemons - run once) |
 | Monitoring (Prometheus + Grafana) | `cd monitoring && docker compose up -d` - see [Monitoring](#monitoring-prometheus--grafana--loki) section |
 
 ### Auto-start on reboot (macOS 26 Tahoe)
 
-`bash scripts/launch.sh --daemons` does the following:
+`bash scripts/bootstrap.sh` handles daemon registration as part of one-time setup. It does the following:
 
 1. Copies `scripts/smoltorrent_startup.sh` to `/usr/local/bin/` (system daemons can't read `~/Desktop`, `~/Documents`, or `~/Downloads` - keep code and data outside those folders)
 2. Writes a plist to `/Library/LaunchDaemons/com.smoltorrent.startup.plist`
@@ -271,7 +266,7 @@ docker compose -f monitoring/docker-compose.yml down
 
 **Pi workers - ship logs to Loki:**
 
-Once the cluster is up (`grove start` / `grove join` or `launch.sh`), `configs/config.yaml` has all the IPs and ranks. One command installs and starts Promtail on every Pi automatically:
+Once the cluster is up (`grove start` / `grove join`), `configs/config.yaml` has all the IPs and ranks. One command installs and starts Promtail on every Pi automatically:
 
 ```bash
 bash scripts/launch_monitoring.sh --install-pi-promtail

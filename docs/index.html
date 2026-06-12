@@ -470,7 +470,7 @@
   <div class="container">
     <h2 class="section-title">Overview</h2>
     <p>
-      <strong>smoltorrent</strong> is a distributed checkpoint storage system that shards <code>.safetensors</code> ML model
+      <strong>smoltorrent</strong> is an educational project for learning distributed systems concepts hands-on. It shards <code>.safetensors</code> ML model
       checkpoints across a cluster of worker nodes over <strong>raw TCP</strong>, coordinated from a central machine. Each shard
       is stored on <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. Workers are
       discovered automatically via <strong>mDNS</strong> - no hardcoded IPs. On macOS, peer-to-peer <strong>AirDrop / AWDL</strong>
@@ -631,32 +631,31 @@ Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscal
     <h2 class="section-title">Usage</h2>
 
     <p style="color: var(--text-sec); margin-bottom: 0.5rem; font-size: 0.95rem;">
-      <strong>Quick start / testing</strong> - no SSH config needed. Workers discover the master over mDNS and self-register:
+      <strong>grove (recommended)</strong> - no SSH config needed. Workers discover the master over mDNS and self-register.
+      <code>grove_launch.sh</code> starts the API + watcher automatically once all workers have joined:
     </p>
-<pre class="language-bash"><code># Master: advertise and wait for N workers to join
+<pre class="language-bash"><code># Coordinator: advertise and wait for N workers to join
 grove start -n 4
 
-# Worker (each Pi or Mac on the same network): TUI → select master → Enter
-grove join</code></pre>
+# Worker (each Pi or Mac on the same network): TUI - select master, Enter to join
+grove join
 
-    <p style="color: var(--text-sec); margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 0.95rem;">
-      <strong>Production / serious runs</strong> - SSH-based setup with rsync, tmux, and full cluster management:
-    </p>
-<pre class="language-bash"><code># Edit configs/config.yaml with worker SSH aliases + IPs, then:
-bash scripts/launch.sh
-
-# ── cluster is now up, API server at localhost:8000 ──
-# Store / gather manually (watcher handles this automatically - grove CLI preferred over curl):
+# -- cluster is now up, API server at localhost:8000 --
 grove store --ckpt-path /path/to/checkpoints/model.safetensors
 grove gather --ckpt-path /path/to/checkpoints/model.safetensors
 
 # Discover live workers (mDNS)
 curl http://&lt;master-ip&gt;:8000/discover</code></pre>
 
+    <p style="color: var(--text-sec); margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 0.95rem;">
+      <strong>Contributors / code changes</strong> - fill in <code>configs/dev-config.yaml</code> with your SSH aliases and Tailscale IPs, then:
+    </p>
+<pre class="language-bash"><code>bash scripts/launch.sh        # rsync code to all workers (skips configs/)
+bash scripts/grove_launch.sh  # restart API + watcher</code></pre>
+
     <div class="callout-warning">
-      <strong>Port conflicts:</strong> If you see <code>OSError: [Errno 98] Address already in use</code>, the API server (8000),
-      watcher metrics (8001), or a worker metrics port (9200+rank) is still bound from a previous run.
-      <code>launch.sh</code> frees these automatically via <code>fuser -k</code> on each launch.
+      <strong>Port conflicts:</strong> If you see <code>OSError: [Errno 98] Address already in use</code>, port 8000 (API) or 8001 (watcher metrics) is still bound from a previous run.
+      <code>grove_launch.sh</code> frees both automatically and only kills its own <code>grove_api</code> / <code>grove_watcher</code> tmux sessions.
     </div>
   </div>
 </section>
