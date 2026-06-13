@@ -22,10 +22,10 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from networking.send_receive import receive_message, send_message, network_metrics, serve_file_sendfile
 from utils.common_utils import (
-    compute_checksum,
-    load_tensors,
-    shard_to_bytes,
+    compute_checksum
 )
+from networking.send_receive import receive_file_mmap
+
 from utils.network_metrics import log_network_metrics
 from utils.observability import setup_worker
 from utils.prometheus_utils import WorkerMetrics
@@ -145,43 +145,57 @@ def _handle_shard_client(
             logger.info(f"[syncps] Sync: reported {len(existing)} existing path(s) to {caller}")
 
         elif command == "send_shard":
-            _, rank, rel_path = msg
-            shard_path = SHARDS_ROOT / f"worker_{rank}" / rel_path / "shard.safetensors"
+            # shard_filename defaults to shard_0.safetensors (primary copy)
+            _, rank, rel_path, *_rest = msg
+            shard_filename = _rest[0] if _rest else "shard_0.safetensors"
+            shard_path = SHARDS_ROOT / f"worker_{rank}" / rel_path / shard_filename
             if not shard_path.exists():
                 logger.warning(
                     f"[syncps] No shard on disk for rank {rank} at {shard_path}, cannot serve to {caller}"
                 )
-                send_message(conn, None)
+                send_message(conn, ("send_shard_missing", rank, rel_path))
                 return
-            logger.info(f"[syncps] Loading shard from disk for rank {rank}: {shard_path}")
+            # Ack before streaming so the master can detect missing vs. found
+            send_message(conn, ("send_shard_ok", rank, rel_path))
+            logger.info(f"[syncps] Serving {shard_filename} for rank {rank}: {shard_path}")
             t0 = time.perf_counter()
-            # shard_bytes = shard_to_bytes(load_tensors(shard_path))
-            # send_message(conn, shard_bytes)
             shard_bytes = serve_file_sendfile(conn, str(shard_path))
             elapsed = time.perf_counter() - t0
             if metrics:
                 metrics.bytes_sent.labels(rank=str(rank)).inc(shard_bytes)
                 metrics.send_ops.labels(rank=str(rank)).inc()
                 metrics.send_duration.labels(rank=str(rank)).observe(elapsed)
-            log_network_metrics(network_metrics.get_metrics(), logger, "serve-shard-to-api")
-            logger.info(f"[syncps] Served shard to {caller}")
+            logger.info(f"[syncps] Served {shard_filename} to {caller}")
 
         elif command == "store_shard":
-            _, rank, received_checksum, rel_path = msg
+            # shard_filename defaults to shard_0.safetensors (round 0 = primary)
+            _, rank, received_checksum, rel_path, *_rest = msg
+            shard_filename = _rest[0] if _rest else "shard_0.safetensors"
             shard_dir = SHARDS_ROOT / f"worker_{rank}" / rel_path
             shard_dir.mkdir(parents=True, exist_ok=True)
-            shard_path = shard_dir / "shard.safetensors"
+            shard_path = shard_dir / shard_filename
+            checksum_path = shard_dir / shard_filename.replace(".safetensors", ".checksum")
+
+            # Receive the mini safetensors header the master built from the original file
+            tensor_meta = receive_message(conn)
+            if not isinstance(tensor_meta, dict):
+                logger.error(f"[syncps] Expected tensor metadata dict from {caller}, got {type(tensor_meta)}")
+                send_message(conn, ("store_shard_failed", rank, "missing tensor metadata"))
+                return
 
             t0 = time.perf_counter()
             try:
-                from networking.send_receive import receive_file_mmap
-
-                receive_file_mmap(conn, str(shard_path))
+                from networking.send_receive import receive_shard_mmap
+                # Writes [uint64 hdr_len][JSON header][tensor bytes] — a valid safetensors file
+                hdr_section_size, tensor_data_len = receive_shard_mmap(conn, str(shard_path), tensor_meta)
                 elapsed = time.perf_counter() - t0
 
                 if received_checksum is not None:
-                    if compute_checksum(shard_path) != received_checksum:
-                        logger.error(f"[syncps] Checksum mismatch for rank {rank} from {caller}")
+                    # Checksum was computed on the raw tensor bytes on the master side,
+                    # so verify against just the tensor data section of the written file.
+                    actual = compute_checksum(str(shard_path), offset=hdr_section_size, length=tensor_data_len)
+                    if actual != received_checksum:
+                        logger.error(f"[syncps] Checksum mismatch for rank {rank} ({shard_filename}) from {caller}")
                         shard_path.unlink(missing_ok=True)
                         if metrics:
                             metrics.store_errors.labels(rank=str(rank)).inc()
@@ -193,17 +207,12 @@ def _handle_shard_client(
                     metrics.store_ops.labels(rank=str(rank)).inc()
                     metrics.store_duration.labels(rank=str(rank)).observe(elapsed)
 
-                cksum = compute_checksum(shard_path)
-                (shard_dir / "shard.checksum").write_text(cksum)
-                log_network_metrics(
-                    network_metrics.get_metrics(), logger, f"store-shard-rank{rank}"
-                )
-                logger.info(
-                    f"[syncps] Stored shard for rank {rank} from {caller} → {shard_path}"
-                )
+                # Store checksum of whole file for future integrity checks
+                checksum_path.write_text(compute_checksum(shard_path))
+                logger.info(f"[syncps] Stored {shard_filename} for rank {rank} from {caller} → {shard_path}")
                 send_message(conn, ("store_shard_done", rank, str(shard_path)))
             except Exception as e:
-                logger.error(f"[syncps] Failed to save shard for rank {rank}: {e}")
+                logger.error(f"[syncps] Failed to save {shard_filename} for rank {rank}: {e}")
                 if metrics:
                     metrics.store_errors.labels(rank=str(rank)).inc()
                 send_message(conn, ("store_shard_failed", rank, str(e)))

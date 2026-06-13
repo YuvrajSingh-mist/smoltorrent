@@ -21,13 +21,12 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from networking.send_receive import network_metrics
 from utils.common_utils import (
-    chunk_data,
-    compute_checksum,
+    get_shard_ranges,
+    handle_json_header,
     load_config,
     load_tensors,
     merge_shards,
     save_merged_model,
-    shard_to_bytes,
 )
 from utils.network_metrics import log_network_metrics
 from utils.prometheus_utils import (
@@ -110,10 +109,11 @@ def store_shard(
             return
 
         store_start = time.monotonic()
-        tensors = load_tensors(ckpt_file)
-        total_mb = sum(v.nbytes for v in tensors.values()) / 1024**2
-        yield _log(f"Loaded {len(tensors)} tensors ({total_mb:.1f} MB) from {rel_path} — chunking into {num_workers} shards")
-        chunks = chunk_data(tensors, n_chunks=num_workers)
+        # Parse just the JSON header — no tensor data loaded into memory
+        header, data_section_offset = handle_json_header(str(ckpt_file))
+        shard_ranges, shard_tensor_meta = get_shard_ranges(header, data_section_offset, num_workers)
+        total_mb = sum(r["length"] for r in shard_ranges) / 1024**2
+        yield _log(f"Parsed header from {rel_path} ({total_mb:.1f} MB tensor data) — {num_workers} shards")
 
         sent: list = []
         dead_letter: list = []
@@ -122,26 +122,26 @@ def store_shard(
 
         threading.Thread(target=run_retry_worker, args=(store_queue, sent, dead_letter, lock), daemon=True).start()
 
-        # Serialize all shards up front (decoupled from worker assignment)
-        shards = [(shard_to_bytes(chunks[i]), None) for i in range(num_workers)]
-        shards = [(sb, compute_checksum(sb)) for sb, _ in shards]
-
-        # Round 0: shard i → workers[i]  (primary)
-        # Round 1: shard i → workers[(i+1) % n]  (replica)
-        # Sequential rounds prevent two concurrent 235 MB receives on the same Pi.
+        # Round 0: shard i → workers[i]   saved as shard_0.safetensors (primary)
+        # Round 1: shard i → workers[(i+1) % n]  saved as shard_1.safetensors (replica)
+        # Different filenames per round prevent the EFAULT race (concurrent mmap on same file).
         for round_idx in range(REDUNDANCY):
             shard_filename = f"shard_{round_idx}.safetensors"
             round_jobs = [
-                (workers[(i + round_idx) % num_workers], sb, cs)
-                for i, (sb, cs) in enumerate(shards)
+                (workers[(i + round_idx) % num_workers], shard_ranges[i], shard_tensor_meta[i])
+                for i in range(num_workers)
             ]
             with ThreadPoolExecutor(max_workers=num_workers) as pool:
                 future_to_job = {
-                    pool.submit(send_shard_to_worker, worker, shard_bytes, checksum, rel_path, shard_filename): (worker, shard_bytes, checksum)
-                    for worker, shard_bytes, checksum in round_jobs
+                    pool.submit(
+                        send_shard_to_worker,
+                        worker, str(ckpt_file), shard_range["file_offset"], shard_range["length"],
+                        tensor_meta, rel_path, shard_filename,
+                    ): (worker, shard_range, tensor_meta)
+                    for worker, shard_range, tensor_meta in round_jobs
                 }
                 for future in as_completed(future_to_job):
-                    worker, shard_bytes, checksum = future_to_job[future]
+                    worker, shard_range, tensor_meta = future_to_job[future]
                     rank = worker["rank"]
                     host = worker.get("host") or worker.get("device")
                     ok, err, result = future.result()
@@ -152,7 +152,9 @@ def store_shard(
                     else:
                         yield _log(f"  ↻ rank {rank} ({host}) failed — queuing retry: {err}")
                         store_queue.put({
-                            "fn": lambda w=worker, sb=shard_bytes, cs=checksum, sf=shard_filename: send_shard_to_worker(w, sb, cs, rel_path, sf),
+                            "fn": lambda w=worker, sr=shard_range, tm=tensor_meta, sf=shard_filename: send_shard_to_worker(
+                                w, str(ckpt_file), sr["file_offset"], sr["length"], tm, rel_path, sf
+                            ),
                             "worker": worker,
                             "attempt": 1,
                         })

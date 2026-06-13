@@ -4,6 +4,7 @@ Messages are length-prefixed (4-byte big-endian header) and pickled.
 A global ``NetworkMetrics`` instance tracks bytes and latency for every send/receive.
 """
 
+import json
 import mmap
 import pickle
 import struct
@@ -159,6 +160,132 @@ def serve_file_sendfile(sock: socket.socket, file_path: str) -> int:
 
     return offset
     
+
+def serve_file_range(sock: socket.socket, file_path: str, file_offset: int, length: int) -> int:
+    """Send a byte range of a file via zero-copy os.sendfile.
+
+    Used by the master to stream one shard's raw tensor bytes directly from the
+    original checkpoint file without loading them into memory.
+
+    Sends a 4-byte big-endian length header first (same convention as
+    serve_file_sendfile) so receive_shard_mmap knows how many bytes to expect.
+
+    Args:
+        sock: Connected blocking socket.
+        file_path: Path to the source file.
+        file_offset: Absolute byte offset within the file to start from.
+        length: Number of bytes to send.
+
+    Returns:
+        Bytes sent (excluding the 4-byte header).
+    """
+    start_time = time.time()
+    network_metrics.record_buffer_size(length)
+    sock.sendall(struct.pack(">I", length))
+    sent = 0
+    with open(file_path, "rb") as f:
+        while sent < length:
+            n = os.sendfile(sock.fileno(), f.fileno(), file_offset + sent, length - sent)
+            if n == 0:
+                break
+            sent += n
+    elapsed = time.time() - start_time
+    network_metrics.record_send(sent, elapsed)
+    if HAS_PROM:
+        PROM_BYTES_SENT.inc(sent)
+        PROM_SEND_SECONDS.observe(elapsed)
+        update_prom_gauges(network_metrics.get_metrics(reset=False))
+    mb = sent / (1024 * 1024)
+    mbps = (mb * 8) / elapsed if elapsed > 0 else 0
+    logger.info("[net/sendfile-range] sent %.2f MB @ %.2f Mbps (%.1fs)", mb, mbps, elapsed)
+    return sent
+
+
+def receive_shard_mmap(sock: socket.socket, dest_path: str, st_header: dict) -> tuple[int, int]:
+    """Receive raw tensor bytes and reconstruct a valid safetensors file at dest_path.
+
+    The master sends only the tensor data bytes (no safetensors framing).
+    This function prepends a proper safetensors header built from st_header so
+    the resulting file can be loaded with load_tensors() on the worker.
+
+    Wire format received:
+        4-byte big-endian uint32  — tensor data byte count
+        N bytes                   — raw tensor data (recv'd via mmap)
+
+    File written:
+        8-byte little-endian uint64  — JSON header length
+        J bytes                      — JSON header (built from st_header)
+        N bytes                      — tensor data (written directly via mmap)
+
+    Args:
+        sock: Connected blocking socket.
+        dest_path: Path to write the resulting .safetensors file.
+        st_header: {tensor_name: {dtype, shape, data_offsets}} with offsets
+                   already rebased to 0 (as produced by get_shard_ranges).
+
+    Returns:
+        (header_section_size, tensor_data_len) so the caller can verify the
+        checksum on just the tensor bytes: compute_checksum(dest, offset=hdr_size, length=data_len).
+    """
+    
+    start_time = time.time()
+    sock.settimeout(None)
+
+    # Read 4-byte tensor data length
+    hdr = bytearray(4)
+    n = sock.recv_into(hdr, 4)
+    if not n:
+        return 0, 0
+    if n < 4:
+        received = n
+        while received < 4:
+            n = sock.recv_into(memoryview(hdr)[received:], 4 - received)
+            if not n:
+                raise ConnectionError("Socket closed while reading length header")
+            received += n
+    tensor_data_len = struct.unpack(">I", hdr)[0]
+
+    # Build the safetensors header bytes from the rebased tensor metadata
+    header_json = json.dumps(st_header, separators=(",", ":")).encode()
+    header_section_size = 8 + len(header_json)   # uint64 field + JSON
+    total_file_size = header_section_size + tensor_data_len
+    network_metrics.record_buffer_size(tensor_data_len)
+
+    # Write the header portion first, then pre-allocate space for tensor data
+    with open(dest_path, "wb") as f:
+        f.write(struct.pack("<Q", len(header_json)))  # 8-byte LE uint64
+        f.write(header_json)
+        f.truncate(total_file_size)
+
+    # mmap the whole file and recv tensor bytes directly into the data section
+    with open(dest_path, "r+b") as f:
+        with mmap.mmap(f.fileno(), length=total_file_size, access=mmap.ACCESS_WRITE) as mm:
+            view = memoryview(mm)
+            try:
+                received = 0
+                while received < tensor_data_len:
+                    n = sock.recv_into(
+                        view[header_section_size + received:],
+                        min(65536, tensor_data_len - received),
+                    )
+                    if not n:
+                        raise ConnectionError("Socket connection broken while receiving shard")
+                    received += n
+                mm.flush()
+            finally:
+                view.release()
+
+    elapsed = time.time() - start_time
+    network_metrics.record_recv(tensor_data_len, elapsed)
+    if HAS_PROM:
+        PROM_BYTES_RECV.inc(tensor_data_len)
+        PROM_RECV_SECONDS.observe(elapsed)
+        update_prom_gauges(network_metrics.get_metrics(reset=False))
+    mb = tensor_data_len / (1024 * 1024)
+    mbps = (mb * 8) / elapsed if elapsed > 0 else 0
+    logger.info("[net/shard-recv] recv %.2f MB @ %.2f Mbps (%.1fs)", mb, mbps, elapsed)
+    return header_section_size, tensor_data_len
+
 
 def receive_file_mmap(sock: socket.socket, dest_path: str) -> None:
     """Receive a file over a socket using memory-mapped I/O.

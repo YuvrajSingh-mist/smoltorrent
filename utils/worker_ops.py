@@ -16,23 +16,58 @@ MAX_RETRIES = 6
 
 
 def send_shard_to_worker(
-    worker: dict, shard_bytes: bytes, checksum: str, rel_path: str,
+    worker: dict,
+    ckpt_path: str,
+    file_offset: int,
+    length: int,
+    tensor_meta: dict,
+    rel_path: str,
     shard_filename: str = "shard_0.safetensors",
 ) -> tuple[bool, str, dict]:
-    """Send one serialized shard to a worker and verify the ack.
+    """Send one shard to a worker with zero memory allocation on the master.
+
+    The shard is never loaded into RAM. Flow:
+      1. Stream-hash the tensor byte range in 1 MB chunks → checksum
+      2. Send store_shard command + checksum to worker
+      3. Send tensor metadata (mini safetensors header with rebased offsets)
+      4. sendfile the tensor bytes directly from the original checkpoint file
+
+    The worker calls receive_shard_mmap which stitches the header + bytes into
+    a valid .safetensors file it can load with load_tensors().
+
+    Args:
+        worker: Worker config dict (ip, port, rank, ...).
+        ckpt_path: Absolute path to the original checkpoint on the master.
+        file_offset: Absolute byte offset in ckpt_path where this shard starts.
+        length: Number of tensor data bytes for this shard.
+        tensor_meta: {tensor_name: {dtype, shape, data_offsets}} with offsets
+                     rebased to 0 (as returned by get_shard_ranges).
+        rel_path: Relative checkpoint path used as the storage key on the worker.
+        shard_filename: Filename to save as on the worker (e.g. shard_0.safetensors).
 
     Returns:
         (ok, error_msg, result) — result contains ``shard_path`` on success.
     """
+    from utils.common_utils import compute_checksum
+    from networking.send_receive import serve_file_range
+
     rank = worker["rank"]
     sock = None
     try:
+        # Pass 1: stream-hash the tensor byte range — OS page cache makes
+        # the subsequent sendfile (pass 2) read from cache, not disk again.
+        checksum = compute_checksum(ckpt_path, offset=file_offset, length=length)
+
         sock = connect_with_retry(worker["ip"], worker["port"], rank)
         send_message(sock, ("store_shard", rank, checksum, rel_path, shard_filename))
-        sock.sendall(struct.pack(">I", len(shard_bytes)))
-        sock.sendall(shard_bytes)
+        # Mini header lets the worker reconstruct a valid safetensors file
+        send_message(sock, tensor_meta)
+        # Pass 2: zero-copy stream of just this shard's tensor bytes
+        serve_file_range(sock, ckpt_path, file_offset, length)
+
         response = receive_message(sock)
         sock.close()
+        
         if response is None:
             return False, "no response from worker", {}
         if response[0] == "store_shard_done":

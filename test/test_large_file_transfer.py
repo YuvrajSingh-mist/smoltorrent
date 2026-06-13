@@ -4,7 +4,7 @@ All files are sparse (truncate only — zero disk I/O, instant creation).
 No file content is ever loaded into userspace RAM:
   - serve_file_sendfile uses os.sendfile (kernel-space copy)
   - receive_file_mmap writes directly into mapped pages (65 KB at a time)
-  - compute_checksum reads in 64 KB streaming chunks
+  - compute_checksum reads in 1 MB streaming chunks
 
 Peak RSS is measured before/after each transfer to prove no memory spike.
 
@@ -28,9 +28,11 @@ import struct
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -225,3 +227,153 @@ class TestOldPathMemoryProjection:
             # 1 GB shard → 2 GB RAM needed — fits but leaves only 2 GB for everything else
             assert ram_needed_gb == pytest.approx(2.0, abs=0.1)
             assert not would_oom
+
+
+# ---------------------------------------------------------------------------
+# Integration: 2 GB live transfer against real worker + Prometheus RAM watch
+# ---------------------------------------------------------------------------
+
+_CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
+
+
+def _load_workers() -> list[dict]:
+    try:
+        with _CONFIG_PATH.open() as f:
+            return yaml.safe_load(f)["devices_config"]["workers"]
+    except Exception:
+        return []
+
+
+def _prom_metric(url: str, name: str) -> float | None:
+    """Fetch a single gauge/counter from a Prometheus /metrics text endpoint."""
+    try:
+        with urllib.request.urlopen(url, timeout=2) as r:
+            for line in r.read().decode().splitlines():
+                if line.startswith(name + " ") or line.startswith(name + "{"):
+                    # e.g.  process_resident_memory_bytes 1.234e+08
+                    return float(line.split()[-1])
+    except Exception:
+        return None
+
+
+class _RssSampler:
+    """Background thread that records RSS (MB) every interval_s seconds."""
+
+    def __init__(self, interval_s: float = 0.1):
+        self.samples: list[float] = []
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, args=(interval_s,), daemon=True)
+
+    def start(self):
+        self._t.start()
+        return self
+
+    def stop(self) -> list[float]:
+        self._stop.set()
+        self._t.join(timeout=2)
+        return self.samples
+
+    def _run(self, interval_s: float):
+        while not self._stop.is_set():
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            mb = rss / (1024 * 1024) if sys.platform == "darwin" else rss / 1024
+            self.samples.append(mb)
+            self._stop.wait(interval_s)
+
+
+@pytest.mark.integration
+class TestLargeShardIntegration:
+    """2 GB shard → live worker via the production send_shard_to_worker path.
+
+    What this proves:
+      - The master never holds 2 GB in RAM (RSS delta < 64 MB throughout)
+      - The worker writes a valid safetensors file (checksum verified on arrival)
+      - Real network throughput on the Pi cluster is printed for comparison
+
+    Prometheus monitoring:
+      - Polls http://localhost:8000/metrics before and after for process_resident_memory_bytes
+      - Samples master RSS every 100 ms in a background thread
+      - Prints a mini timeline so you can see exactly when (if ever) RAM spikes
+    """
+
+    PROM_API_URL = "http://localhost:8000/metrics"
+    SIZE_MB = 1024                      # 1 GB: meaningful stress, ~85s at 100 Mbps/5G
+    _FAKE_REL_PATH = "__test__/pytest/large_transfer/1gb"
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_no_workers(self):
+        if not _load_workers():
+            pytest.skip("No workers in config — run 'grove start && grove join' first")
+
+    def test_large_send_shard_to_worker(self, tmp_path, capsys):
+        from utils.worker_ops import send_shard_to_worker
+
+        workers = _load_workers()
+        worker = workers[0]
+        size = self.SIZE_MB * 1024 * 1024
+
+        # Sparse file — no disk blocks written, instant creation
+        ckpt = tmp_path / "fake_ckpt.bin"
+        with open(ckpt, "wb") as f:
+            f.truncate(size)
+
+        # Minimal tensor_meta: one tensor covering the full byte range.
+        # data_offsets rebased to 0 (as get_shard_ranges produces).
+        # Worker writes this as the safetensors header — file won't load as a
+        # real model but the transfer + checksum path is identical to production.
+        tensor_meta = {
+            "fake.weight": {
+                "dtype": "F32",
+                "shape": [1],
+                "data_offsets": [0, size],
+            }
+        }
+
+        prom_rss_before = _prom_metric(self.PROM_API_URL, "process_resident_memory_bytes")
+        sampler = _RssSampler(interval_s=0.1).start()
+
+        with capsys.disabled():
+            print(f"\n[large integration] {self.SIZE_MB} MB → rank {worker['rank']} ({worker.get('host') or worker['ip']})")
+
+        t0 = time.perf_counter()
+        ok, err, result = send_shard_to_worker(
+            worker,
+            str(ckpt),
+            file_offset=0,
+            length=size,
+            tensor_meta=tensor_meta,
+            rel_path=self._FAKE_REL_PATH,
+            shard_filename="shard_0.safetensors",
+        )
+        elapsed = time.perf_counter() - t0
+
+        samples = sampler.stop()
+        prom_rss_after = _prom_metric(self.PROM_API_URL, "process_resident_memory_bytes")
+
+        rss_min = min(samples) if samples else 0
+        rss_max = max(samples) if samples else 0
+        rss_delta = rss_max - rss_min
+        mbps = (size / (1024 ** 2)) / elapsed if elapsed > 0 else 0
+
+        with capsys.disabled():
+            print(f"  result:     {'OK' if ok else 'FAILED — ' + err}")
+            print(f"  throughput: {mbps:.1f} MB/s  ({elapsed:.1f}s)")
+            print(f"  master RSS  min {rss_min:.1f} MB  max {rss_max:.1f} MB  delta {rss_delta:+.1f} MB")
+            if prom_rss_before is not None and prom_rss_after is not None:
+                prom_delta_mb = (prom_rss_after - prom_rss_before) / (1024 ** 2)
+                print(f"  Prometheus RSS delta (API process): {prom_delta_mb:+.1f} MB")
+            else:
+                print(f"  Prometheus: {self.PROM_API_URL} unreachable — start API with 'grove start'")
+            print(f"  RSS timeline ({len(samples)} samples @ 100 ms):")
+            for i in range(0, len(samples), 10):
+                chunk = samples[i:i + 10]
+                print("    " + "  ".join(f"{v:.0f}" for v in chunk))
+
+        assert ok, f"send_shard_to_worker failed: {err}"
+
+        # Zero-copy path must never buffer the file in Python.
+        # Allow 64 MB headroom for socket buffers, thread stacks, Python overhead.
+        assert rss_delta < 64, (
+            f"Master RSS grew {rss_delta:.1f} MB during {self.SIZE_MB} MB transfer — "
+            "expected <64 MB (zero-copy path should never buffer the file in userspace)"
+        )

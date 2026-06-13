@@ -1,6 +1,186 @@
 {
-  "Qwen2.5-0.5B-instruct-bf16/gsm8k/latest/adapters": [
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_0": [
     2,
     1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_105/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_120/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_135/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_15/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_150/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_160/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_195/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_210/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_220/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_245/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_25/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_275/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_280/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_30/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_300/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_315/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_330/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_355/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_365/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_390/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_40/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_415/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_425/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_440/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_470/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_485/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_5/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_505/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_535/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_55/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_550/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_560/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_575/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_595/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_610/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_620/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_645/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_675/adapters": [
+    1,
+    2
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_680/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_70/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_700/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_85/adapters": [
+    2,
+    1
+  ],
+  "Qwen2.5-0.5B-instruct-bf16/gsm8k/step_90/adapters": [
+    2,
+    1
+  ],
+  "__pytest_partial__/recovery/test/latest": [
+    2,
+    1
+  ],
+  "__pytest_pending__/mixed-stable/latest": [
+    1,
+    2
   ]
 }

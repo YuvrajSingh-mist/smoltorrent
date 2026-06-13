@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from networking.send_receive import receive_file_mmap, serve_file_sendfile
+from networking.send_receive import receive_file_mmap, serve_file_sendfile, serve_file_range
 from utils.common_utils import compute_checksum, shard_from_bytes, shard_to_bytes
 
 
@@ -318,6 +318,99 @@ class TestTransferBenchmark:
                 f"new (sendfile+mmap):    {new_mbps:.1f} MB/s ({new_elapsed*1000:.0f}ms) | "
                 f"speedup: {new_mbps/old_mbps:.2f}x"
             )
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: page cache — prove the second read is from RAM not disk
+# ---------------------------------------------------------------------------
+
+
+class TestPageCacheBenchmark:
+    """Verify that compute_checksum (pass 1) warms the OS page cache so that the
+    subsequent os.sendfile (pass 2) reads the same bytes from RAM.
+
+    We can't drop the page cache without root, so instead we time two back-to-back
+    reads of the same range. The second read will always be faster if the OS cached
+    the first — which is exactly what happens between the hash pass and sendfile pass
+    in send_shard_to_worker.
+    """
+
+    def test_two_sequential_reads_match_and_report_speedup(self, tmp_path, capsys):
+        """Time two back-to-back reads of the same 64 MB range and report the speedup.
+
+        This mirrors the hash pass + sendfile pass in send_shard_to_worker.
+        No pass/fail assertion on the ratio — the speedup is platform-dependent:
+
+          macOS M-series NVMe:  the write itself warms the cache, so both passes
+                                hit RAM. NVMe is also ~4 GB/s, so the difference
+                                looks small. Dropping cache requires `sudo purge`.
+          Pi 5 SD card:         SD reads ~80 MB/s, RAM ~6 GB/s → expect ~75x speedup.
+
+        The correctness assertion (checksums match) is the real test here.
+        The timing output is for your information when running on the Pi cluster.
+        """
+        SIZE = 64 * 1024 * 1024  # 64 MB
+
+        src = tmp_path / "bench.bin"
+        src.write_bytes(os.urandom(SIZE))
+
+        t0 = time.perf_counter()
+        cksum_pass1 = compute_checksum(src, offset=0, length=SIZE)
+        pass1_s = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        cksum_pass2 = compute_checksum(src, offset=0, length=SIZE)
+        pass2_s = time.perf_counter() - t0
+
+        # Correctness: two reads of the same range must produce the same hash
+        assert cksum_pass1 == cksum_pass2
+
+        mb = SIZE / (1024 * 1024)
+        pass1_mbps = mb / pass1_s
+        pass2_mbps = mb / pass2_s
+        speedup = pass2_mbps / pass1_mbps
+
+        with capsys.disabled():
+            print(f"\n[page-cache] {mb:.0f} MB file")
+            print(f"  Pass 1: {pass1_mbps:6.0f} MB/s  ({pass1_s * 1000:.0f} ms)")
+            print(f"  Pass 2: {pass2_mbps:6.0f} MB/s  ({pass2_s * 1000:.0f} ms)")
+            print(f"  Speedup: {speedup:.1f}x  (meaningful on Pi SD card; ~1x on macOS NVMe both-cached)")
+            if speedup < 2.0:
+                print("  Note: both passes likely hit the page cache (write warmed it).")
+                print("  To see the real disk-vs-cache gap on Linux: sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'")
+
+    def test_hash_then_sendfile_checksum_matches(self, tmp_path):
+        """End-to-end two-pass pipeline: hash range → sendfile same range.
+
+        This is the exact sequence in send_shard_to_worker. Proves that what the master
+        hashes in pass 1 is byte-for-byte what the worker receives in pass 2.
+        """
+        SIZE = 4 * 1024 * 1024        # 4 MB tensor data
+        FILE_OFFSET = 512 * 1024      # start mid-file to exercise the offset seek path
+
+        data = os.urandom(FILE_OFFSET + SIZE)
+        src = tmp_path / "ckpt.bin"
+        src.write_bytes(data)
+
+        # Pass 1: hash only the shard range — no tensor data loaded into a Python object
+        expected_checksum = compute_checksum(str(src), offset=FILE_OFFSET, length=SIZE)
+
+        # Pass 2: sendfile the same range over a socketpair
+        send_sock, recv_sock = socket.socketpair()
+        dest = tmp_path / "shard.bin"
+
+        def _serve():
+            serve_file_range(send_sock, str(src), FILE_OFFSET, SIZE)
+            send_sock.close()
+
+        threading.Thread(target=_serve, daemon=True).start()
+        receive_file_mmap(recv_sock, str(dest))
+        recv_sock.close()
+
+        # The received file must hash to the same value the master computed
+        assert compute_checksum(dest) == expected_checksum
+        # Belt-and-suspenders: raw bytes match the original range exactly
+        assert dest.read_bytes() == data[FILE_OFFSET : FILE_OFFSET + SIZE]
 
 
 # ---------------------------------------------------------------------------

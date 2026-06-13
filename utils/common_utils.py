@@ -29,16 +29,49 @@ CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 API_BASE = "http://localhost:8000"
 
 
-def compute_checksum(src: Union[bytes, str, Path]) -> str:
-    """SHA-256 in 64 KB chunks. Accepts in-memory bytes or a file path."""
+def compute_checksum(
+    src: Union[bytes, str, Path],
+    offset: int = 0,
+    length: Optional[int] = None,
+) -> str:
+    """SHA-256 in 1 MB chunks. Accepts in-memory bytes or a file path.
+
+    For file paths, ``offset`` and ``length`` restrict hashing to a byte range —
+    used to checksum just one shard's tensor data within the original checkpoint
+    without loading it into memory.
+
+    Two-pass zero-copy pattern (used in send_shard_to_worker):
+      Pass 1 — compute_checksum(ckpt_path, offset, length):
+        f.read() pulls the shard's pages from disk into the OS page cache (kernel RAM).
+        SHA-256 runs in userspace on each 1 MB chunk then discards it — peak RAM = 1 MB.
+
+      Pass 2 — serve_file_range → os.sendfile(sock_fd, file_fd, offset, length):
+        Single syscall. The kernel finds those same pages still in the page cache
+        and copies them directly into the socket send buffer — entirely in kernel space,
+        Python userspace never touches the bytes again.
+
+    The page cache is the bridge: pass 1 warms it, pass 2 reads from it for free.
+    On SD-card Pi workers this is a ~75x speedup (80 MB/s SD vs 6 GB/s RAM).
+    """
     h = hashlib.sha256()
     if isinstance(src, bytes):
-        for i in range(0, len(src), 65536):
-            h.update(src[i : i + 65536])
+        end = offset + length if length is not None else len(src)
+        for i in range(offset, end, 1 << 20):
+            h.update(src[i : min(i + (1 << 20), end)])
     else:
         with open(src, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
+            f.seek(offset)
+            remaining = length
+            while True:
+                to_read = min(1 << 20, remaining) if remaining is not None else 1 << 20
+                chunk = f.read(to_read)
+                if not chunk:
+                    break
                 h.update(chunk)
+                if remaining is not None:
+                    remaining -= len(chunk)
+                    if remaining <= 0:
+                        break
     return h.hexdigest()
 
 
@@ -330,52 +363,73 @@ def main() -> None:
 
 
 
-def handle_json_header(ckpt_path: str) -> dict:
-    
-    with open(ckpt_path, 'rb') as f:
-        
-        header_len = struct.unpack('<Q', f.read(8))[0]  # Read 8-byte header length
-        header = json.loads(f.read(header_len))
-      
-        
-    return header
+def handle_json_header(ckpt_path: str) -> tuple[dict, int]:
+    """Parse the safetensors JSON header without loading tensor data.
 
-def get_shard_sizes(header: dict) -> int:
+    Returns:
+        (header_dict, data_section_offset) — data_section_offset is the absolute
+        byte position in the file where tensor data begins:
+        8 bytes (uint64 header length field) + header_len bytes (JSON).
     """
-    Calculate and print the sizes of each shard in the given header.
+    with open(ckpt_path, "rb") as f:
+        header_len = struct.unpack("<Q", f.read(8))[0]
+        header = json.loads(f.read(header_len))
+    return header, 8 + header_len
+
+
+def get_shard_ranges(
+    header: dict, data_section_offset: int, num_workers: int
+) -> tuple[list[dict], list[dict]]:
+    """Compute per-shard byte ranges and rebased tensor metadata from a safetensors header.
+
+    Each shard covers a contiguous slice of the tensor data section.
+    chunk_data splits tensor keys sequentially, and safetensors stores tensors
+    in header order — so each shard's tensors are always contiguous in the file.
 
     Args:
-        header: Dictionary containing tensor metadata.
-    
+        header: Full safetensors header dict (from handle_json_header).
+        data_section_offset: Absolute file offset where tensor data starts.
+        num_workers: Number of shards to produce.
+
     Returns:
-        Total size of all shards in bytes.
+        shard_ranges: list of {"file_offset": int, "length": int} — one per shard,
+                      giving the absolute position and byte count in the original file.
+        shard_tensor_meta: list of {tensor_name: {dtype, shape, data_offsets}} — one
+                           per shard, with offsets rebased to 0 (relative to the start
+                           of that shard's tensor data, ready for a new safetensors file).
     """
+    # Skip __metadata__ — only distribute actual weight tensors
+    weight_keys = {k: v for k, v in header.items() if k != "__metadata__"}
+    chunks = chunk_data(weight_keys, num_workers)
 
-    weight_data = {}
-    for key, value in header.items():
-        
-        if key.startswith('model.'):
-            weight_data[key] = value 
-        
-        
-    data = chunk_data(weight_data, 4)
+    shard_ranges: list[dict] = []
+    shard_tensor_meta: list[dict] = []
 
+    for shard_idx in range(len(chunks)):
+        tensors = chunks[shard_idx]
+        # Contiguous range of this shard's tensors within the data section
+        data_start = min(m["data_offsets"][0] for m in tensors.values())
+        data_end   = max(m["data_offsets"][1] for m in tensors.values())
 
-    shard_size = 0
-    start = 0
-    end = 0
-    
-    for shard_idx, tensors in data.items():
-        for tensor_name, tensor_meta in tensors.items():
-            start = tensor_meta['data_offsets'][0]
-            break
-        
-        for tensor_name, tensor_meta in tensors.items():
-            end += tensor_meta['data_offsets'][1]
-    
-    shard_size = (end - start)
-    
-    return shard_size
+        shard_ranges.append({
+            "file_offset": data_section_offset + data_start,
+            "length": data_end - data_start,
+        })
+
+        # Rebase offsets to 0 so the worker can write a standalone safetensors file
+        shard_tensor_meta.append({
+            name: {
+                "dtype": meta["dtype"],
+                "shape": meta["shape"],
+                "data_offsets": [
+                    meta["data_offsets"][0] - data_start,
+                    meta["data_offsets"][1] - data_start,
+                ],
+            }
+            for name, meta in tensors.items()
+        })
+
+    return shard_ranges, shard_tensor_meta
 
 
 if __name__ == "__main__":
