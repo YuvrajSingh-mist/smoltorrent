@@ -1,7 +1,6 @@
 """Shared tensor utilities: config loading, shard serialisation, chunking, saving, and merging."""
 
 import hashlib
-import io
 import json
 import logging
 import os
@@ -16,12 +15,8 @@ from typing import Any, Mapping, Optional, Union, cast
 import httpx
 import torch
 import yaml
-from safetensors.torch import load as st_load
 from safetensors.torch import load_file as st_load_file
-from safetensors.torch import save as st_save
 from safetensors.torch import save_file as st_save_file
-
-from utils.dtypes import MLX_TO_TORCH
 
 logger = logging.getLogger(__name__)
 
@@ -51,63 +46,43 @@ def compute_checksum(
         Python userspace never touches the bytes again.
 
     The page cache is the bridge: pass 1 warms it, pass 2 reads from it for free.
-    On SD-card Pi workers this is a ~75x speedup (80 MB/s SD vs 6 GB/s RAM).
     """
+    src_label = "<bytes>" if isinstance(src, bytes) else str(src)
+    logger.debug("[checksum] starting SHA-256 src=%s offset=%d length=%s", src_label, offset, length)
+
     h = hashlib.sha256()
+    bytes_hashed = 0
+
     if isinstance(src, bytes):
         end = offset + length if length is not None else len(src)
         for i in range(offset, end, 1 << 20):
-            h.update(src[i : min(i + (1 << 20), end)])
+            chunk = src[i : min(i + (1 << 20), end)]
+            h.update(chunk)
+            bytes_hashed += len(chunk)
+            logger.debug("[checksum] hashed chunk offset=%d size=%d", i, len(chunk))
     else:
         with open(src, "rb") as f:
             f.seek(offset)
             remaining = length
+            pos = offset
             while True:
                 to_read = min(1 << 20, remaining) if remaining is not None else 1 << 20
                 chunk = f.read(to_read)
                 if not chunk:
                     break
                 h.update(chunk)
+                bytes_hashed += len(chunk)
+                logger.debug("[checksum] hashed chunk offset=%d size=%d", pos, len(chunk))
+                pos += len(chunk)
                 if remaining is not None:
                     remaining -= len(chunk)
                     if remaining <= 0:
                         break
-    return h.hexdigest()
 
+    digest = h.hexdigest()
+    logger.info("[checksum] complete src=%s bytes=%d digest=%s", src_label, bytes_hashed, digest)
+    return digest
 
-def shard_to_bytes(shard: dict) -> bytes:
-    """Serialize a shard dict to safetensors bytes. No temp files, no numpy."""
-    if IS_MAC:
-        import mlx.core as mx
-
-        mx.eval(*shard.values())
-        torch_shard = {
-            k: torch.frombuffer(bytearray(bytes(v)), dtype=MLX_TO_TORCH[v.dtype])
-            .reshape(v.shape)
-            .clone()
-            for k, v in shard.items()
-        }
-        return st_save(torch_shard)
-    return st_save(shard)
-
-
-class NamedBytesIO(io.BytesIO):
-    """BytesIO subclass with a hard-coded ``.name`` attribute.
-
-    MLX's ``mx.load()`` requires a file-like object with a ``.name`` ending in
-    ``.safetensors``; standard ``io.BytesIO`` has no such attribute.
-    """
-
-    name = "shard.safetensors"
-
-
-def shard_from_bytes(data: bytes) -> dict:
-    """Deserialize safetensors bytes. Returns MLX arrays on Mac, torch tensors on Pi."""
-    if IS_MAC:
-        import mlx.core as mx
-
-        return cast(dict, mx.load(NamedBytesIO(data)))
-    return cast(dict, st_load(data))
 
 
 
@@ -120,8 +95,11 @@ def load_config(config_path: Path = CONFIG_PATH) -> dict:
     Returns:
         Parsed config dict.
     """
+    logger.debug("[config] loading path=%s", config_path)
     with config_path.open() as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    logger.debug("[config] loaded %d top-level keys from %s", len(cfg) if cfg else 0, config_path)
+    return cfg
 
 
 def fetch_model_metadata(model_id: str, config: dict) -> None:
@@ -150,21 +128,27 @@ IS_MAC = platform.system() == "Darwin"
 
 def save_shard(shard: dict, path: str) -> None:
     """Save shard to disk. Mac uses MLX, Pi uses safetensors.torch (shard is already torch tensors)."""
+    logger.info("[shard] saving %d tensors → %s platform=%s", len(shard), path, "darwin" if IS_MAC else "linux")
     if IS_MAC:
         import mlx.core as mx
 
         mx.save_safetensors(path, shard)
     else:
         st_save_file(shard, path)
+    logger.debug("[shard] saved %s", path)
 
 
 def load_tensors(path: Union[str, Path]) -> dict:
     """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers)."""
+    logger.info("[tensors] loading %s platform=%s", path, "darwin" if IS_MAC else "linux")
     if IS_MAC:
         import mlx.core as mx
 
-        return cast(dict, mx.load(str(path)))
-    return st_load_file(str(path))
+        result = cast(dict, mx.load(str(path)))
+    else:
+        result = st_load_file(str(path))
+    logger.debug("[tensors] loaded %d tensors from %s", len(result), path)
+    return result
 
 
 def connect_with_retry(
@@ -186,6 +170,7 @@ def connect_with_retry(
             logger.warning("[tcp] Attempt %d/%d failed for rank %d at %s:%d: %s", attempt, retries, rank, ip, port, e)
             if attempt < retries:
                 time.sleep(delay * (2 ** (attempt - 1)))
+    logger.error("[tcp] Exhausted all %d retries connecting to rank %d at %s:%d", retries, rank, ip, port)
     raise ConnectionError(f"Could not connect to rank {rank} at {ip}:{port} after {retries} attempts")
 
 
@@ -198,11 +183,22 @@ def model_id_to_dir_name(model_id: str) -> str:
     return model_id.replace("/", "--")
 
 
+def dir_name_to_model_id(dir_name: str) -> str:
+    """Reverse of model_id_to_dir_name — restore the HuggingFace repo ID.
+
+    ``mlx-community--Qwen2.5-0.5B-Instruct-bf16``
+    →  ``mlx-community/Qwen2.5-0.5B-Instruct-bf16``
+    """
+    return dir_name.replace("--", "/", 1)
+
+
 def gather_shards(model_id: str) -> dict:
     """Call POST /gather-shards, collect streamed output, return structured result."""
+    logger.info("[gather] requesting shard gather for model_id=%s", model_id)
     cfg = load_config()
     dir_name = model_id_to_dir_name(model_id)
     ckpt_path = str(Path(cfg["ckpt_root"]).expanduser() / dir_name)
+    logger.debug("[gather] resolved ckpt_path=%s", ckpt_path)
     gathered = []
     save_path = ""
     with httpx.stream("POST", f"{API_BASE}/gather-shards",
@@ -212,11 +208,14 @@ def gather_shards(model_id: str) -> dict:
             if not line:
                 continue
             if line.startswith("ERROR:"):
+                logger.error("[gather] server error model_id=%s: %s", model_id, line)
                 raise httpx.HTTPStatusError(line, request=resp.request, response=resp)
             if "✓ shard" in line:
+                logger.debug("[gather] received shard confirmation: %s", line.strip())
                 gathered.append(line.strip())
             if line.startswith("Done: saved →"):
                 save_path = line.split("→", 1)[-1].strip()
+    logger.info("[gather] complete model_id=%s shards=%d save_path=%s", model_id, len(gathered), save_path)
     return {"save_path": save_path, "gathered": gathered}
 
 
@@ -231,7 +230,11 @@ def chunk_data(data, n_chunks: int = 10) -> dict:
         Dict mapping ``chunk_index`` → slice of ``data``.
     """
     data_chunks = {}
-    assert n_chunks > 0, "n_chunks must be greater than 0"
+    if n_chunks <= 0:
+        logger.error("[chunk] n_chunks must be > 0, got %d", n_chunks)
+        raise ValueError(f"n_chunks must be > 0, got {n_chunks}")
+    input_len = len(data)
+    logger.debug("[chunk] splitting %d items into %d chunks type=%s", input_len, n_chunks, "dict" if isinstance(data, dict) else "list")
 
     if isinstance(data, dict):
         idx = torch.tensor(list(range(len(data))))
@@ -242,11 +245,15 @@ def chunk_data(data, n_chunks: int = 10) -> dict:
                 for item_idx, (k, v) in enumerate(data.items())
                 if item_idx in chunk_tensor
             }
+            logger.debug("[chunk] chunk %d → %d items", chunk_idx, len(data_chunks[chunk_idx]))
     else:
         idx = torch.tensor(list(range(len(data))))
         chunked_tensors = torch.chunk(idx, n_chunks)
         for chunk_idx, chunk_tensor in enumerate(chunked_tensors):
             data_chunks[chunk_idx] = [data[item_idx] for item_idx in chunk_tensor]
+            logger.debug("[chunk] chunk %d → %d items", chunk_idx, len(data_chunks[chunk_idx]))
+
+    logger.debug("[chunk] produced %d chunks from %d items", len(data_chunks), input_len)
     return data_chunks
 
 
@@ -267,6 +274,7 @@ def save_received_data_shard(
     A sidecar JSON with the same stem is also written for audit/debugging.
     """
 
+    logger.info("[shard] save_received_data_shard rank=%s output_dir=%s config_path=%s", metadata.get("rank") if metadata else None, output_dir, config_path)
     try:
         default_config = (
             Path(__file__).resolve().parent.parent / "configs" / "config.yaml"
@@ -274,6 +282,7 @@ def save_received_data_shard(
         resolved_config_path = (
             Path(config_path).expanduser() if config_path else default_config
         )
+        logger.debug("[shard] resolved config path=%s", resolved_config_path)
 
         if not resolved_config_path.exists():
             raise FileNotFoundError(f"Config file not found: {resolved_config_path}")
@@ -301,6 +310,7 @@ def save_received_data_shard(
         rank_suffix = f"_shard_{rank}" if rank != "" else ""
         shard_filename = f"{model_name}{rank_suffix}{extension}"
         shard_path = destination_dir / shard_filename
+        logger.debug("[shard] resolved shard_path=%s", shard_path)
 
         # Full metadata only goes into the sidecar JSON, not the filename.
         auto_metadata = {
@@ -326,40 +336,13 @@ def save_received_data_shard(
             json.dumps(metadata_payload, indent=2, sort_keys=True), encoding="utf-8"
         )
 
-        logger.info("[model] Saved shard to %s with metadata %s", shard_path, metadata_path)
+        logger.info("[shard] saved rank=%s → %s sidecar=%s", rank, shard_path, metadata_path)
         return str(shard_path), str(metadata_path), True, ""
 
     except Exception as e:
-        logger.error("[model] Failed to save shard: %s", e)
+        logger.error("[shard] save_received_data_shard failed rank=%s error=%s", metadata.get("rank") if metadata else None, e, exc_info=True)
         return "", "", False, str(e)
 
-
-def merge_shards(shards: list[dict]) -> dict:
-    """Merge a list of weight-shard dicts into one."""
-    merged = {}
-    for shard in shards:
-        merged.update(shard)
-    return merged
-
-
-def save_merged_model(merged_weights: dict, save_path: Union[str, Path]) -> Path:
-    """Save merged weights as a single safetensors file."""
-    dest = Path(save_path).expanduser()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    save_shard(merged_weights, str(dest))
-    logger.info("[model] Saved merged model → %s", dest)
-    return dest
-
-
-def main() -> None:
-    """Quick smoke-test for chunk_data."""
-    data = {f"tensor_{i}": float(i) for i in range(10)}
-    n_chunks = 3
-    chunks = chunk_data(data, n_chunks)
-    print(chunks)
-
-    for i in range(0, 10, 4):
-        print(i)
 
 
 
@@ -371,10 +354,25 @@ def handle_json_header(ckpt_path: str) -> tuple[dict, int]:
         byte position in the file where tensor data begins:
         8 bytes (uint64 header length field) + header_len bytes (JSON).
     """
+    logger.debug("[header] parsing safetensors header ckpt_path=%s", ckpt_path)
     with open(ckpt_path, "rb") as f:
-        header_len = struct.unpack("<Q", f.read(8))[0]
-        header = json.loads(f.read(header_len))
-    return header, 8 + header_len
+        prefix = f.read(8)
+        if len(prefix) < 8:
+            logger.error("[header] not a safetensors file (too short, %d bytes): %s", len(prefix), ckpt_path)
+            raise ValueError(f"Not a safetensors file (too short): {ckpt_path}")
+        header_len = struct.unpack("<Q", prefix)[0]
+        if header_len == 0:
+            logger.error("[header] zero header_len — sparse or empty file: %s", ckpt_path)
+            raise ValueError(f"Not a safetensors file (zero header length — sparse/empty file?): {ckpt_path}")
+        raw = f.read(header_len)
+        if len(raw) < header_len:
+            logger.error("[header] truncated header in %s: expected %d bytes, got %d", ckpt_path, header_len, len(raw))
+            raise ValueError(f"Truncated safetensors header in {ckpt_path}")
+        header = json.loads(raw)
+    data_offset = 8 + header_len
+    n_tensors = len({k for k in header if k != "__metadata__"})
+    logger.info("[header] parsed ckpt=%s header_len=%d tensors=%d data_offset=%d", ckpt_path, header_len, n_tensors, data_offset)
+    return header, data_offset
 
 
 def get_shard_ranges(
@@ -398,8 +396,15 @@ def get_shard_ranges(
                            per shard, with offsets rebased to 0 (relative to the start
                            of that shard's tensor data, ready for a new safetensors file).
     """
-    # Skip __metadata__ — only distribute actual weight tensors
-    weight_keys = {k: v for k, v in header.items() if k != "__metadata__"}
+    # Skip __metadata__ — only distribute actual weight tensors.
+    # Sort by data_offsets[0] so each chunk is a contiguous byte range in the file.
+    # Safetensors stores tensors in offset order, but the header dict may be alphabetical;
+    # chunking by name order produces overlapping shard ranges for many models.
+    weight_keys = dict(sorted(
+        ((k, v) for k, v in header.items() if k != "__metadata__"),
+        key=lambda item: item[1]["data_offsets"][0],
+    ))
+    logger.info("[ranges] computing shard ranges tensors=%d num_workers=%d data_section_offset=%d", len(weight_keys), num_workers, data_section_offset)
     chunks = chunk_data(weight_keys, num_workers)
 
     shard_ranges: list[dict] = []
@@ -428,10 +433,7 @@ def get_shard_ranges(
             }
             for name, meta in tensors.items()
         })
+        logger.debug("[ranges] shard %d tensors=%d file_offset=%d length=%d", shard_idx, len(tensors), data_section_offset + data_start, data_end - data_start)
 
+    logger.info("[ranges] computed %d shard ranges from %d tensors", len(shard_ranges), len(weight_keys))
     return shard_ranges, shard_tensor_meta
-
-
-if __name__ == "__main__":
-    main()
-

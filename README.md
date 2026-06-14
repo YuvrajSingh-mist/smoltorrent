@@ -59,10 +59,12 @@ cd smoltorrent && uv sync
 
 ### 2. Configure `configs/config.yaml`
 
-Set `ckpt_root` and add one entry per worker. The `host` value must match your SSH alias in `~/.ssh/config` exactly:
+Set `ckpt_root` and add one entry per worker. The `host` value must match your SSH alias in `~/.ssh/config` exactly.
+
+> **macOS TCC restriction**: LaunchDaemons (running as root) cannot access `~/Desktop`, `~/Documents`, or `~/Downloads` — macOS Transparency Consent and Control blocks them silently. Use `~/smolcluster/checkpoints` or any path under your home directory that is NOT in a TCC-protected folder. Same goes for where you clone the repo — keep it at `~/smoltorrent/`, not on the Desktop.
 
 ```yaml
-ckpt_root: /path/to/checkpoints
+ckpt_root: ~/smolcluster/checkpoints
 devices_config:
   master:
     - host: localhost

@@ -36,7 +36,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from networking.send_receive import receive_file_mmap, serve_file_sendfile
+from networking.send_receive import receive_file, serve_file
 from utils.common_utils import compute_checksum
 
 
@@ -69,7 +69,7 @@ def _pipe() -> tuple[socket.socket, socket.socket]:
 
 
 def _serve(sock: socket.socket, path: str) -> threading.Thread:
-    t = threading.Thread(target=serve_file_sendfile, args=(sock, path), daemon=True)
+    t = threading.Thread(target=serve_file, args=(sock, path), daemon=True)
     t.start()
     return t
 
@@ -132,7 +132,7 @@ class TestLargeFileSendfileMmap:
         t = _serve(send_sock, str(src))
 
         t0 = time.perf_counter()
-        receive_file_mmap(recv_sock, str(dst))
+        receive_file(recv_sock, str(dst))
         elapsed = time.perf_counter() - t0
 
         recv_sock.close()

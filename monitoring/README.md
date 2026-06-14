@@ -298,9 +298,9 @@ curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
 
 ---
 
-## Alerts (Gmail)
+## Alerts (Telegram)
 
-12 alert rules are provisioned automatically and fire to the address set in `GRAFANA_ALERT_EMAIL` in `monitoring/.env`.
+12 alert rules are provisioned automatically and fire to your Telegram account via a bot.
 
 | Alert | Fires when | For |
 |---|---|---|
@@ -319,31 +319,29 @@ curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
 
 Alerts fire after their `for` window to suppress single-scrape blips. Re-alerts are suppressed for 4 hours once acknowledged.
 
-### One-time Gmail setup
+### One-time Telegram setup
 
-1. **Create a Gmail app password** (required — Grafana cannot use your real Gmail password):
-   Google Account → Security → 2-Step Verification → App passwords → create one named "Grafana".
-   You get a 16-character password.
+1. **Create a Telegram bot** — message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, give it a name (e.g. `SmolTorrent Alerts`). Copy the bot token.
 
-2. **Create `monitoring/.env`** from the example file:
+2. **Get your chat ID** — message [@userinfobot](https://t.me/userinfobot) on Telegram. Copy the numeric chat ID.
+
+3. **Create `monitoring/.env`** from the example file:
    ```bash
    cp monitoring/.env.example monitoring/.env
    ```
    Then edit `monitoring/.env` and fill in your values:
    ```
-   GRAFANA_SMTP_USER=you@gmail.com
-   GRAFANA_SMTP_PASSWORD=xxxx xxxx xxxx xxxx
-   GRAFANA_SMTP_FROM=you@gmail.com
-   GRAFANA_ALERT_EMAIL=you@gmail.com
+   GRAFANA_TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+   GRAFANA_TELEGRAM_CHAT_ID=123456789
    ```
    `monitoring/.env` is gitignored — never committed.
 
-3. **Restart Grafana** to pick it up:
+4. **Restart the stack** to pick up the new config:
    ```bash
-   docker restart smoltorrent-grafana
+   cd monitoring && docker compose down && docker compose up -d
    ```
 
-4. **Test delivery** — Grafana UI → Alerting → Contact points → gmail → **Test**.
+5. **Test delivery** — Grafana UI → Alerting → Contact points → telegram → **Test**. You should get a Telegram message instantly.
 
 Alert rules and contact points are provisioned from `monitoring/grafana/provisioning/alerting/` and load automatically on every Grafana start — no UI clicks needed beyond the `.env` file.
 

@@ -28,7 +28,6 @@ from utils.common_utils import (
     chunk_data,
     compute_checksum,
     load_tensors,
-    shard_to_bytes,
 )
 from watcher.watch import (
     _crosscheck_all_workers,
@@ -59,6 +58,45 @@ CFG = _load_config()
 WORKERS = CFG["devices_config"]["workers"]
 CKPT_ROOT = Path(CFG["ckpt_root"]).expanduser()
 _EXTENSIONS = [".safetensors"]
+
+
+def _tensors_to_bytes(tensors: dict) -> bytes:
+    """Convert a dict of MLX tensors to safetensors bytes via numpy."""
+    import numpy as np
+    from safetensors.numpy import save as _st_save_numpy
+    return _st_save_numpy({k: np.array(v) for k, v in tensors.items()})
+
+
+def _store_shard(worker: dict, rank: int, shard_bytes: bytes, checksum: str, rel_path: str) -> object:
+    """New store_shard protocol: command + tensor_meta dict + raw bytes via serve_file."""
+    import os as _os
+    import tempfile
+    from networking.send_receive import serve_file
+    from utils.common_utils import handle_json_header
+
+    with tempfile.NamedTemporaryFile(suffix=".safetensors", delete=False) as tmp:
+        tmp.write(shard_bytes)
+        tmp_path = tmp.name
+
+    try:
+        header, data_section_offset = handle_json_header(tmp_path)
+        tensor_meta = {
+            k: {"dtype": v["dtype"], "shape": v["shape"], "data_offsets": list(v["data_offsets"])}
+            for k, v in header.items()
+            if k != "__metadata__"
+        }
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(30.0)
+        sock.connect((worker["ip"], worker["port"]))
+        sock.settimeout(None)
+        send_message(sock, ("store_shard", rank, checksum, rel_path))
+        send_message(sock, tensor_meta)
+        serve_file(sock, tmp_path, data_section_offset, len(shard_bytes) - data_section_offset)
+        result = receive_message(sock)
+        sock.close()
+    finally:
+        _os.unlink(tmp_path)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -362,17 +400,13 @@ class TestPartialTransferRecovery:
 
         # Chunk the checkpoint exactly as the API does
         tensors = load_tensors(ckpt_file)
-        chunks = chunk_data(tensors, n_chunks=len(WORKERS))
+        chunks: dict = chunk_data(tensors, n_chunks=len(WORKERS))
 
         # Store to only the first 3 workers — worker 4 is skipped (simulates crash mid-transfer)
         for i, worker in enumerate(WORKERS[:3]):
-            shard_bytes = shard_to_bytes(chunks[i])
+            shard_bytes = _tensors_to_bytes(chunks[i])
             checksum = compute_checksum(shard_bytes)
-            result = _send_recv(
-                worker,
-                ("store_shard", worker["rank"], shard_bytes, checksum, self._REL),
-                timeout=30.0,
-            )
+            result = _store_shard(worker, worker["rank"], shard_bytes, checksum, self._REL)
             assert result is not None and result[0] == "store_shard_done", (
                 f"rank {worker['rank']} store failed: {result}"
             )

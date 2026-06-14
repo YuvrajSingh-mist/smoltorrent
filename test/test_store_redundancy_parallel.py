@@ -7,6 +7,7 @@ Run with:  pytest test/test_store_redundancy_parallel.py -v
 """
 
 import sys
+from collections import defaultdict
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -56,8 +57,11 @@ def fake_ckpt(tmp_path):
 
 
 def _collect_body(response) -> str:
-    """Read a streaming TestClient response into one string."""
     return response.content.decode()
+
+
+def _ok_send(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+    return True, "", {"shard_path": f"/remote/worker_{worker['rank']}/{shard_filename}"}
 
 
 # ---------------------------------------------------------------------------
@@ -66,43 +70,29 @@ def _collect_body(response) -> str:
 
 
 class TestStoreRedundancyParallel:
-    """Verify that the parallelised two-round store sends to the right workers."""
+    """Verify the parallelised two-round store sends to the right workers."""
 
     def _run_store(self, fake_ckpt, send_side_effect=None):
-        """
-        Import the FastAPI app, mock out all I/O, POST /store-shard, and return
-        (response_body, list_of_send_calls).
-
-        send_side_effect: optional callable or list to override _send_shard_to_worker.
-        """
+        """Mock all I/O, POST /store-shard, return (response_body, call_args_list)."""
         import backend.api as api_mod
 
-        ckpt_root = str(fake_ckpt.parent.parent.parent)  # /tmp/.../
+        ckpt_root = str(fake_ckpt.parent.parent.parent)
         cfg = {**_FAKE_CONFIG, "ckpt_root": ckpt_root}
-
-        # Default: every send succeeds immediately
-        def _ok_send(worker, shard_bytes, checksum, rel_path):
-            return (
-                True,
-                "",
-                {"shard_path": f"/remote/shard_{worker['rank']}.safetensors"},
-            )
-
-        side_effect = send_side_effect or _ok_send
-
-        send_mock = MagicMock(side_effect=side_effect)
+        send_mock = MagicMock(side_effect=send_side_effect or _ok_send)
 
         with (
-            patch.object(api_mod, "_load_config", return_value=cfg),
-            patch.object(api_mod, "_send_shard_to_worker", send_mock),
+            patch.object(api_mod, "load_config", return_value=cfg),
+            patch.object(api_mod, "send_shard_to_worker", send_mock),
+            patch.object(api_mod, "heartbeat_workers", return_value=[]),
+            patch.object(api_mod, "add_shard_header"),
+            patch.object(api_mod, "add_shard"),
         ):
             client = TestClient(api_mod.app)
             resp = client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
 
-        body = _collect_body(resp)
-        return body, send_mock.call_args_list
+        return _collect_body(resp), send_mock.call_args_list
 
-    # --- correctness of the round assignments ---
+    # --- send count ---
 
     def test_total_sends_equals_workers_times_redundancy(self, fake_ckpt):
         body, calls = self._run_store(fake_ckpt)
@@ -110,82 +100,85 @@ class TestStoreRedundancyParallel:
             f"Expected {N_WORKERS * 2} sends, got {len(calls)}\n{body}"
         )
 
+    # --- round 0: shard i → workers[i] (primary) ---
+
     def test_round0_shard_i_goes_to_worker_i(self, fake_ckpt):
-        """Round 0: shard index i must reach workers[i] (primary assignment)."""
+        """Each shard's file_offset must be received by exactly 2 distinct workers."""
         import backend.api as api_mod
 
         ckpt_root = str(fake_ckpt.parent.parent.parent)
         cfg = {**_FAKE_CONFIG, "ckpt_root": ckpt_root}
 
-        sent_pairs: list[tuple[int, int]] = []  # (shard_bytes_id, worker_rank)
+        # (file_offset, worker_rank) pairs captured per call
+        captured: list[tuple[int, int]] = []
 
-        # Capture which worker gets which shard_bytes object (identity via id())
-        def _capture(worker, shard_bytes, checksum, rel_path):
-            sent_pairs.append((id(shard_bytes), worker["rank"]))
+        def _capture(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+            captured.append((file_offset, worker["rank"]))
             return True, "", {"shard_path": "/tmp/x"}
 
         with (
-            patch.object(api_mod, "_load_config", return_value=cfg),
-            patch.object(api_mod, "_send_shard_to_worker", side_effect=_capture),
+            patch.object(api_mod, "load_config", return_value=cfg),
+            patch.object(api_mod, "send_shard_to_worker", side_effect=_capture),
+            patch.object(api_mod, "heartbeat_workers", return_value=[]),
+            patch.object(api_mod, "add_shard_header"),
+            patch.object(api_mod, "add_shard"),
         ):
             client = TestClient(api_mod.app)
             client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
 
-        # Group by shard_bytes identity → which ranks received it
-        from collections import defaultdict
+        ranks_per_offset: dict[int, set[int]] = defaultdict(set)
+        for offset, rank in captured:
+            ranks_per_offset[offset].add(rank)
 
-        ranks_per_shard: dict[int, set[int]] = defaultdict(set)
-        for shard_id, rank in sent_pairs:
-            ranks_per_shard[shard_id].add(rank)
-
-        # Every unique shard must be sent to exactly 2 distinct workers
-        for shard_id, ranks in ranks_per_shard.items():
+        # Every unique shard (identified by file_offset) must reach exactly 2 workers
+        for offset, ranks in ranks_per_offset.items():
             assert len(ranks) == 2, (
-                f"Shard {shard_id} was sent to {ranks} — expected exactly 2 workers"
+                f"Shard at offset {offset} sent to {ranks} — expected 2 workers"
             )
 
+    # --- round 1: shard i → workers[(i+1) % N] (replica) ---
+
     def test_replica_is_adjacent_worker(self, fake_ckpt):
-        """Round 1 must send shard i to workers[(i+1) % N], not the same as round 0."""
+        """The two workers that receive the same shard must be adjacent in the ring."""
         import backend.api as api_mod
-        from collections import defaultdict
 
         ckpt_root = str(fake_ckpt.parent.parent.parent)
         cfg = {**_FAKE_CONFIG, "ckpt_root": ckpt_root}
 
-        ranks_per_shard: dict[int, list[int]] = defaultdict(list)
+        ranks_per_offset: dict[int, list[int]] = defaultdict(list)
 
-        def _capture(worker, shard_bytes, checksum, rel_path):
-            ranks_per_shard[id(shard_bytes)].append(worker["rank"])
+        def _capture(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+            ranks_per_offset[file_offset].append(worker["rank"])
             return True, "", {"shard_path": "/tmp/x"}
 
         with (
-            patch.object(api_mod, "_load_config", return_value=cfg),
-            patch.object(api_mod, "_send_shard_to_worker", side_effect=_capture),
+            patch.object(api_mod, "load_config", return_value=cfg),
+            patch.object(api_mod, "send_shard_to_worker", side_effect=_capture),
+            patch.object(api_mod, "heartbeat_workers", return_value=[]),
+            patch.object(api_mod, "add_shard_header"),
+            patch.object(api_mod, "add_shard"),
         ):
             client = TestClient(api_mod.app)
             client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
 
         worker_ranks = [w["rank"] for w in _FAKE_WORKERS]
-
-        for shard_id, ranks in ranks_per_shard.items():
-            assert len(ranks) == 2, f"Expected 2 sends per shard, got {ranks}"
+        for offset, ranks in ranks_per_offset.items():
+            assert len(ranks) == 2, f"Expected 2 sends per shard at offset {offset}, got {ranks}"
             r0, r1 = ranks[0], ranks[1]
             idx0 = worker_ranks.index(r0)
             idx1 = worker_ranks.index(r1)
-            # One must be the circular successor of the other
-            adjacent = (idx1 == (idx0 + 1) % N_WORKERS) or (
-                idx0 == (idx1 + 1) % N_WORKERS
-            )
+            adjacent = (idx1 == (idx0 + 1) % N_WORKERS) or (idx0 == (idx1 + 1) % N_WORKERS)
             assert adjacent, (
                 f"Ranks {r0} and {r1} are not adjacent in the worker ring {worker_ranks}"
             )
 
     # --- response body content ---
 
-    def test_body_contains_round0_and_round1(self, fake_ckpt):
+    def test_body_contains_shard_filenames(self, fake_ckpt):
+        """Both shard filenames (round 0 primary, round 1 replica) must appear in the body."""
         body, _ = self._run_store(fake_ckpt)
-        assert "[round 0]" in body, f"Missing '[round 0]' in:\n{body}"
-        assert "[round 1]" in body, f"Missing '[round 1]' in:\n{body}"
+        assert "shard_0.safetensors" in body, f"Missing 'shard_0.safetensors' in:\n{body}"
+        assert "shard_1.safetensors" in body, f"Missing 'shard_1.safetensors' in:\n{body}"
 
     def test_done_line_reports_correct_send_count(self, fake_ckpt):
         body, _ = self._run_store(fake_ckpt)
@@ -210,22 +203,19 @@ class TestStoreRedundancyParallel:
     # --- failure + retry ---
 
     def test_failed_send_is_queued_for_retry(self, fake_ckpt):
-        """If one send fails, the body must mention retry and not permanently fail."""
+        """If one send fails, the body must mention retry and ultimately not permanently fail."""
         call_count = {"n": 0}
 
-        def _flaky(worker, shard_bytes, checksum, rel_path):
+        def _flaky(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
             call_count["n"] += 1
-            # First call for rank 1 fails, all others pass
             if worker["rank"] == _FAKE_WORKERS[0]["rank"] and call_count["n"] == 1:
                 return False, "connection refused", {}
             return True, "", {"shard_path": "/tmp/x"}
 
         body, calls = self._run_store(fake_ckpt, send_side_effect=_flaky)
         assert "queuing retry" in body, f"Expected retry message:\n{body}"
-        # Despite the one flaky first attempt, the store should ultimately succeed
         assert "permanently failed" not in body, f"Should have recovered:\n{body}"
 
     def test_no_error_in_body_on_all_success(self, fake_ckpt):
         body, _ = self._run_store(fake_ckpt)
-        assert not body.startswith("ERROR"), f"Unexpected ERROR:\n{body}"
-        assert "ERROR" not in body
+        assert "ERROR" not in body, f"Unexpected ERROR:\n{body}"

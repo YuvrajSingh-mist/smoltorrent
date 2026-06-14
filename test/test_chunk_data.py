@@ -89,7 +89,8 @@ class TestChunkDataDict:
         result = chunk_data(data, n_chunks)
 
         assert isinstance(result, dict), "Should return a dict"
-        assert len(result) == 0, "Result should be empty"
+        # chunk_data always returns n_chunks slots; each is empty for empty input
+        assert all(len(v) == 0 for v in result.values()), "All chunks should be empty"
 
     def test_large_dataset(self):
         """Test with large dataset (simulating model tensors)."""

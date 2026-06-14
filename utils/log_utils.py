@@ -1,11 +1,10 @@
 """Centralized logging for smolcluster — ANSI-coloured console output, per-rank filtering, cluster-wide file logging (setup_logging, setup_cluster_logging), and structured event emitters (emit_smol_event, emit_transport_event) consumed by the dashboard SSE stream."""
 
-import json
 import logging
 import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # ANSI colour palette
@@ -289,98 +288,3 @@ def setup_cluster_logging(
     )
 
 
-def log_shard_progress(logger: logging.Logger, gathered: list, errors: list) -> None:
-    """Log a summary of gathered shards and any errors.
-
-    Args:
-        logger: Logger to write to.
-        gathered: List of successful result dicts (keys: ``rank``, ``host``, ``shard_path``).
-        errors: List of error dicts (keys: ``rank``, ``host``, ``error``).
-    """
-    total = len(gathered) + len(errors)
-    logger.info(f"Gathered {len(gathered)}/{total} shards")
-    for s in gathered:
-        logger.info(
-            f"  ✓ rank {s['rank']} ({s['host']})  →  {s.get('shard_path', 'n/a')}"
-        )
-    for e in errors:
-        logger.error(f"  ✗ rank {e['rank']} ({e['host']}): {e['error']}")
-
-
-def log_step(
-    logger: logging.Logger, step: int, message: str, level: int = logging.INFO
-) -> None:
-    """Emit a structured step log line: ``step:<n> | <message>``.
-
-    Args:
-        logger: Logger to write to.
-        step: Training step number.
-        message: Human-readable description of the step event.
-        level: Logging level (default INFO).
-    """
-    logger.log(level, "step:%d | %s", step, message)
-
-
-def log_metric(
-    logger: logging.Logger,
-    step: int,
-    metric_name: str,
-    value: float,
-    extra_info: Optional[str] = None,
-) -> None:
-    """Emit a structured metric log line: ``step:<n> | metric:<name> | value:<v>``.
-
-    Args:
-        logger: Logger to write to.
-        step: Training step number.
-        metric_name: Name of the metric (e.g. ``"loss"``).
-        value: Numeric value of the metric.
-        extra_info: Optional additional context appended to the line.
-    """
-    msg = f"step:{step} | metric:{metric_name} | value:{value:.6f}"
-    if extra_info:
-        msg += f" | {extra_info}"
-    logger.info(msg)
-
-
-def emit_transport_event(phase: str, **fields) -> None:
-    """Emit machine-readable transport events for dashboard particle animation.
-
-    The dashboard listens for lines in the form:
-            [TRANSPORT_EVENT] {"phase":"request"|"response", ...}
-    """
-    payload: dict[str, Any] = {"phase": str(phase or "").strip().lower()}
-    for k, v in fields.items():
-        if v is None:
-            continue
-        if isinstance(v, (str, int, float, bool)):
-            payload[k] = v
-        else:
-            payload[k] = str(v)
-    print(f"[TRANSPORT_EVENT] {json.dumps(payload)}", flush=True)
-
-
-def emit_smol_event(event_type: str, direction: str, arch: str, count: int = 1) -> None:
-    """Emit a dashboard particle-animation event.
-
-    This is the canonical way to trigger topology animations in the dashboard.
-    It prints a ``[SMOL_EVENT]`` line that the log stream picks up and routes to
-    the frontend's ``_handleSmolEvent`` → ``_smolEventQueue`` pipeline.
-
-    Args:
-        event_type: One of ``"gradients"``, ``"weights"``, ``"rollout"``, ``"weight_sync"``.
-        direction:  ``"out"`` when the local node is *sending* data to peers;
-                    ``"in"``  when the local node has *received* data from peers.
-        arch:       Algorithm identifier: ``"syncps"``, ``"classicdp"``, ``"fsdp"``, ``"grpo"``.
-        count:      Number of parallel data items in this exchange (e.g. num_rollouts).
-                    The JS side spawns ``count`` staggered particles so each item
-                    gets its own visible packet animation.
-
-    Each call produces exactly **one** ``[SMOL_EVENT]`` line, so calling this
-    once per peer / per prompt gives one animation burst per exchange — rather
-    than a single burst for the whole batch.
-    """
-    print(
-        f"[SMOL_EVENT] {json.dumps({'type': event_type, 'dir': direction, 'arch': arch, 'count': max(1, int(count))})}",
-        flush=True,
-    )

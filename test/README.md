@@ -9,7 +9,6 @@ test/
 ├── test_dir_name_conversion.py                   # Unit: model_id_to_dir_name()
 ├── test_chunk_data.py                            # Unit: chunk_data() tensor sharding logic
 ├── test_cli_args_and_shard_count.py              # Unit + SSH: main.py CLI args
-├── test_shard_serialization.py                   # Unit: shard_to_bytes, shard_from_bytes, checksum, merge_shards
 ├── test_worker_commands.py                       # Integration: all worker TCP commands (heartbeat/sync/store/send/checksum)
 ├── test_watcher_logic.py                         # Integration: watcher sync, crosscheck, file trigger, extension filter
 ├── test_pending_loop.py                          # Integration: pending loop — real file sizes (~150–400 MB), real worker APIs
@@ -51,9 +50,6 @@ uv run pytest test/test_watcher_logic.py -v -m integration
 
 # Pending loop (real file sizes, real worker APIs — takes ~5 min)
 uv run pytest test/test_pending_loop.py -v -m integration
-
-# Shard serialization unit tests (no cluster)
-uv run pytest test/test_shard_serialization.py -v
 
 # Inference test against gathered Qwen2.5 gaming checkpoint
 uv run pytest test/test_received_model_inference.py -v -m integration -s

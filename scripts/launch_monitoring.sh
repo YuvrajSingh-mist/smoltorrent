@@ -73,12 +73,14 @@ preflight() {
         ok "docker installed"
     fi
 
-    # docker-compose installed (auto-install if missing)
-    if ! command -v docker-compose &>/dev/null; then
-        warn "docker-compose not found — installing via brew..."
-        brew install docker-compose &>/dev/null && ok "docker-compose installed" || { fail "docker-compose install failed"; ok=false; }
+    # docker compose (prefer new subcommand; fall back to old standalone binary)
+    if docker compose version &>/dev/null; then
+        ok "docker compose (plugin)"
+    elif command -v docker-compose &>/dev/null; then
+        ok "docker-compose (standalone)"
     else
-        ok "docker-compose installed"
+        warn "docker compose plugin not found — installing via brew..."
+        brew install docker-compose &>/dev/null && ok "docker-compose installed" || { fail "docker compose install failed"; ok=false; }
     fi
 
     # python3 + yaml (needed to parse config)
@@ -143,6 +145,16 @@ preflight_pi() {
     [[ "$ok" == "true" ]] || die "Fix the issues above and re-run."
 }
 
+# ── compose shim ─────────────────────────────────────────────────────────────
+# Use "docker compose" (plugin) when available; fall back to "docker-compose".
+dc() {
+    if docker compose version &>/dev/null; then
+        docker compose "$@"
+    else
+        docker-compose "$@"
+    fi
+}
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 read_config_workers() {
@@ -162,36 +174,60 @@ print(cfg["devices_config"]["master"][0]["ip"])
 PY
 }
 
+_docker_reachable() {
+    # Use the colima socket directly — avoids context-switching surprises
+    DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" docker info &>/dev/null
+}
+
 start_colima() {
-    if colima status 2>&1 | grep -q "colima is running"; then
+    if _docker_reachable; then
         ok "colima already running"
         return
     fi
+
+    # Zombie state: colima start says "already running" but docker socket is dead.
+    # Stop first so the next start creates a fresh VM.
+    if colima start 2>&1 | grep -q "already running"; then
+        warn "colima reports already running but docker is unreachable — restarting..."
+        colima stop &>/dev/null || true
+    fi
+
     info "Starting colima (takes ~60s)..."
-    colima start 2>&1 | grep -E "level=(info|fatal)" | sed 's/.*msg="\(.*\)".*/  \1/' &
+    local colima_log
+    colima_log="$(mktemp)"
+    colima start >"$colima_log" 2>&1 &
     local pid=$!
     for i in $(seq 1 30); do
         sleep 3
-        if colima status 2>&1 | grep -q "colima is running"; then
+        grep -E "level=(info|warn|fatal|error)" "$colima_log" 2>/dev/null \
+            | sed 's/.*msg="\([^"]*\)".*/  \1/' || true
+        if _docker_reachable; then
             wait $pid 2>/dev/null || true
+            rm -f "$colima_log"
             ok "colima started"
             return
         fi
     done
     wait $pid 2>/dev/null || true
-    die "colima failed to start after 90s — run 'colima start' manually and retry"
+    echo -e "${C_RED}colima output:${C_RESET}" >&2
+    cat "$colima_log" >&2
+    rm -f "$colima_log"
+    die "colima failed to start after 90s — see output above, then run 'colima start' manually and retry"
 }
 
 wait_for() {
-    local name=$1 url=$2 keyword=$3 timeout=${4:-40}
+    local label=$1 url=$2 keyword=$3 timeout=${4:-40} svc=${5:-$1}
     for i in $(seq 1 $timeout); do
         if curl -sf "$url" 2>/dev/null | grep -q "$keyword"; then
-            ok "$name"
+            ok "$label"
             return 0
         fi
         sleep 1
     done
-    fail "$name (not ready after ${timeout}s — check: cd monitoring && docker-compose logs $name)"
+    fail "$label (not ready after ${timeout}s)"
+    echo -e "  ${C_YELLOW}Last 40 log lines from $svc:${C_RESET}" >&2
+    dc -f "$MONITORING_DIR/docker-compose.yml" logs --no-color --tail=40 "$svc" 2>&1 \
+        | sed 's/^/    /' >&2
     return 1
 }
 
@@ -199,7 +235,7 @@ wait_for() {
 
 if [[ "$MODE" == "down" ]]; then
     info "Stopping monitoring stack..."
-    cd "$MONITORING_DIR" && docker-compose down
+    dc -f "$MONITORING_DIR/docker-compose.yml" down
     ok "Stack stopped (volumes preserved — data survives restart)"
     exit 0
 fi
@@ -304,19 +340,25 @@ echo
 preflight
 start_colima
 
+# Pin docker-compose to the colima socket so subshells inherit the right daemon
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+
 info "Starting monitoring stack..."
-cd "$MONITORING_DIR"
-docker-compose up -d 2>&1 | grep -E "(Starting|Started|Created|Pulling|pulled|error)" | sed 's/^/  /' || true
+dc -f "$MONITORING_DIR/docker-compose.yml" up -d 2>&1 \
+    | grep -E "(Starting|Started|Created|Pulling|pulled|error)" | sed 's/^/  /' || true
 
 info "Waiting for services to be healthy..."
-wait_for "Prometheus" "http://localhost:9091/-/ready"   "is Ready"  30
-wait_for "Loki"       "http://localhost:3100/ready"      "ready"     45
-wait_for "Grafana"    "http://localhost:3000/api/health" '"ok"'      30
+wait_for "Prometheus" "http://localhost:9091/-/ready"   "is Ready"  30 "prometheus"
+wait_for "Loki"       "http://localhost:3100/ready"      "ready"     45 "loki"
+wait_for "Grafana"    "http://localhost:3000/api/health" '"ok"'      30 "grafana"
 
-if docker-compose ps promtail 2>/dev/null | grep -q "Up"; then
+if dc -f "$MONITORING_DIR/docker-compose.yml" ps promtail 2>/dev/null | grep -q "Up"; then
     ok "Promtail (tailing $LOG_DIR)"
 else
-    fail "Promtail — check: cd monitoring && docker-compose logs promtail"
+    fail "Promtail not running"
+    echo -e "  ${C_YELLOW}Last 40 log lines from promtail:${C_RESET}" >&2
+    dc -f "$MONITORING_DIR/docker-compose.yml" logs --no-color --tail=40 promtail 2>&1 \
+        | sed 's/^/    /' >&2
 fi
 
 echo

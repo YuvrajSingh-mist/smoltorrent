@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Low-level framed TCP messaging with automatic metrics collection.
 
 Messages are length-prefixed (4-byte big-endian header) and pickled.
@@ -27,21 +29,6 @@ network_metrics = NetworkMetrics()
 
 
 
-def get_network_metrics(reset: bool = True) -> dict:
-    """Return current network metrics — mirrors the smolcluster FSDP API.
-
-    Keys: ``send_bandwidth_mbps``, ``recv_bandwidth_mbps``,
-          ``avg_send_latency_ms``, ``avg_recv_latency_ms``,
-          ``avg_buffer_size_kb``, ``max_buffer_size_kb``,
-          ``total_send_mb``, ``total_recv_mb``.
-
-    Args:
-        reset: If True (default), clear accumulators after reading — use for
-               periodic interval logging. Pass False for real-time sampling
-               without disturbing rolling totals.
-    """
-    return network_metrics.get_metrics(reset=reset)
-
 
 
 def send_message(sock: socket.socket, message: Any) -> None:
@@ -55,14 +42,14 @@ def send_message(sock: socket.socket, message: Any) -> None:
     data = pickle.dumps(message)
     network_metrics.record_buffer_size(len(data))
     sock.settimeout(None)
+    logger.debug("[net/msg] sending %d bytes peer=%s", len(data), sock.getpeername())
     # TCP has no message boundaries — receiver can't tell where one message ends.
     # Prepend payload length as 4-byte big-endian uint so receiver knows exactly
     # how many bytes to read. 4 bytes = 32-bit uint = up to ~4 GB per message.
     sock.sendall(struct.pack(">I", len(data)) + data)
-    elapsed = (
-        time.time() - start_time
-    )  # measured after sendall — includes actual wire time
+    elapsed = time.time() - start_time
     network_metrics.record_send(len(data), elapsed)
+    logger.debug("[net/msg] sent %d bytes in %.3fs", len(data), elapsed)
     if HAS_PROM:
         PROM_BYTES_SENT.inc(len(data))
         PROM_SEND_SECONDS.observe(elapsed)
@@ -106,7 +93,7 @@ def receive_message(sock: socket.socket) -> Optional[Any]:
     buf = bytearray(msglen)
     view = memoryview(buf)
     received = 0
-    
+
     while received < msglen:  # loop until every byte is in — TCP may split delivery
         n = sock.recv_into(view[received:], min(65536, msglen - received))
         if not n:
@@ -116,6 +103,7 @@ def receive_message(sock: socket.socket) -> Optional[Any]:
     result = pickle.loads(buf)
     elapsed = time.time() - start_time
     network_metrics.record_recv(msglen, elapsed)
+    logger.debug("[net/msg] received %d bytes in %.3fs", msglen, elapsed)
     if HAS_PROM:
         PROM_BYTES_RECV.inc(msglen)
         PROM_RECV_SECONDS.observe(elapsed)
@@ -123,69 +111,97 @@ def receive_message(sock: socket.socket) -> Optional[Any]:
     return result
 
 
-def serve_file_sendfile(sock: socket.socket, file_path: str) -> int:
-    """Send a file over a socket using zero-copy os.sendfile.
+# ---------------------------------------------------------------------------
+# Private helpers — shared by serve_file and receive_file
+# ---------------------------------------------------------------------------
+
+def _recv_length(sock: socket.socket) -> int:
+    """Read the 4-byte big-endian length header from sock. Returns 0 on clean close."""
+    hdr = bytearray(4)
+    n = sock.recv_into(hdr, 4)
+    if not n:
+        return 0
+    if n < 4:
+        received = n
+        while received < 4:
+            
+            try:
+                n = sock.recv_into(memoryview(hdr)[received:], 4 - received)
+                # if not n:
+                #     raise ConnectionError("Socket closed while reading length header")
+                received += n
+            except Exception as e:
+                logger.error("[net/recv_length] error receiving length header: %s", e)
+                raise
+            
+    return struct.unpack(">I", hdr)[0]
+
+
+def _recv_into(sock: socket.socket, view: memoryview, start: int, length: int) -> int:
+    """Recv *length* bytes from sock directly into view[start:start+length]. Returns bytes written."""
+    received = 0
+    while received < length:
+        
+        try:
+            
+            n = sock.recv_into(view[start + received:], min(65536, length - received))
+            # if not n:
+            #     raise ConnectionError("Socket closed during data transfer")
+            received += n
+        except Exception as e:
+            logger.error("[net/recv_into] error receiving data: %s", e)
+            raise
+        
+    return received
+
+
+# ---------------------------------------------------------------------------
+# File transfer — two public functions cover all send/receive cases
+# ---------------------------------------------------------------------------
+
+def serve_file(
+    sock: socket.socket,
+    file_path: str,
+    offset: int = 0,
+    length: int | None = None,
+) -> int:
+    """Send a file (or byte range) via zero-copy os.sendfile.
 
     Sends a 4-byte big-endian length header first so the receiver knows
-    the file size, then streams the file bytes via sendfile.
+    how many bytes to expect, then streams the data via sendfile.
 
     Args:
-        sock: Connected blocking socket.
-        file_path: Path to the file to send.
-
-    Returns:
-        Total bytes sent (excluding the 4-byte header).
-    """
-    start_time = time.time()
-    filesize = os.path.getsize(file_path)
-    network_metrics.record_buffer_size(filesize)
-
-    # Send 4-byte length header so receive_file_mmap knows how many bytes to expect
-    sock.sendall(struct.pack(">I", filesize))
-
-    offset = 0
-    with open(file_path, "rb") as f:
-        while True:
-            sent = os.sendfile(sock.fileno(), f.fileno(), offset, filesize - offset)
-            if sent == 0:
-                break
-            offset += sent
-
-    elapsed = time.time() - start_time
-    network_metrics.record_send(offset, elapsed)
-    if HAS_PROM:
-        PROM_BYTES_SENT.inc(offset)
-        PROM_SEND_SECONDS.observe(elapsed)
-        update_prom_gauges(network_metrics.get_metrics(reset=False))
-
-    return offset
-    
-
-def serve_file_range(sock: socket.socket, file_path: str, file_offset: int, length: int) -> int:
-    """Send a byte range of a file via zero-copy os.sendfile.
-
-    Used by the master to stream one shard's raw tensor bytes directly from the
-    original checkpoint file without loading them into memory.
-
-    Sends a 4-byte big-endian length header first (same convention as
-    serve_file_sendfile) so receive_shard_mmap knows how many bytes to expect.
-
-    Args:
-        sock: Connected blocking socket.
+        sock:      Connected blocking socket.
         file_path: Path to the source file.
-        file_offset: Absolute byte offset within the file to start from.
-        length: Number of bytes to send.
+        offset:    Byte offset to start from (default 0 = whole file).
+        length:    Number of bytes to send (default None = whole file from offset).
 
     Returns:
         Bytes sent (excluding the 4-byte header).
     """
     start_time = time.time()
+    if length is None:
+        length = os.path.getsize(file_path) - offset
     network_metrics.record_buffer_size(length)
+    logger.info("[net/sendfile] sending %s offset=%d len=%d (%.2f MB) peer=%s",
+                file_path, offset, length, length / (1024 * 1024), sock.getpeername())
     sock.sendall(struct.pack(">I", length))
     sent = 0
-    with open(file_path, "rb") as f:
+    try:
+        f = open(file_path, "rb")
+    except OSError as e:
+        logger.error("[net/sendfile] failed to open %s: %s", file_path, e)
+        raise
+    with f:
         while sent < length:
-            n = os.sendfile(sock.fileno(), f.fileno(), file_offset + sent, length - sent)
+            try:
+                n = os.sendfile(sock.fileno(), f.fileno(), offset + sent, length - sent)
+            except OSError as e:
+                logger.error(
+                    "[net/sendfile] sendfile error at offset=%d remaining=%d: %s",
+                    offset + sent, length - sent, e,
+                )
+                raise
             if n == 0:
                 break
             sent += n
@@ -197,153 +213,140 @@ def serve_file_range(sock: socket.socket, file_path: str, file_offset: int, leng
         update_prom_gauges(network_metrics.get_metrics(reset=False))
     mb = sent / (1024 * 1024)
     mbps = (mb * 8) / elapsed if elapsed > 0 else 0
-    logger.info("[net/sendfile-range] sent %.2f MB @ %.2f Mbps (%.1fs)", mb, mbps, elapsed)
+    logger.info("[net/sendfile] sent %.2f MB @ %.2f Mbps (%.1fs)", mb, mbps, elapsed)
     return sent
 
 
-def receive_shard_mmap(sock: socket.socket, dest_path: str, st_header: dict) -> tuple[int, int]:
-    """Receive raw tensor bytes and reconstruct a valid safetensors file at dest_path.
+def receive_file(
+    sock: socket.socket,
+    dest: "str | mmap.mmap",
+    *,
+    write_offset: int = 0,
+    st_header: dict | None = None,
+    expected_length: int | None = None,
+) -> tuple[int, int]:
+    """Receive bytes from sock into a file or an existing mmap.
 
-    The master sends only the tensor data bytes (no safetensors framing).
-    This function prepends a proper safetensors header built from st_header so
-    the resulting file can be loaded with load_tensors() on the worker.
+    Three modes, selected by the type of *dest* and presence of *st_header*:
 
-    Wire format received:
-        4-byte big-endian uint32  — tensor data byte count
-        N bytes                   — raw tensor data (recv'd via mmap)
+    1. ``dest`` is a **path string**, no *st_header* — raw file write:
+       reads announced size, mmap-writes bytes to a new file at *dest*.
+       (replaces ``receive_file_mmap``)
 
-    File written:
-        8-byte little-endian uint64  — JSON header length
-        J bytes                      — JSON header (built from st_header)
-        N bytes                      — tensor data (written directly via mmap)
+    2. ``dest`` is a **path string**, *st_header* given — safetensors file write:
+       builds ``[uint64 hdr_len][JSON header][tensor bytes]`` — a valid
+       safetensors file.  The announced size is the tensor-data length only.
+       (replaces ``receive_shard_mmap``)
+
+    3. ``dest`` is an **open mmap** — write into existing mmap at *write_offset*:
+       validates announced size against *expected_length* if provided.
+       Thread-safe when called with non-overlapping (write_offset, length) ranges.
+       (replaces ``receive_into_fd_offset``)
 
     Args:
-        sock: Connected blocking socket.
-        dest_path: Path to write the resulting .safetensors file.
-        st_header: {tensor_name: {dtype, shape, data_offsets}} with offsets
-                   already rebased to 0 (as produced by get_shard_ranges).
+        sock:            Connected blocking socket.
+        dest:            File path (str) or open read/write mmap.mmap.
+        write_offset:    Byte offset in mmap to start writing (mode 3 only).
+        st_header:       Rebased tensor metadata dict (mode 2 only).
+        expected_length: Validate announced byte count against this (mode 3 only).
 
     Returns:
-        (header_section_size, tensor_data_len) so the caller can verify the
-        checksum on just the tensor bytes: compute_checksum(dest, offset=hdr_size, length=data_len).
+        ``(bytes_transferred, header_size)`` — ``header_size`` is non-zero only
+        in mode 2 (offset where tensor data starts inside the written file).
     """
-    
     start_time = time.time()
     sock.settimeout(None)
 
-    # Read 4-byte tensor data length
-    hdr = bytearray(4)
-    n = sock.recv_into(hdr, 4)
-    if not n:
+    announced = _recv_length(sock)
+    is_mmap = isinstance(dest, mmap.mmap)
+
+    if announced == 0:
+        if is_mmap:
+            logger.error("[net/recv] socket closed before sending length header; no data written to mmap")
+            raise ConnectionError("Socket closed before sending length header")
         return 0, 0
-    if n < 4:
-        received = n
-        while received < 4:
-            n = sock.recv_into(memoryview(hdr)[received:], 4 - received)
-            if not n:
-                raise ConnectionError("Socket closed while reading length header")
-            received += n
-    tensor_data_len = struct.unpack(">I", hdr)[0]
 
-    # Build the safetensors header bytes from the rebased tensor metadata
-    header_json = json.dumps(st_header, separators=(",", ":")).encode()
-    header_section_size = 8 + len(header_json)   # uint64 field + JSON
-    total_file_size = header_section_size + tensor_data_len
-    network_metrics.record_buffer_size(tensor_data_len)
+    if is_mmap:
+        # Mode 3: write into pre-allocated mmap at write_offset
+        logger.debug("[net/recv] mode=mmap write_offset=%d announced=%d", write_offset, announced)
+        if expected_length is not None and announced != expected_length:
+            raise ValueError(
+                f"receive_file: expected {expected_length} B but peer announced {announced} B"
+            )
+        length = announced
+        network_metrics.record_buffer_size(length)
+        view = memoryview(dest)
+        try:
+            received = _recv_into(sock, view, write_offset, length)
+        finally:
+            view.release()
+        header_size = 0
 
-    # Write the header portion first, then pre-allocate space for tensor data
-    with open(dest_path, "wb") as f:
-        f.write(struct.pack("<Q", len(header_json)))  # 8-byte LE uint64
-        f.write(header_json)
-        f.truncate(total_file_size)
+    elif st_header is not None:
+        # Mode 2: build a valid safetensors file — header + tensor bytes
+        logger.debug("[net/recv] mode=safetensors dest=%s announced=%d", dest, announced)
+        tensor_data_len = announced
+        header_json = json.dumps(st_header, separators=(",", ":")).encode()
+        header_size = 8 + len(header_json)          # uint64 field + JSON
+        total_file_size = header_size + tensor_data_len
+        network_metrics.record_buffer_size(tensor_data_len)
 
-    # mmap the whole file and recv tensor bytes directly into the data section
-    with open(dest_path, "r+b") as f:
-        with mmap.mmap(f.fileno(), length=total_file_size, access=mmap.ACCESS_WRITE) as mm:
-            view = memoryview(mm)
-            try:
-                received = 0
-                while received < tensor_data_len:
-                    n = sock.recv_into(
-                        view[header_section_size + received:],
-                        min(65536, tensor_data_len - received),
-                    )
-                    if not n:
-                        raise ConnectionError("Socket connection broken while receiving shard")
-                    received += n
-                mm.flush()
-            finally:
-                view.release()
+        # Write header, then pre-allocate space for tensor data
+        with open(dest, "wb") as f:
+            f.write(struct.pack("<Q", len(header_json)))   # 8-byte LE uint64
+            f.write(header_json)
+            fallocate = getattr(os, "posix_fallocate", None)
+            if fallocate is not None:
+                try:
+                    fallocate(f.fileno(), 0, total_file_size)
+                    logger.info("[net/recv] posix_fallocate succeeded for %s size=%d", dest, total_file_size)
+                except OSError:
+                    logger.error("[net/recv] posix_fallocate failed; falling back to ftruncate")
+                    f.truncate(total_file_size)
+            else:
+                logger.warning("[net/recv] posix_fallocate not available; falling back to ftruncate")
+                f.truncate(total_file_size)
+                logger.info("[net/recv] ftruncate succeeded for %s size=%d", dest, total_file_size)
+                
+        # mmap the whole file; recv tensor bytes directly into the data section
+        with open(dest, "r+b") as f:
+            with mmap.mmap(f.fileno(), length=total_file_size, access=mmap.ACCESS_WRITE) as mm:
+                view = memoryview(mm)
+                try:
+                    received = _recv_into(sock, view, header_size, tensor_data_len)
+                    mm.flush()
+                finally:
+                    view.release()
+        length = tensor_data_len
+
+    else:
+        # Mode 1: raw file write
+        logger.debug("[net/recv] mode=raw dest=%s announced=%d", dest, announced)
+        filesize = announced
+        network_metrics.record_buffer_size(filesize)
+        header_size = 0
+        with open(dest, "wb") as f:
+            f.truncate(filesize)
+        with open(dest, "r+b") as f:
+            with mmap.mmap(f.fileno(), length=filesize, access=mmap.ACCESS_WRITE) as mm:
+                view = memoryview(mm)
+                try:
+                    received = _recv_into(sock, view, 0, filesize)
+                    mm.flush()
+                finally:
+                    # Python 3.13: mmap.__exit__ calls close() which raises BufferError if
+                    # any memoryview export is still alive — release unconditionally.
+                    view.release()
+        length = filesize
 
     elapsed = time.time() - start_time
-    network_metrics.record_recv(tensor_data_len, elapsed)
+    network_metrics.record_recv(length, elapsed)
     if HAS_PROM:
-        PROM_BYTES_RECV.inc(tensor_data_len)
+        PROM_BYTES_RECV.inc(length)
         PROM_RECV_SECONDS.observe(elapsed)
         update_prom_gauges(network_metrics.get_metrics(reset=False))
-    mb = tensor_data_len / (1024 * 1024)
+    mb = length / (1024 * 1024)
     mbps = (mb * 8) / elapsed if elapsed > 0 else 0
-    logger.info("[net/shard-recv] recv %.2f MB @ %.2f Mbps (%.1fs)", mb, mbps, elapsed)
-    return header_section_size, tensor_data_len
-
-
-def receive_file_mmap(sock: socket.socket, dest_path: str) -> None:
-    """Receive a file over a socket using memory-mapped I/O.
-
-    Reads the 4-byte length header sent by serve_file_sendfile, then
-    recv_into a memoryview of the mmap'd destination file — bytes land
-    directly in the file's page cache without an extra userspace copy.
-
-    Args:
-        sock: Connected blocking socket.
-        dest_path: Path to write the received file.
-    """
-    start_time = time.time()
-    sock.settimeout(None)
-
-    # Read exactly 4 bytes for the length header (recv may return fewer under load)
-    hdr = bytearray(4)
-    n = sock.recv_into(hdr, 4)
-    if not n:
-        return
-    if n < 4:
-        received = n
-        while received < 4:
-            n = sock.recv_into(memoryview(hdr)[received:], 4 - received)
-            if not n:
-                raise ConnectionError("Socket closed while reading length header")
-            received += n
-
-    filesize = struct.unpack(">I", hdr)[0]
-    network_metrics.record_buffer_size(filesize)
-
-    with open(dest_path, "wb") as f:
-        f.truncate(filesize)
-
-    with open(dest_path, "r+b") as f:
-        with mmap.mmap(f.fileno(), length=filesize, access=mmap.ACCESS_WRITE) as mm:
-            # memoryview of the mmap — slicing gives a writable view into the file.
-            # mm[offset:] would return a bytes copy; recv_into would write into it
-            # and the data would never reach the file.
-            view = memoryview(mm)
-            try:
-                offset = 0
-                while offset < filesize:
-                    n = sock.recv_into(view[offset:], min(65536, filesize - offset))
-                    if not n:
-                        raise ConnectionError("Socket connection broken while receiving file")
-                    offset += n
-                mm.flush()
-                
-            finally:
-                # Python 3.13: mmap.__exit__ calls close() which raises BufferError if
-                # any memoryview export is still alive — release unconditionally.
-                view.release()
-                
-    elapsed = time.time() - start_time
-    network_metrics.record_recv(filesize, elapsed)
-    if HAS_PROM:
-        PROM_BYTES_RECV.inc(filesize)
-        PROM_RECV_SECONDS.observe(elapsed)
-        update_prom_gauges(network_metrics.get_metrics(reset=False))
-    
+    dest_label = "mmap" if is_mmap else dest
+    logger.info("[net/recv] %.2f MB @ %.2f Mbps (%.1fs) dest=%s", mb, mbps, elapsed, dest_label)
+    return received, header_size

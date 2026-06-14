@@ -581,6 +581,10 @@ grove --help   <span style="color:var(--text-ter)"># should print grove CLI usag
         </div>
 
         <p class="desc">Create your checkpoint root directory (the watcher monitors this folder):</p>
+        <div class="callout warn">
+          <span class="icon">!</span>
+          <span><strong>Disclaimer — macOS TCC restriction:</strong> LaunchDaemons (running as root) cannot access <code>~/Desktop</code>, <code>~/Documents</code>, or <code>~/Downloads</code> — macOS silently blocks them. Keep <code>ckpt_root</code> under <code>~/smolcluster/</code> (or any subfolder of your home directory that is NOT TCC-protected). Same for the repo itself — clone to <code>~/smoltorrent/</code>, not the Desktop.</span>
+        </div>
         <div class="code-block">
           <pre>mkdir -p ~/smolcluster/checkpoints</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -1010,9 +1014,10 @@ colima start   <span style="color:var(--text-ter)"># must be running before any 
           <span>After a Mac reboot colima does not auto-start. Run <code>colima start</code> again, or run <code>bash scripts/launch_monitoring.sh --daemons</code> once to register a LaunchDaemon that handles it automatically on every boot.</span>
         </div>
 
-        <h3 class="sub-title">2. Configure credentials (one time)</h3>
+        <h3 class="sub-title">2. Configure Telegram alerts (one time)</h3>
+        <p class="desc">Create a Telegram bot with <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a> (<code>/newbot</code>), get your chat ID from <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer">@userinfobot</a>, then fill in <code>monitoring/.env</code>:</p>
         <div class="code-block">
-          <pre><span style="color:var(--text-ter)"># Copy and fill in your Gmail app password for alert emails</span>
+          <pre><span style="color:var(--text-ter)"># Copy the example and fill in your Telegram bot token + chat ID</span>
 cp monitoring/.env.example monitoring/.env</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>

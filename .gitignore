@@ -12,5 +12,13 @@ logging/
 # Virtual environments
 .venv
 
+# Runtime state
+shard_map.db
+shard_map.db-wal
+shard_map.db-shm
+shard_map.json
+shard_map.json.migrated
+shard_map.tmp
+
 # Secrets
 monitoring/.env

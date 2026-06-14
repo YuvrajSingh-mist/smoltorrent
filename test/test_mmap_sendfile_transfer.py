@@ -23,8 +23,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from networking.send_receive import receive_file_mmap, serve_file_sendfile, serve_file_range
-from utils.common_utils import compute_checksum, shard_from_bytes, shard_to_bytes
+import mmap as _mmap
+
+from networking.send_receive import (
+    receive_file,
+    serve_file,
+)
+from utils.common_utils import compute_checksum
 
 
 # ---------------------------------------------------------------------------
@@ -44,13 +49,13 @@ def _send_raw(sock: socket.socket, data: bytes) -> None:
 
 
 def _serve_in_thread(sock: socket.socket, file_path: str) -> threading.Thread:
-    t = threading.Thread(target=serve_file_sendfile, args=(sock, file_path), daemon=True)
+    t = threading.Thread(target=serve_file, args=(sock, file_path), daemon=True)
     t.start()
     return t
 
 
 # ---------------------------------------------------------------------------
-# Unit: receive_file_mmap via socketpair
+# Unit: receive_file (raw file mode) via socketpair
 # ---------------------------------------------------------------------------
 
 
@@ -61,7 +66,7 @@ class TestReceiveFileMmap:
         threading.Thread(target=_send_raw, args=(send, data), daemon=True).start()
 
         dest = tmp_path / "out.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
 
         assert dest.read_bytes() == data
@@ -72,7 +77,7 @@ class TestReceiveFileMmap:
         threading.Thread(target=_send_raw, args=(send, data), daemon=True).start()
 
         dest = tmp_path / "out.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
 
         assert dest.read_bytes() == data
@@ -83,7 +88,7 @@ class TestReceiveFileMmap:
         threading.Thread(target=_send_raw, args=(send, data), daemon=True).start()
 
         dest = tmp_path / "out.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
 
         assert dest.stat().st_size == len(data)
@@ -96,7 +101,7 @@ class TestReceiveFileMmap:
 
         dest = tmp_path / "new_dir" / "out.bin"
         dest.parent.mkdir(parents=True)
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
 
         assert dest.exists()
@@ -106,7 +111,7 @@ class TestReceiveFileMmap:
         send.close()  # close without sending anything
 
         dest = tmp_path / "out.bin"
-        receive_file_mmap(recv, str(dest))  # should not raise
+        receive_file(recv, str(dest))  # should not raise
         recv.close()
 
     def test_connection_broken_mid_header_raises(self, tmp_path):
@@ -120,7 +125,7 @@ class TestReceiveFileMmap:
 
         dest = tmp_path / "out.bin"
         with pytest.raises(ConnectionError):
-            receive_file_mmap(recv, str(dest))
+            receive_file(recv, str(dest))
         recv.close()
 
     def test_connection_broken_mid_body_raises(self, tmp_path):
@@ -135,7 +140,7 @@ class TestReceiveFileMmap:
 
         dest = tmp_path / "out.bin"
         with pytest.raises(ConnectionError):
-            receive_file_mmap(recv, str(dest))
+            receive_file(recv, str(dest))
         recv.close()
 
     def test_checksum_preserved(self, tmp_path):
@@ -148,14 +153,14 @@ class TestReceiveFileMmap:
         threading.Thread(target=_send_raw, args=(send, data), daemon=True).start()
 
         dest = tmp_path / "dest.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
 
         assert compute_checksum(dest) == expected
 
 
 # ---------------------------------------------------------------------------
-# Unit: serve_file_sendfile + receive_file_mmap round-trip
+# Unit: serve_file + receive_file round-trip
 # ---------------------------------------------------------------------------
 
 
@@ -168,7 +173,7 @@ class TestServeSendfileReceiveMmap:
         t = _serve_in_thread(send, str(src))
 
         dest = tmp_path / "dest.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
         t.join(timeout=5)
 
@@ -183,34 +188,11 @@ class TestServeSendfileReceiveMmap:
         t = _serve_in_thread(send, str(src))
 
         dest = tmp_path / "dest.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
         t.join(timeout=5)
 
         assert compute_checksum(dest) == expected
-
-    def test_safetensors_bytes_survive_round_trip(self, tmp_path):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        shard = {"layer.weight": mx.ones([32, 32])}
-        raw = shard_to_bytes(shard)
-
-        src = tmp_path / "shard.safetensors"
-        src.write_bytes(raw)
-
-        send, recv = _pipe()
-        t = _serve_in_thread(send, str(src))
-
-        dest = tmp_path / "received.safetensors"
-        receive_file_mmap(recv, str(dest))
-        recv.close()
-        t.join(timeout=5)
-
-        restored = shard_from_bytes(dest.read_bytes())
-        assert "layer.weight" in restored
 
     @pytest.mark.parametrize("size_kb", [1, 64, 512, 4096])
     def test_various_sizes(self, tmp_path, size_kb):
@@ -222,102 +204,12 @@ class TestServeSendfileReceiveMmap:
         t = _serve_in_thread(send, str(src))
 
         dest = tmp_path / "dest.bin"
-        receive_file_mmap(recv, str(dest))
+        receive_file(recv, str(dest))
         recv.close()
         t.join(timeout=10)
 
         assert dest.stat().st_size == len(data)
         assert dest.read_bytes() == data
-
-
-# ---------------------------------------------------------------------------
-# Benchmark: mmap/sendfile vs old pickle approach (socketpair, no cluster)
-# ---------------------------------------------------------------------------
-
-
-class TestTransferBenchmark:
-    """Measures throughput of both paths over a loopback socketpair.
-
-    Not a correctness test — never fails on performance, just prints stats so
-    they show up in -s output alongside Prometheus data from real cluster runs.
-    """
-
-    def _old_send_recv(self, shard_bytes: bytes, checksum: str, tmp_path: Path) -> float:
-        """Simulate the old pickle-over-send_message path. Returns elapsed seconds.
-
-        Measures wire transfer + deserialization cost. Skips the final save_file
-        call because that step is disk I/O unrelated to the wire path, and
-        safetensors.torch.save_file requires torch tensors (not MLX arrays on Mac).
-        """
-        from networking.send_receive import send_message, receive_message
-
-        send, recv = _pipe()
-
-        def sender():
-            send_message(send, ("store_shard", 1, shard_bytes, checksum, "test/path"))
-            send.close()
-
-        t = threading.Thread(target=sender, daemon=True)
-        t0 = time.perf_counter()
-        t.start()
-
-        msg = receive_message(recv)
-        _, rank, received_bytes, received_checksum, rel_path = msg
-        # deserialize (old path did this before save_file)
-        shard_from_bytes(received_bytes)
-        elapsed = time.perf_counter() - t0
-
-        recv.close()
-        t.join(timeout=5)
-        return elapsed
-
-    def _new_send_recv(self, shard_bytes: bytes, tmp_path: Path) -> float:
-        """Simulate the new sendfile+mmap path. Returns elapsed seconds."""
-        src = tmp_path / "new_src.safetensors"
-        src.write_bytes(shard_bytes)
-        dest = tmp_path / "new_dest.safetensors"
-
-        send, recv = _pipe()
-        t0 = time.perf_counter()
-        t = _serve_in_thread(send, str(src))
-        receive_file_mmap(recv, str(dest))
-        elapsed = time.perf_counter() - t0
-
-        recv.close()
-        t.join(timeout=5)
-        return elapsed
-
-    @pytest.mark.parametrize("size_mb", [1, 4, 16])
-    def test_throughput_comparison(self, tmp_path, size_mb, capsys):
-        try:
-            import mlx.core as mx
-            from safetensors.torch import save_file
-        except ImportError:
-            pytest.skip("mlx/safetensors not available")
-
-        dim = int((size_mb * 1024 * 1024 / 4) ** 0.5)
-        shard = {"weight": mx.ones([dim, dim])}
-        shard_bytes = shard_to_bytes(shard)
-        actual_mb = len(shard_bytes) / (1024 * 1024)
-
-        old_path = tmp_path / "old"
-        new_path = tmp_path / "new"
-        old_path.mkdir()
-        new_path.mkdir()
-
-        old_elapsed = self._old_send_recv(shard_bytes, compute_checksum(shard_bytes), old_path)
-        new_elapsed = self._new_send_recv(shard_bytes, new_path)
-
-        old_mbps = actual_mb / old_elapsed
-        new_mbps = actual_mb / new_elapsed
-
-        with capsys.disabled():
-            print(
-                f"\n[benchmark] {actual_mb:.1f} MB shard | "
-                f"old (pickle+save_file): {old_mbps:.1f} MB/s ({old_elapsed*1000:.0f}ms) | "
-                f"new (sendfile+mmap):    {new_mbps:.1f} MB/s ({new_elapsed*1000:.0f}ms) | "
-                f"speedup: {new_mbps/old_mbps:.2f}x"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -342,9 +234,11 @@ class TestPageCacheBenchmark:
         No pass/fail assertion on the ratio — the speedup is platform-dependent:
 
           macOS M-series NVMe:  the write itself warms the cache, so both passes
-                                hit RAM. NVMe is also ~4 GB/s, so the difference
-                                looks small. Dropping cache requires `sudo purge`.
-          Pi 5 SD card:         SD reads ~80 MB/s, RAM ~6 GB/s → expect ~75x speedup.
+                                hit RAM — difference looks small. Dropping cache
+                                requires `sudo purge`.
+          Pi SD card:           cold read comes from SD, warm read from page cache.
+                                The ratio varies by card and kernel — see performance
+                                docs for measured values.
 
         The correctness assertion (checksums match) is the real test here.
         The timing output is for your information when running on the Pi cluster.
@@ -400,11 +294,11 @@ class TestPageCacheBenchmark:
         dest = tmp_path / "shard.bin"
 
         def _serve():
-            serve_file_range(send_sock, str(src), FILE_OFFSET, SIZE)
+            serve_file(send_sock, str(src), FILE_OFFSET, SIZE)
             send_sock.close()
 
         threading.Thread(target=_serve, daemon=True).start()
-        receive_file_mmap(recv_sock, str(dest))
+        receive_file(recv_sock, str(dest))
         recv_sock.close()
 
         # The received file must hash to the same value the master computed
@@ -412,206 +306,255 @@ class TestPageCacheBenchmark:
         # Belt-and-suspenders: raw bytes match the original range exactly
         assert dest.read_bytes() == data[FILE_OFFSET : FILE_OFFSET + SIZE]
 
+# ---------------------------------------------------------------------------
+# Unit: receive_file mmap mode — writes bytes at an offset into a pre-alloc'd mmap
+# ---------------------------------------------------------------------------
+
+
+def _serve_range_in_thread(sock: socket.socket, file_path: str, offset: int, length: int) -> threading.Thread:
+    t = threading.Thread(target=serve_file, args=(sock, file_path, offset, length), daemon=True)
+    t.start()
+    return t
+
+
+class TestReceiveIntoFdOffset:
+    def _make_mm(self, tmp_path: Path, size: int):
+        f_path = tmp_path / "merged.bin"
+        with open(f_path, "wb") as f:
+            f.truncate(size)
+        fh = open(f_path, "r+b")
+        mm = _mmap.mmap(fh.fileno(), size, access=_mmap.ACCESS_WRITE)
+        return f_path, mm, fh
+
+    def test_writes_at_correct_offset(self, tmp_path):
+        data = os.urandom(64 * 1024)
+        src = tmp_path / "src.bin"
+        src.write_bytes(data)
+
+        header_size = 128
+        total_size = header_size + len(data)
+        f_path, mm, fh = self._make_mm(tmp_path, total_size)
+        try:
+            send, recv = _pipe()
+            t = _serve_range_in_thread(send, str(src), 0, len(data))
+            receive_file(recv, mm, write_offset=header_size, expected_length=len(data))
+            recv.close()
+            t.join(timeout=5)
+            mm.flush()
+            result = f_path.read_bytes()
+        finally:
+            mm.close()
+            fh.close()
+
+        assert result[header_size:] == data
+        assert result[:header_size] == b"\x00" * header_size
+
+    def test_announced_length_mismatch_raises(self, tmp_path):
+        data = os.urandom(1024)
+        src = tmp_path / "src.bin"
+        src.write_bytes(data)
+
+        f_path, mm, fh = self._make_mm(tmp_path, 4096)
+        try:
+            send, recv = _pipe()
+            t = _serve_range_in_thread(send, str(src), 0, len(data))
+            with pytest.raises(ValueError, match="expected"):
+                receive_file(recv, mm, write_offset=0, expected_length=len(data) + 1)
+            recv.close()
+            t.join(timeout=5)
+        finally:
+            mm.close()
+            fh.close()
+
+    def test_socket_closed_before_header_raises(self, tmp_path):
+        f_path, mm, fh = self._make_mm(tmp_path, 1024)
+        try:
+            send, recv = _pipe()
+            send.close()
+            with pytest.raises(ConnectionError):
+                receive_file(recv, mm, write_offset=0, expected_length=512)
+            recv.close()
+        finally:
+            mm.close()
+            fh.close()
+
+    def test_parallel_writes_to_non_overlapping_offsets(self, tmp_path):
+        """Two threads writing to separate halves of the same mmap must not interfere."""
+        chunk = 256 * 1024
+        src_a = tmp_path / "a.bin"
+        src_b = tmp_path / "b.bin"
+        data_a = os.urandom(chunk)
+        data_b = os.urandom(chunk)
+        src_a.write_bytes(data_a)
+        src_b.write_bytes(data_b)
+
+        total = chunk * 2
+        f_path, mm, fh = self._make_mm(tmp_path, total)
+        try:
+            send_a, recv_a = _pipe()
+            send_b, recv_b = _pipe()
+            t_a = _serve_range_in_thread(send_a, str(src_a), 0, chunk)
+            t_b = _serve_range_in_thread(send_b, str(src_b), 0, chunk)
+
+            threads = [
+                threading.Thread(
+                    target=receive_file,
+                    args=(recv_a, mm),
+                    kwargs={"write_offset": 0,     "expected_length": chunk},
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=receive_file,
+                    args=(recv_b, mm),
+                    kwargs={"write_offset": chunk, "expected_length": chunk},
+                    daemon=True,
+                ),
+            ]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join(timeout=10)
+            recv_a.close(); recv_b.close()
+            t_a.join(timeout=5); t_b.join(timeout=5)
+            mm.flush()
+            result = f_path.read_bytes()
+        finally:
+            mm.close()
+            fh.close()
+
+        assert result[:chunk] == data_a
+        assert result[chunk:] == data_b
+
+    def test_checksum_survives_offset_write(self, tmp_path):
+        data = os.urandom(512 * 1024)
+        src = tmp_path / "src.bin"
+        src.write_bytes(data)
+        expected = compute_checksum(str(src))
+
+        header_size = 64
+        total = header_size + len(data)
+        f_path, mm, fh = self._make_mm(tmp_path, total)
+        try:
+            send, recv = _pipe()
+            t = _serve_range_in_thread(send, str(src), 0, len(data))
+            receive_file(recv, mm, write_offset=header_size, expected_length=len(data))
+            recv.close()
+            t.join(timeout=5)
+            mm.flush()
+        finally:
+            mm.close()
+            fh.close()
+
+        actual = compute_checksum(str(f_path), offset=header_size, length=len(data))
+        assert actual == expected
+
 
 # ---------------------------------------------------------------------------
-# Integration: store_shard new protocol against live workers
+# Unit: streaming merge — simulate full gather with N socketpairs
 # ---------------------------------------------------------------------------
 
-_CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
-_FAKE_REL_PATH = "__test__/pytest/mmap_transfer/latest"
 
+class TestStreamingMerge:
+    """Simulate the coordinator's gather using socketpairs: each 'worker' thread
+    serves a shard's tensor bytes; coordinator writes into pre-allocated mmap."""
 
-def _load_workers() -> list[dict]:
-    try:
-        import yaml
-        with _CONFIG_PATH.open() as f:
-            return yaml.safe_load(f)["devices_config"]["workers"]
-    except Exception:
-        return []
+    def _build_fake_checkpoint(self, tmp_path: Path, num_shards: int) -> tuple:
+        """Build a flat binary file and return per-shard byte ranges."""
+        shard_size = 128 * 1024
+        total_data = shard_size * num_shards
+        header_prefix = 64  # simulate safetensors header section
 
+        src = tmp_path / "fake_ckpt.bin"
+        payload = os.urandom(total_data)
+        src.write_bytes(b"\x00" * header_prefix + payload)
 
-def _connect(worker: dict, timeout: float = 10.0) -> socket.socket:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-    sock.connect((worker["ip"], worker["port"]))
-    sock.settimeout(None)
-    return sock
+        ranges = [
+            {"file_offset": header_prefix + i * shard_size, "length": shard_size}
+            for i in range(num_shards)
+        ]
+        return src, header_prefix, ranges
 
+    def test_two_shard_merge_bytes_match(self, tmp_path):
+        src, header_prefix, ranges = self._build_fake_checkpoint(tmp_path, 2)
+        src_bytes = src.read_bytes()
 
-def _store_shard(worker: dict, rank: int, shard_bytes: bytes, checksum: str, rel_path: str):
-    """New protocol: metadata message then raw bytes."""
-    from networking.send_receive import send_message, receive_message
+        merged_header_size = 32
+        total_data = sum(r["length"] for r in ranges)
+        total_size = merged_header_size + total_data
 
-    sock = _connect(worker, timeout=30.0)
-    send_message(sock, ("store_shard", rank, checksum, rel_path))
-    sock.sendall(struct.pack(">I", len(shard_bytes)))
-    sock.sendall(shard_bytes)
-    result = receive_message(sock)
-    sock.close()
-    return result
+        merged = tmp_path / "merged.bin"
+        with open(merged, "wb") as f:
+            f.truncate(total_size)
 
+        pairs = [_pipe() for _ in ranges]
+        with open(merged, "r+b") as f, _mmap.mmap(f.fileno(), total_size) as mm:
+            threads = []
+            for r, (send, recv) in zip(ranges, pairs):
+                write_offset = merged_header_size + (r["file_offset"] - header_prefix)
+                threads.append(threading.Thread(
+                    target=serve_file,
+                    args=(send, str(src), r["file_offset"], r["length"]),
+                    daemon=True,
+                ))
+                threads.append(threading.Thread(
+                    target=receive_file,
+                    args=(recv, mm),
+                    kwargs={"write_offset": write_offset, "expected_length": r["length"]},
+                    daemon=True,
+                ))
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join(timeout=10)
+            for send, recv in pairs:
+                send.close(); recv.close()
+            mm.flush()
 
-WORKERS = _load_workers()
+        result = merged.read_bytes()
+        for r in ranges:
+            data_start = r["file_offset"] - header_prefix
+            expected = src_bytes[r["file_offset"]: r["file_offset"] + r["length"]]
+            actual   = result[merged_header_size + data_start:
+                              merged_header_size + data_start + r["length"]]
+            assert actual == expected
 
+    @pytest.mark.parametrize("num_shards", [2, 4])
+    def test_n_shard_merge_no_data_loss(self, tmp_path, num_shards):
+        src, header_prefix, ranges = self._build_fake_checkpoint(tmp_path, num_shards)
+        src_bytes = src.read_bytes()
 
-@pytest.mark.integration
-class TestStoreShardMmap:
-    """store_shard end-to-end with the new metadata+mmap protocol."""
+        merged_header_size = 8
+        total_data = sum(r["length"] for r in ranges)
+        total_size = merged_header_size + total_data
 
-    @pytest.fixture(autouse=True)
-    def _skip_if_no_workers(self):
-        if not WORKERS:
-            pytest.skip("No workers in config")
+        merged = tmp_path / f"merged_{num_shards}.bin"
+        with open(merged, "wb") as f:
+            f.truncate(total_size)
 
-    def test_store_and_ack(self):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
+        pairs = [_pipe() for _ in ranges]
+        with open(merged, "r+b") as f, _mmap.mmap(f.fileno(), total_size) as mm:
+            threads = []
+            for r, (send, recv) in zip(ranges, pairs):
+                write_offset = merged_header_size + (r["file_offset"] - header_prefix)
+                threads.append(threading.Thread(
+                    target=serve_file,
+                    args=(send, str(src), r["file_offset"], r["length"]),
+                    daemon=True,
+                ))
+                threads.append(threading.Thread(
+                    target=receive_file,
+                    args=(recv, mm),
+                    kwargs={"write_offset": write_offset, "expected_length": r["length"]},
+                    daemon=True,
+                ))
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join(timeout=15)
+            for send, recv in pairs:
+                send.close(); recv.close()
+            mm.flush()
 
-        worker = WORKERS[0]
-        shard = {"test.weight": mx.ones([8, 8])}
-        shard_bytes = shard_to_bytes(shard)
-        checksum = compute_checksum(shard_bytes)
-
-        result = _store_shard(worker, worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
-
-        assert result is not None
-        assert result[0] == "store_shard_done", f"Expected store_shard_done, got: {result}"
-
-    def test_shard_path_in_ack(self):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        worker = WORKERS[0]
-        shard_bytes = shard_to_bytes({"w": mx.zeros([4, 4])})
-        checksum = compute_checksum(shard_bytes)
-
-        result = _store_shard(worker, worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
-
-        assert result[0] == "store_shard_done"
-        _, rank, shard_path = result
-        assert "shard.safetensors" in shard_path
-        assert str(worker["rank"]) in shard_path
-
-    def test_bad_checksum_rejected(self):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        worker = WORKERS[0]
-        shard_bytes = shard_to_bytes({"w": mx.zeros([4, 4])})
-        bad_checksum = "0" * 64
-
-        result = _store_shard(worker, worker["rank"], shard_bytes, bad_checksum, _FAKE_REL_PATH)
-
-        assert result is not None
-        assert result[0] == "store_shard_failed"
-        assert "checksum" in result[2].lower()
-
-    def test_all_workers_accept_store(self):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        shard_bytes = shard_to_bytes({"w": mx.ones([8, 8])})
-        checksum = compute_checksum(shard_bytes)
-
-        for w in WORKERS:
-            result = _store_shard(w, w["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
-            assert result[0] == "store_shard_done", f"rank {w['rank']} failed: {result}"
-
-
-@pytest.mark.integration
-class TestSendShardSendfile:
-    """send_shard end-to-end: store then retrieve using receive_file_mmap."""
-
-    @pytest.fixture(autouse=True)
-    def _skip_if_no_workers(self):
-        if not WORKERS:
-            pytest.skip("No workers in config")
-
-    def test_round_trip_bytes_match(self, tmp_path):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        from networking.send_receive import send_message
-
-        worker = WORKERS[0]
-        original = {"w": mx.ones([8, 8]) * 42}
-        shard_bytes = shard_to_bytes(original)
-        checksum = compute_checksum(shard_bytes)
-
-        _store_shard(worker, worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
-
-        sock = _connect(worker, timeout=30.0)
-        send_message(sock, ("send_shard", worker["rank"], _FAKE_REL_PATH))
-        dest = tmp_path / "received.safetensors"
-        receive_file_mmap(sock, str(dest))
-        sock.close()
-
-        assert dest.exists()
-        restored = shard_from_bytes(dest.read_bytes())
-        assert "w" in restored
-
-    def test_checksum_survives_round_trip(self, tmp_path):
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        from networking.send_receive import send_message
-
-        worker = WORKERS[0]
-        shard_bytes = shard_to_bytes({"w": mx.ones([16, 16])})
-        original_checksum = compute_checksum(shard_bytes)
-        _store_shard(worker, worker["rank"], shard_bytes, original_checksum, _FAKE_REL_PATH)
-
-        sock = _connect(worker, timeout=30.0)
-        send_message(sock, ("send_shard", worker["rank"], _FAKE_REL_PATH))
-        dest = tmp_path / "received.safetensors"
-        receive_file_mmap(sock, str(dest))
-        sock.close()
-
-        assert compute_checksum(dest) == original_checksum
-
-    def test_throughput_logged(self, tmp_path, capsys):
-        """Store a larger shard and report MB/s for the sendfile retrieve path."""
-        try:
-            import mlx.core as mx
-        except ImportError:
-            pytest.skip("mlx not available")
-
-        from networking.send_receive import send_message
-
-        worker = WORKERS[0]
-        shard = {"weight": mx.ones([128, 128])}
-        shard_bytes = shard_to_bytes(shard)
-        size_mb = len(shard_bytes) / (1024 * 1024)
-        checksum = compute_checksum(shard_bytes)
-
-        _store_shard(worker, worker["rank"], shard_bytes, checksum, _FAKE_REL_PATH)
-
-        sock = _connect(worker, timeout=30.0)
-        send_message(sock, ("send_shard", worker["rank"], _FAKE_REL_PATH))
-        dest = tmp_path / "received.safetensors"
-        t0 = time.perf_counter()
-        receive_file_mmap(sock, str(dest))
-        elapsed = time.perf_counter() - t0
-        sock.close()
-
-        mbps = size_mb / elapsed if elapsed > 0 else 0
-        with capsys.disabled():
-            print(
-                f"\n[integration] send_shard sendfile+mmap: "
-                f"{size_mb:.2f} MB in {elapsed*1000:.0f}ms = {mbps:.1f} MB/s "
-                f"(rank {worker['rank']} @ {worker['ip']})"
-            )
-
-        assert dest.exists()
+        result = merged.read_bytes()
+        original_tensor_section = src_bytes[header_prefix:]
+        assert result[merged_header_size:] == original_tensor_section

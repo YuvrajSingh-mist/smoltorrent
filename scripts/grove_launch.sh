@@ -69,11 +69,14 @@ lsof -ti :8001 | xargs kill -9 2>/dev/null || true
 
 mkdir -p "$PROJECT_DIR/logging/cluster-logs"
 
+# Prevent tmux server from dying when sessions exit
+tmux set-option -g remain-on-exit on 2>/dev/null || true
+
 tmux new -d -s grove_api \
-    "bash -lc 'cd \"$PROJECT_DIR\" && $UV/uvicorn backend.api:app --host 0.0.0.0 --port 8000 2>&1 | tee logging/cluster-logs/grove_api.log; exec bash'"
+    "bash -lc 'cd \"$PROJECT_DIR\" && $UV/uvicorn backend.api:app --host 0.0.0.0 --port 8000 2>&1 | tee logging/cluster-logs/grove_api.log; echo \"[grove_api] uvicorn exited (code \$?)\"; while sleep 3600; do :; done'"
 ok "API started      → tmux attach -t grove_api"
 
 tmux new -d -s grove_watcher \
-    "bash -lc 'cd \"$PROJECT_DIR\" && $UV/python watcher/watch.py --ext \"$WATCH_EXT\" 2>&1 | tee logging/cluster-logs/grove_watcher.log; exec bash'"
+    "bash -lc 'cd \"$PROJECT_DIR\" && $UV/python watcher/watch.py --ext \"$WATCH_EXT\" 2>&1 | tee logging/cluster-logs/grove_watcher.log; echo \"[grove_watcher] watcher exited (code \$?)\"; while sleep 3600; do :; done'"
 ok "Watcher started  → tmux attach -t grove_watcher"
 ok "API + watcher running.  Trigger: POST http://localhost:8000/gather-shards"

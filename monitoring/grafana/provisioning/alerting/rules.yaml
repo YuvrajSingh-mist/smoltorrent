@@ -1,5 +1,9 @@
 apiVersion: 1
 
+deleteRules:
+  - orgId: 1
+    uid: transfer-latency-high
+
 groups:
   - orgId: 1
     name: smoltorrent
@@ -12,15 +16,15 @@ groups:
       - uid: api-dead
         title: API Down
         condition: A
-        for: 2m
-        noDataState: OK
+        for: 30s
+        noDataState: Alerting
         execErrState: Error
         data:
           - refId: A
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: up{job="smoltorrent-api"} == 0
+              expr: up{job="smoltorrent-api"} == bool 0
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
@@ -30,12 +34,10 @@ groups:
         labels:
           severity: critical
 
-      # ── Workers ────────────────────────────────────────────────────────────
-
-      - uid: worker-down
-        title: Pi Worker Down
+      - uid: watcher-down
+        title: Watcher Process Down
         condition: A
-        for: 2m
+        for: 30s
         noDataState: OK
         execErrState: Error
         data:
@@ -43,7 +45,30 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: up{job="node", node=~"pi4-.*"} == 0
+              expr: up{job="smoltorrent-watcher"} == bool 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "SmolTorrent watcher process is unreachable"
+          description: "Prometheus cannot scrape the watcher at :8001. The watcher monitors cluster health — if it's down, node failure detection is blind."
+        labels:
+          severity: warning
+
+      # ── Workers ────────────────────────────────────────────────────────────
+
+      - uid: worker-down
+        title: Pi Worker Down
+        condition: A
+        for: 30s
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: up{job="node", node=~"pi4-.*"} == bool 0
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
@@ -56,7 +81,7 @@ groups:
       - uid: worker-transfer-errors
         title: Worker Transfer Errors
         condition: A
-        for: 2m
+        for: 0s
         noDataState: OK
         execErrState: Error
         data:
@@ -64,7 +89,9 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: increase(smoltorrent_transfer_errors_total[5m]) > 0
+              # Use >= 1 not > 0: increase() extrapolates and can return small floats
+              # (e.g. 0.0003) when no real increase occurred, causing false positives.
+              expr: increase(smoltorrent_transfer_errors_total[5m]) >= 1
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
@@ -79,7 +106,7 @@ groups:
       - uid: server-down
         title: Server Node Exporter Down
         condition: A
-        for: 2m
+        for: 30s
         noDataState: OK
         execErrState: Error
         data:
@@ -87,7 +114,7 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: up{job="node", node="master"} == 0
+              expr: up{job="node", node="master"} == bool 0
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
@@ -100,7 +127,7 @@ groups:
       - uid: server-cpu-high
         title: Server CPU High
         condition: A
-        for: 5m
+        for: 2m
         noDataState: OK
         execErrState: Error
         data:
@@ -114,14 +141,14 @@ groups:
               instant: true
         annotations:
           summary: "Server CPU above 90%"
-          description: "Server CPU has been above 90% for 5 minutes."
+          description: "Server CPU sustained above 90% (5m rolling avg) for 2+ min."
         labels:
           severity: warning
 
       - uid: server-disk-low
         title: Server Disk Low
         condition: A
-        for: 5m
+        for: 1m
         noDataState: OK
         execErrState: Error
         data:
@@ -139,10 +166,8 @@ groups:
         labels:
           severity: warning
 
-      # ── Transfer performance ───────────────────────────────────────────────
-
-      - uid: transfer-bandwidth-low
-        title: Transfer Bandwidth Low
+      - uid: server-memory-high
+        title: Server Memory High
         condition: A
         for: 2m
         noDataState: OK
@@ -152,21 +177,72 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: (rate(smoltorrent_bytes_sent_total[1m]) * 8 / 1024 / 1024 > 0) < 5
+              # macOS node_exporter has no node_memory_available_bytes.
+              # Proxy: free + inactive = reclaimable. Pressure = everything else / total.
+              expr: (node_memory_total_bytes{job="node",node="master"} - node_memory_free_bytes{job="node",node="master"} - node_memory_inactive_bytes{job="node",node="master"}) / node_memory_total_bytes{job="node",node="master"} * 100 > 90
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
         annotations:
-          summary: "Send bandwidth below 5 Mbps during active transfer"
-          description: "A transfer is in progress but send bandwidth has dropped below 5 Mbps for 2 min. WiFi baseline is ~9 Mbps — this indicates severe congestion or Pi load. Check network or Pi health."
+          summary: "Server RAM pressure above 90%"
+          description: "Mac Mini active+wired memory exceeds 90% of total RAM for 2+ min. ML training or large model loading likely cause — check if swap is growing."
         labels:
           severity: warning
 
+      - uid: server-swap-high
+        title: Server Swap High
+        condition: A
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: node_memory_swap_used_bytes{job="node",node="master"} / node_memory_swap_total_bytes{job="node",node="master"} * 100 > 80
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Server swap above 80%"
+          description: "Mac Mini swap is more than 80% full. Heavy paging will slow everything — kill unused processes or increase swap."
+        labels:
+          severity: warning
+
+      # ── Transfer performance ───────────────────────────────────────────────
+      # Two independent paths: send (coordinator→Pi, store) and recv (Pi→coordinator, gather).
+      # All windows are [5m] for consistency. "Active" guard (> 0) ensures rules only
+      # fire during actual transfers, not when idle (noDataState: OK handles no-metric case).
+
+      - uid: transfer-bandwidth-low
+        title: Store Send Bandwidth Low
+        condition: A
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              # Fires when store (coordinator→Pi) send rate drops below 5 Mbps while active.
+              # WiFi baseline ~9 Mbps; 5 Mbps = ~55% of baseline — clear degradation.
+              # [5m] window smooths bursts; [1m] was too noisy for large-file transfers.
+              expr: (rate(smoltorrent_bytes_sent_total[5m]) * 8 / 1024 / 1024 > 0) < 5
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Store send bandwidth below 5 Mbps"
+          description: "Active store transfer but send bandwidth &lt; 5 Mbps for 2 min. WiFi baseline ~9 Mbps. Check network or Pi load."
+        labels:
+          severity: warning
 
       - uid: transfer-too-slow
-        title: Transfer p95 Too Slow
+        title: Gather Recv Bandwidth Low
         condition: A
-        for: 3m
+        for: 1m
         noDataState: OK
         execErrState: Error
         data:
@@ -174,43 +250,47 @@ groups:
             datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
-              expr: histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m])) > 120
+              # Fires when gather (Pi→coordinator) recv rate drops below 5 Mbps while active.
+              # Mirrors transfer-bandwidth-low but covers the receive path so both store and
+              # gather slowdowns are caught independently.
+              expr: (rate(smoltorrent_bytes_recv_total[5m]) * 8 / 1024 / 1024 > 0) < 5
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
         annotations:
-          summary: "Send p95 latency exceeds 2 minutes"
-          description: "95th percentile send duration above 2 min. Likely: slow Pi SD card, network congestion, or Pi under memory pressure."
-        labels:
-          severity: warning
-
-      - uid: transfer-latency-high
-        title: Transfer Latency High
-        condition: A
-        for: 3m
-        noDataState: OK
-        execErrState: Error
-        data:
-          - refId: A
-            datasourceUid: prometheus
-            relativeTimeRange: { from: 300, to: 0 }
-            model:
-              expr: (rate(smoltorrent_send_duration_seconds_sum[5m]) / rate(smoltorrent_send_duration_seconds_count[5m]) * 1000) > 5000
-              intervalMs: 1000
-              maxDataPoints: 43200
-              instant: true
-        annotations:
-          summary: "Average send latency above 5 seconds"
-          description: "Rolling average TCP send latency has exceeded 5000 ms. Check network and Pi load."
+          summary: "Gather recv bandwidth below 5 Mbps"
+          description: "Active gather but recv bandwidth &lt; 5 Mbps for 2 min. WiFi baseline ~9 Mbps. Check network or Pi load."
         labels:
           severity: warning
 
       # ── Pi system health ───────────────────────────────────────────────────
 
+      - uid: pi-memory-high
+        title: Pi Memory High
+        condition: A
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              # Linux node_exporter exposes MemAvailable (free + reclaimable cache).
+              expr: (1 - node_memory_MemAvailable_bytes{job="node",node=~"pi4-.*"} / node_memory_MemTotal_bytes{job="node",node=~"pi4-.*"}) * 100 > 85
+              intervalMs: 1000
+              maxDataPoints: 43200
+              instant: true
+        annotations:
+          summary: "Pi {{ $labels.node }} memory above 85%"
+          description: "{{ $labels.node }} RAM usage above 85% for 2+ min. Worker may be holding large tensors in RAM or leaking memory."
+        labels:
+          severity: warning
+
       - uid: pi-cpu-high
         title: Pi CPU High
         condition: A
-        for: 5m
+        for: 3m
         noDataState: OK
         execErrState: Error
         data:
@@ -224,14 +304,14 @@ groups:
               instant: true
         annotations:
           summary: "Pi {{ $labels.node }} CPU above 90%"
-          description: "{{ $labels.node }} CPU has been above 90% for 5 minutes."
+          description: "{{ $labels.node }} CPU sustained above 90% for 3+ min. Normal during shard store (~2 min) — if longer, check for runaway process."
         labels:
           severity: warning
 
       - uid: pi-temp-high
         title: Pi Temperature High
         condition: A
-        for: 2m
+        for: 1m
         noDataState: OK
         execErrState: Error
         data:
@@ -252,7 +332,7 @@ groups:
       - uid: pi-disk-low
         title: Pi Disk Low
         condition: A
-        for: 5m
+        for: 1m
         noDataState: OK
         execErrState: Error
         data:

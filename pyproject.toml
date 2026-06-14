@@ -17,17 +17,29 @@ dependencies = [
     "pyaml>=26.2.1",
     "pyyaml>=6.0.3",
     "safetensors>=0.7.0",
-    "torch[cpu]>=2.11.0",
+    "torch[cpu]>=2.11.0; sys_platform == 'darwin'",
+    "torch>=2.11.0; sys_platform == 'linux'",
     "uvicorn[standard]>=0.34.0",
     "watchdog>=6.0.0",
     "prometheus-client>=0.20.0",
     "zeroconf>=0.149.4",
     "textual>=0.80.0",
     "matplotlib>=3.10.9",
+    "pymerkle>=6.1.0",
 ]
 
 [project.scripts]
 grove = "smoltorrent.cli:main"
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.setuptools.packages.find]
 include = ["smoltorrent*"]
@@ -39,7 +51,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-addopts = "-m 'not api'"
+addopts = "-m 'not api and not integration and not ssh and not large'"
 markers = [
     "integration: end-to-end tests that require model weights and a full cluster environment",
     "large: large-file stress tests (1–8 GB sparse files, socketpair only, no RAM load)",

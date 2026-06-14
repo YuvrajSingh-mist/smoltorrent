@@ -2,7 +2,7 @@ apiVersion: 1
 
 policies:
   - orgId: 1
-    receiver: gmail
+    receiver: telegram
     group_by: [alertname]
     group_wait: 30s
     group_interval: 5m

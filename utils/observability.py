@@ -27,10 +27,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def setup_api() -> None:
-    """Init logging for the API process (Prometheus is mounted by FastAPI, not here)."""
-    setup_logging()
-
 
 def setup_worker(rank: int, hostname: str, log_dir: Optional[str] = None) -> "Optional[WorkerMetrics]":
     """Init worker metrics server and structured file logging.

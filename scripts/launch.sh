@@ -1,9 +1,13 @@
 #!/bin/bash
-# Dev tool: rsync latest code to all worker nodes.
+# Dev tool: rsync latest code to all worker nodes and/or restart local processes.
 # Uses configs/dev-config.yaml for SSH aliases + IPs.
-# Run grove_launch.sh separately to restart the API + watcher.
 #
-# Usage: launch.sh [--dry-run]
+# Usage:
+#   launch.sh [--dry-run]          — rsync to workers only (default)
+#   launch.sh --api                — restart API only (no rsync)
+#   launch.sh --watcher            — restart watcher only (no rsync)
+#   launch.sh --api --watcher      — restart both (no rsync)
+#   launch.sh --dry-run --api      — rsync dry-run + restart API
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +15,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="$PROJECT_DIR/configs/dev-config.yaml"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/Desktop/smoltorrent}"
 DRY_RUN=false
+RUN_API=false
+RUN_WATCHER=false
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RESET="\033[0m"; C_BOLD="\033[1m"
@@ -26,13 +32,55 @@ err()  { echo -e "${C_RED}${1}${C_RESET}"; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run)  DRY_RUN=true; shift ;;
+        --dry-run)  DRY_RUN=true;    shift ;;
+        --api)      RUN_API=true;    shift ;;
+        --watcher)  RUN_WATCHER=true; shift ;;
         *)
             err "Unknown option: $1"
-            warn "Usage: $0 [--dry-run]"
+            warn "Usage: $0 [--dry-run] [--api] [--watcher]"
             exit 1 ;;
     esac
 done
+
+# ── API / Watcher restart (no rsync needed) ────────────────────────────────────
+
+start_api() {
+    info "Restarting API..."
+    pkill -f "uvicorn backend.api" 2>/dev/null || true
+    sleep 1
+    cd "$PROJECT_DIR"
+    uv run uvicorn backend.api:app --host 0.0.0.0 --port 8000 &
+    sleep 2
+    if curl -s http://localhost:8000/ >/dev/null 2>&1 || \
+       curl -s http://localhost:8000/metrics/ >/dev/null 2>&1; then
+        ok "API up on :8000"
+    else
+        err "API may have failed to start — check logs"
+    fi
+}
+
+start_watcher() {
+    info "Restarting watcher..."
+    pkill -f "watcher/watch.py" 2>/dev/null || true
+    sleep 1
+    cd "$PROJECT_DIR"
+    uv run python watcher/watch.py > /tmp/smoltorrent-watcher.log 2>&1 &
+    sleep 2
+    if pgrep -f "watcher/watch.py" >/dev/null; then
+        ok "Watcher up (metrics on :8001) — logs: /tmp/smoltorrent-watcher.log"
+    else
+        err "Watcher failed to start:"
+        tail -10 /tmp/smoltorrent-watcher.log >&2
+    fi
+}
+
+if [[ "$RUN_API" == "true" || "$RUN_WATCHER" == "true" ]]; then
+    [[ "$RUN_API" == "true" ]]     && start_api
+    [[ "$RUN_WATCHER" == "true" ]] && start_watcher
+    # Skip rsync unless --dry-run was also passed (makes no sense without hosts)
+    [[ "$DRY_RUN" == "true" ]] && warn "[DRY RUN] rsync skipped (--api/--watcher mode)"
+    exit 0
+fi
 
 # ── Preflight ──────────────────────────────────────────────────────────────────
 
@@ -91,4 +139,4 @@ done
 
 [[ "$DRY_RUN" == "true" ]] && { warn "[DRY RUN] rsync complete"; exit 0; }
 
-ok "Rsync complete. Run grove_launch.sh to restart API + watcher."
+ok "Rsync complete. Run: bash launch.sh --api --watcher to restart API + watcher."

@@ -27,8 +27,14 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from utils.shard_tracker import add_shard, clear, get_ranks, list_shards_for_rank
-from utils.common_utils import compute_checksum
+from utils.shard_tracker import (
+    add_shard,
+    add_shard_header,
+    get_ranks,
+    get_shard_header,
+    get_shard_info,
+    list_shards_for_rank,
+)
 
 _CONFIG_PATH = Path(__file__).parents[1] / "configs" / "config.yaml"
 _CKPT_ROOT   = Path("~/smolcluster/checkpoints").expanduser()
@@ -77,12 +83,13 @@ def _gather(ckpt_path: Path, timeout: float = 1800.0) -> list[str]:
 # ---------------------------------------------------------------------------
 
 class TestShardTrackerUnit:
-    """Unit tests that never touch the real shard_map.json."""
+    """Unit tests isolated to a temp SQLite DB — never touch the real shard_map.db."""
 
     @pytest.fixture(autouse=True)
     def _isolate_tracker(self, tmp_path, monkeypatch):
         import utils.shard_tracker as st
-        monkeypatch.setattr(st, "_TRACKER_PATH", tmp_path / "shard_map.json")
+        monkeypatch.setattr(st, "_DB_PATH", tmp_path / "shard_map.db")
+        monkeypatch.setattr(st, "_JSON_PATH", tmp_path / "shard_map.json")
         yield
 
     def test_add_and_get(self):
@@ -114,7 +121,6 @@ class TestShardTrackerUnit:
         assert "modelB/step_0"  not in shards
 
     def test_targeted_gather_skips_irrelevant_ranks(self):
-        """Core routing logic: only ranks registered for a key should be targeted."""
         workers = [{"rank": 1}, {"rank": 2}, {"rank": 3}, {"rank": 4}]
         add_shard(rank=1, shard_key="modelA/step_0")
         add_shard(rank=3, shard_key="modelA/step_0")
@@ -126,16 +132,55 @@ class TestShardTrackerUnit:
         assert all(w["rank"] in (1, 3) for w in targeted)
         assert not any(w["rank"] in (2, 4) for w in targeted)
 
-    def test_tracker_survives_json_round_trip(self):
-        """Verify atomic write + re-read preserves exact data."""
-        import utils.shard_tracker as st
-        add_shard(rank=1, shard_key="modelA/step_0")
-        add_shard(rank=2, shard_key="modelA/step_0")
-        add_shard(rank=2, shard_key="modelB/step_0")
+    def test_add_shard_stores_metadata(self):
+        add_shard(rank=1, shard_key="modelA/step_0", host="pi4-1",
+                  shard_files=["shard_0.safetensors"], size_bytes=1024,
+                  source_path="/path/to/model.safetensors")
+        info = get_shard_info("modelA/step_0")
+        assert info is not None
+        assert 1 in info["ranks"]
+        assert info["hosts"]["1"] == "pi4-1"
+        assert "shard_0.safetensors" in info["shard_files"]
+        assert info["size_bytes"] == 1024
+        assert info["source_path"] == "/path/to/model.safetensors"
 
-        data = st._load()
-        assert sorted(data["modelA/step_0"]) == [1, 2]
-        assert data["modelB/step_0"] == [2]
+    def test_add_shard_upsert_updates_host(self):
+        add_shard(rank=1, shard_key="modelA/step_0", host="old-host")
+        add_shard(rank=1, shard_key="modelA/step_0", host="new-host")
+        info = get_shard_info("modelA/step_0")
+        assert info["hosts"]["1"] == "new-host"
+
+    def test_add_shard_header_and_get(self):
+        hdr = '{"weight": {"dtype": "BF16", "shape": [4, 4], "data_offsets": [0, 32]}}'
+        add_shard_header(shard_key="modelA/step_0", header_json=hdr,
+                         data_section_offset=256, num_workers=2)
+        result = get_shard_header("modelA/step_0")
+        assert result is not None
+        assert result["header_json"] == hdr
+        assert result["data_section_offset"] == 256
+        assert result["num_workers"] == 2
+
+    def test_get_shard_header_missing_returns_none(self):
+        assert get_shard_header("nonexistent/key") is None
+
+    def test_add_shard_header_upserts(self):
+        hdr1 = '{"a": {"dtype": "F32", "shape": [2], "data_offsets": [0, 8]}}'
+        hdr2 = '{"b": {"dtype": "F32", "shape": [4], "data_offsets": [0, 16]}}'
+        add_shard_header("modelA/step_0", hdr1, 128, 2)
+        add_shard_header("modelA/step_0", hdr2, 256, 4)
+        result = get_shard_header("modelA/step_0")
+        assert result["header_json"] == hdr2
+        assert result["data_section_offset"] == 256
+        assert result["num_workers"] == 4
+
+    def test_tracker_persists_across_connections(self):
+        """Data written in one call must be readable in a subsequent call (WAL mode)."""
+        add_shard(rank=1, shard_key="modelA/step_0", host="pi4-1")
+        add_shard(rank=2, shard_key="modelA/step_0", host="pi4-2")
+        # Each call opens a new connection — verifies WAL durability
+        assert sorted(get_ranks("modelA/step_0")) == [1, 2]
+        info = get_shard_info("modelA/step_0")
+        assert sorted(info["ranks"]) == [1, 2]
 
 
 # ---------------------------------------------------------------------------
@@ -156,14 +201,14 @@ class TestTrackerRoutingLive:
 
     @pytest.fixture(autouse=True)
     def _clean_tracker_entries(self):
-        """Remove only the test keys so we don't wipe real cluster state."""
+        """Remove only the test model entries so we don't wipe real cluster state."""
+        import utils.shard_tracker as st
         for key in (MODEL_A_KEY, MODEL_B_KEY):
-            # remove stale entries for these two models
-            import utils.shard_tracker as st
-            with st._lock:
-                data = st._load()
-                data.pop(key, None)
-                st._save(data)
+            conn = st._connect()
+            with conn:
+                conn.execute("DELETE FROM shards WHERE shard_key=?", (key,))
+                conn.execute("DELETE FROM shard_headers WHERE shard_key=?", (key,))
+            conn.close()
         yield
         # leave entries in place after test — useful for manual inspection
 

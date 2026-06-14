@@ -93,8 +93,8 @@ class TestStoreShard:
         assert "permanently failed" not in store_body
 
     def test_store_round0_and_round1_logged(self, store_body):
-        assert "[round 0]" in store_body, "round 0 not logged"
-        assert "[round 1]" in store_body, "round 1 not logged"
+        assert "shard_0.safetensors" in store_body, "primary shard filename not logged"
+        assert "shard_1.safetensors" in store_body, "replica shard filename not logged"
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +189,10 @@ class TestReplicaFallback:
         assert "Done: saved →" in fallback_body
 
     def test_fallback_message_logged(self, fallback_body):
-        assert f"trying replica rank {self._REPLICA_RANK}" in fallback_body, (
-            f"Expected replica fallback log not found:\n{fallback_body}"
+        # When the primary is down the gather falls back and logs a ✓ line
+        # mentioning the replica rank (rank 2) once the shard succeeds.
+        assert f"rank {self._REPLICA_RANK}" in fallback_body, (
+            f"Expected replica rank {self._REPLICA_RANK} in gather output:\n{fallback_body}"
         )
 
     def test_merged_file_still_written(self, ckpt_path, fallback_body):
