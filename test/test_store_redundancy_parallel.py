@@ -60,7 +60,7 @@ def _collect_body(response) -> str:
     return response.content.decode()
 
 
-def _ok_send(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+def _ok_send(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename, *args, **kwargs):
     return True, "", {"shard_path": f"/remote/worker_{worker['rank']}/{shard_filename}"}
 
 
@@ -85,7 +85,6 @@ class TestStoreRedundancyParallel:
             patch.object(api_mod, "send_shard_to_worker", send_mock),
             patch.object(api_mod, "heartbeat_workers", return_value=[]),
             patch.object(api_mod, "add_shard_header"),
-            patch.object(api_mod, "add_shard"),
         ):
             client = TestClient(api_mod.app)
             resp = client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
@@ -112,7 +111,7 @@ class TestStoreRedundancyParallel:
         # (file_offset, worker_rank) pairs captured per call
         captured: list[tuple[int, int]] = []
 
-        def _capture(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+        def _capture(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename, *args, **kwargs):
             captured.append((file_offset, worker["rank"]))
             return True, "", {"shard_path": "/tmp/x"}
 
@@ -121,7 +120,6 @@ class TestStoreRedundancyParallel:
             patch.object(api_mod, "send_shard_to_worker", side_effect=_capture),
             patch.object(api_mod, "heartbeat_workers", return_value=[]),
             patch.object(api_mod, "add_shard_header"),
-            patch.object(api_mod, "add_shard"),
         ):
             client = TestClient(api_mod.app)
             client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
@@ -147,7 +145,7 @@ class TestStoreRedundancyParallel:
 
         ranks_per_offset: dict[int, list[int]] = defaultdict(list)
 
-        def _capture(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+        def _capture(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename, *args, **kwargs):
             ranks_per_offset[file_offset].append(worker["rank"])
             return True, "", {"shard_path": "/tmp/x"}
 
@@ -156,7 +154,6 @@ class TestStoreRedundancyParallel:
             patch.object(api_mod, "send_shard_to_worker", side_effect=_capture),
             patch.object(api_mod, "heartbeat_workers", return_value=[]),
             patch.object(api_mod, "add_shard_header"),
-            patch.object(api_mod, "add_shard"),
         ):
             client = TestClient(api_mod.app)
             client.post("/store-shard", params={"ckpt_path": str(fake_ckpt)})
@@ -206,7 +203,7 @@ class TestStoreRedundancyParallel:
         """If one send fails, the body must mention retry and ultimately not permanently fail."""
         call_count = {"n": 0}
 
-        def _flaky(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename):
+        def _flaky(worker, ckpt_path, file_offset, length, tensor_meta, rel_path, shard_filename, *args, **kwargs):
             call_count["n"] += 1
             if worker["rank"] == _FAKE_WORKERS[0]["rank"] and call_count["n"] == 1:
                 return False, "connection refused", {}

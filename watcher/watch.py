@@ -39,7 +39,16 @@ logger = logging.getLogger("smoltorrent.watcher")
 
 
 def _is_stable(path: Path, wait: float = 1.0) -> bool:
-    """Return True if file size hasn't changed after wait seconds."""
+    """Return True if a file's size is unchanged after *wait* seconds.
+
+    Args:
+        path: Path to the file to check.
+        wait: How long to sleep between the two size samples, in seconds (default 1.0).
+
+    Returns:
+        ``True`` if the file exists and its size is the same before and after the
+        wait period.  ``False`` if the file has grown or no longer exists.
+    """
     try:
         before = path.stat().st_size
         time.sleep(wait)
@@ -49,8 +58,16 @@ def _is_stable(path: Path, wait: float = 1.0) -> bool:
 
 
 def _sync_worker(worker: dict, extensions: list[str]) -> tuple[bool, set[str]]:
-    """Ask one worker what rel_paths it already has.
-    Returns (success, set_of_rel_paths). Failed workers return (False, set())."""
+    """Ask one worker which relative checkpoint paths it already holds.
+
+    Args:
+        worker:     Worker config dict (ip, port, rank, …).
+        extensions: File extensions the worker should report (e.g. ``[".safetensors"]``).
+
+    Returns:
+        Tuple of ``(success, set_of_rel_paths)``.  On failure returns
+        ``(False, set())``.
+    """
     rank = worker["rank"]
     try:
         sock = connect_with_retry(worker["ip"], worker["port"], rank, retries=1, delay=0, connect_timeout=0.2)
@@ -64,8 +81,18 @@ def _sync_worker(worker: dict, extensions: list[str]) -> tuple[bool, set[str]]:
 
 
 def _sync_all_workers(workers: list, extensions: list[str]) -> set[str]:
-    """Return rel_paths present on ALL reachable workers (intersection).
-    Unreachable workers are skipped — their absence doesn't poison the result."""
+    """Return the intersection of rel_paths present on all reachable workers.
+
+    Unreachable workers are skipped so a single dead node doesn't block transfers.
+
+    Args:
+        workers:    List of worker config dicts from ``config.yaml``.
+        extensions: File extensions to include in the sync query.
+
+    Returns:
+        Set of relative path strings that every reachable worker already holds.
+        Empty set if no workers are reachable or none share any paths.
+    """
     per_worker: list[set] = []
     with ThreadPoolExecutor(max_workers=len(workers)) as pool:
         futures = {pool.submit(_sync_worker, w, extensions): w for w in workers}
@@ -82,8 +109,15 @@ def _sync_all_workers(workers: list, extensions: list[str]) -> set[str]:
 
 
 def _checksum_sync_worker(worker: dict, rel_path: str) -> str:
-    """Ask one worker to self-validate its shard for rel_path.
-    Returns 'ok', 'mismatch', or 'missing'."""
+    """Ask one worker to self-validate its on-disk shard for *rel_path*.
+
+    Args:
+        worker:   Worker config dict (ip, port, rank, …).
+        rel_path: Relative checkpoint path to validate, e.g. ``"Qwen2.5-0.5B/step_0"``.
+
+    Returns:
+        One of ``"ok"``, ``"mismatch"``, or ``"missing"``.
+    """
     rank = worker["rank"]
     try:
         sock = connect_with_retry(worker["ip"], worker["port"], rank, retries=1, delay=0, connect_timeout=0.2)
@@ -101,8 +135,17 @@ def _checksum_sync_worker(worker: dict, rel_path: str) -> str:
 def _checksum_sync_all(
     workers: list, intersection: list[Path], ckpt_root: Path
 ) -> set[Path]:
-    """Check all workers for every file in the intersection.
-    Returns Path objects where any worker reports mismatch or missing."""
+    """Check all workers for every file in the intersection and return corrupted paths.
+
+    Args:
+        workers:      List of worker config dicts.
+        intersection: Local checkpoint paths that workers already report holding.
+        ckpt_root:    Root directory used to compute relative paths.
+
+    Returns:
+        Set of :class:`~pathlib.Path` objects where any worker reported
+        ``"mismatch"`` or ``"missing"`` — these need re-transfer.
+    """
     if not intersection:
         return set()
     corrupted: set[Path] = set()
@@ -129,8 +172,16 @@ def _checksum_sync_all(
 
 
 def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[str]]:
-    """Ask one worker which rel_paths are missing entirely.
-    Returns (rank, missing_rel_paths). Unreachable workers report all as missing."""
+    """Ask one worker which of the given rel_paths are missing entirely.
+
+    Args:
+        worker:    Worker config dict (ip, port, rank, …).
+        rel_paths: List of relative checkpoint paths to check for presence.
+
+    Returns:
+        Tuple of ``(rank, missing_rel_paths)``.  Unreachable workers return
+        all paths as missing so callers queue a re-transfer for every path.
+    """
     rank = worker["rank"]
     try:
         sock = connect_with_retry(worker["ip"], worker["port"], rank, retries=1, delay=0, connect_timeout=1.0)
@@ -146,9 +197,22 @@ def _crosscheck_worker(worker: dict, rel_paths: list[str]) -> tuple[int, list[st
 def _crosscheck_all_workers(
     workers: list, local_paths: list[Path], ckpt_root: Path, checksum: bool = False
 ) -> list[Path]:
-    """Verify every worker has a shard for every local checkpoint.
-    If checksum=True, also validates integrity of present shards and includes corrupted ones.
-    Returns the subset of local_paths that need re-transfer."""
+    """Verify every worker has a shard for every local checkpoint file.
+
+    Optionally also validates integrity of present shards and includes corrupted
+    ones in the re-transfer set.
+
+    Args:
+        workers:     List of worker config dicts.
+        local_paths: All local checkpoint paths to verify against workers.
+        ckpt_root:   Root directory used to compute relative paths.
+        checksum:    If ``True``, also run :func:`_checksum_sync_all` on shards
+                     that workers report as present (default ``False``).
+
+    Returns:
+        Subset of *local_paths* that need re-transfer — either missing from at
+        least one worker or failing the integrity check.
+    """
     if not local_paths:
         return []
     rel_paths = [str(p.parent.relative_to(ckpt_root)) for p in local_paths]
@@ -183,7 +247,15 @@ def _crosscheck_all_workers(
 
 
 def _scan_local(ckpt_root: Path, extensions: list[str]) -> list[Path]:
-    """Find all files under ckpt_root matching any of the given extensions."""
+    """Find all files under *ckpt_root* whose suffix matches any of *extensions*.
+
+    Args:
+        ckpt_root:  Root directory to search recursively.
+        extensions: List of file suffixes to match, e.g. ``[".safetensors"]``.
+
+    Returns:
+        Flat list of matching :class:`~pathlib.Path` objects in an unspecified order.
+    """
     paths = []
     for ext in extensions:
         paths.extend(ckpt_root.rglob(f"*{ext}"))
@@ -193,7 +265,20 @@ def _scan_local(ckpt_root: Path, extensions: list[str]) -> list[Path]:
 def _run_pending_loop(
     pending: list, pending_lock: threading.Lock, trigger: threading.Event
 ) -> None:
-    """Pending loop: wakes every 10s to re-check pending files for stability."""
+    """Daemon loop that wakes every 10 s to re-check pending files for stability.
+
+    Files that have become stable are removed from *pending* and cause *trigger*
+    to be set so the transfer loop wakes and processes them.  Files that no
+    longer exist are silently dropped.  Runs until the process exits.
+
+    Args:
+        pending:      Shared list of :class:`~pathlib.Path` objects not yet stable.
+        pending_lock: Lock that guards *pending*.
+        trigger:      :class:`threading.Event` used to wake the transfer loop.
+
+    Returns:
+        None.
+    """
 
     while True:
         time.sleep(10)
@@ -227,11 +312,25 @@ def _run_transfer_loop(
     pending: list,
     pending_lock: threading.Lock,
 ) -> None:
-    """Transfer thread: wake on trigger, sync, diff, transfer, then check pending.
+    """Daemon loop that wakes on *trigger* and performs sync → diff → transfer.
 
-    checksum_sync (re-hashing existing shards on workers) runs only on the first
-    wake-up (startup). Subsequent triggers skip it — per-transfer integrity is
-    already guaranteed by the SHA-256 sent with every store_shard call.
+    On the first wake-up (startup) runs a full checksum sweep over shards
+    already present on workers.  Subsequent wakes skip it — per-transfer
+    SHA-256 already guarantees integrity.  After each transfer batch, a
+    crosscheck verifies every worker holds every shard.  Runs until the
+    process exits.
+
+    Args:
+        ckpt_root:    Root directory containing local checkpoint files.
+        workers:      List of worker config dicts from ``config.yaml``.
+        extensions:   File extensions to watch and transfer, e.g. ``[".safetensors"]``.
+        trigger:      :class:`threading.Event` set by the watchdog handler or the
+                      pending loop to wake this thread.
+        pending:      Shared list of not-yet-stable paths (read but not modified here).
+        pending_lock: Lock that guards *pending*.
+
+    Returns:
+        None.
     """
     startup = True
     while True:
@@ -332,13 +431,35 @@ def _run_transfer_loop(
 class CheckpointHandler(FileSystemEventHandler):
     """Watchdog handler: stable files trigger transfer loop; unstable go to pending."""
 
-    def __init__(self, extensions, trigger, pending, pending_lock):
+    def __init__(self, extensions, trigger, pending, pending_lock) -> None:
+        """Initialise the handler with shared state.
+
+        Args:
+            extensions:   List of file suffixes to react to (e.g. ``[".safetensors"]``).
+            trigger:      :class:`threading.Event` set when a stable file is detected.
+            pending:      Shared list for files that are not yet stable.
+            pending_lock: Lock guarding *pending*.
+
+        Returns:
+            None.
+        """
         self._ext = extensions
         self._trigger = trigger
         self._pending = pending
         self._lock = pending_lock
 
     def on_created(self, event) -> None:
+        """React to a filesystem creation event.
+
+        Stable files set *trigger* immediately; unstable files are added to *pending*
+        for later re-evaluation by the pending loop.
+
+        Args:
+            event: Watchdog :class:`~watchdog.events.FileCreatedEvent`.
+
+        Returns:
+            None.
+        """
         if event.is_directory:
             return
         src = event.src_path
@@ -355,6 +476,14 @@ class CheckpointHandler(FileSystemEventHandler):
 
 
 def main() -> None:
+    """Parse arguments, set up the watcher, and block until interrupted.
+
+    Args:
+        None: reads ``--ext`` from sys.argv and cluster config from config.yaml.
+
+    Returns:
+        None.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--ext",

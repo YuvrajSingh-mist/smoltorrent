@@ -176,10 +176,25 @@ def gather_shard_data_only(
 def run_retry_worker(
     retry_queue: Queue, recovered: list, dead_letter: list, lock: threading.Lock
 ) -> None:
-    """Daemon thread that drains retry_queue with exponential backoff.
+    """Daemon thread that drains *retry_queue* with exponential backoff.
 
-    Each item must have keys: ``fn`` (zero-arg callable → (ok, err, result)),
-    ``worker``, ``attempt``.
+    Each queue item is a dict with keys:
+      * ``fn``      — zero-arg callable returning ``(ok, err, result)``.
+      * ``worker``  — worker config dict (rank, host, …).
+      * ``attempt`` — current attempt number (incremented on re-queue).
+
+    Items that exceed ``MAX_RETRIES`` are moved to *dead_letter*; items that
+    succeed are appended to *recovered*.  Both lists are guarded by *lock*.
+    Runs until the process exits (never returns).
+
+    Args:
+        retry_queue:  :class:`queue.Queue` fed by the main store/gather loop.
+        recovered:    Shared list; successful retries are appended here.
+        dead_letter:  Shared list; permanently failed jobs are appended here.
+        lock:         Threading lock protecting both shared lists.
+
+    Returns:
+        None.
     """
     while True:
         item = retry_queue.get()
@@ -210,7 +225,17 @@ def run_retry_worker(
 
 
 def heartbeat_workers(workers: list[dict], timeout: float = 3.0) -> list[dict]:
-    """Ping every worker. Returns list of unreachable workers."""
+    """Ping every configured worker and return the list of unreachable ones.
+
+    Args:
+        workers: List of worker config dicts from ``config.yaml``, each containing
+                 at minimum ``rank``, ``ip``, and ``port``.
+        timeout: Per-worker connect/receive timeout in seconds (default 3.0).
+
+    Returns:
+        List of dicts for workers that did not respond, each with keys
+        ``rank`` and ``host``.  Empty list if all workers are alive.
+    """
     dead = []
     for w in workers:
         rank = w["rank"]

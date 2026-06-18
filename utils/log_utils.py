@@ -43,7 +43,16 @@ CTX_ORDER = ("arch", "algorithm", "role", "hardware")
 
 
 def _infer_hardware(hostname: str) -> str:
-    """Derive human-readable hardware label from hostname."""
+    """Derive a human-readable hardware label from a hostname string.
+
+    Args:
+        hostname: Raw hostname of the machine (e.g. ``"rpi4"``, ``"macmini1"``).
+
+    Returns:
+        A short label such as ``"RPi"``, ``"Mac Mini"``, ``"Jetson"``,
+        ``"MacBook"``, or the original hostname if no pattern matches.
+        Returns an empty string if *hostname* is empty.
+    """
     if not hostname:
         return ""
     h = hostname.lower()
@@ -67,8 +76,18 @@ def set_log_context(
 ) -> None:
     """Set global context fields that appear on every log line.
 
-    Call once from the main entry-point after setup_logging().
-    Fields are shown as  [arch | algorithm | role | hardware]  in each line.
+    Call once from the main entry-point after :func:`setup_logging`.
+    Fields are shown as ``[arch | algorithm | role | hardware]`` in each line
+    by :class:`ColourFormatter`.
+
+    Args:
+        algorithm: Short algorithm name, e.g. ``"syncps"`` or ``"api"``.
+        arch:      Architecture name, e.g. ``"smoltorrent"``.
+        role:      Process role string, e.g. ``"server"`` or ``"worker-2"``.
+        hardware:  Hardware label, e.g. ``"RPi"`` or ``"Mac Mini"``.
+
+    Returns:
+        None.
     """
     for key, val in (
         ("algorithm", algorithm),
@@ -97,6 +116,16 @@ class ColourFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003
+        """Format a log record as a single ANSI-coloured line.
+
+        Args:
+            record: The :class:`logging.LogRecord` to format.
+
+        Returns:
+            A fully-formatted string ready for writing to stderr, including
+            ANSI colour escape codes, bracketed-tag highlighting, and an
+            optional exception traceback appended on a new line.
+        """
         record.message = record.getMessage()
         record.asctime = self.formatTime(record, "%H:%M:%S")
 
@@ -175,12 +204,29 @@ def setup_logging(
 class RankFilter(logging.Filter):
     """Attach rank and component fields to every log record."""
 
-    def __init__(self, rank: Optional[int] = None, component: str = "server"):
+    def __init__(self, rank: Optional[int] = None, component: str = "server") -> None:
+        """Initialise the filter with a rank and component label.
+
+        Args:
+            rank:      Integer worker rank, or ``None`` for the server (stored as -1).
+            component: Human-readable role string, e.g. ``"server"`` or ``"worker"``.
+
+        Returns:
+            None.
+        """
         super().__init__()
         self.rank = rank if rank is not None else -1
         self.component = component
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Inject ``rank`` and ``component`` attributes into *record* and allow it through.
+
+        Args:
+            record: The log record being processed.
+
+        Returns:
+            Always ``True`` — this filter never suppresses records.
+        """
         record.rank = self.rank
         record.component = self.component
         return True
@@ -196,12 +242,51 @@ def setup_cluster_logging(
     algorithm: str = "",
     arch: str = "",
 ) -> None:
-    """Add structured file logging to an existing logger."""
+    """Add a structured (no-ANSI) file handler to an existing logger.
+
+    The log file is placed under ``logging/cluster-logs/`` in the project root
+    (or *log_dir* if supplied).  Duplicate file handlers are silently skipped so
+    this function is safe to call multiple times.  Also updates the global
+    :func:`set_log_context` fields so the console formatter shows the same context.
+
+    Args:
+        logger:    The :class:`logging.Logger` to attach the file handler to.
+        component: Process role — ``"server"`` or ``"worker"``; controls the log
+                   file name prefix.
+        rank:      Worker rank integer (only relevant when ``component != "server"``).
+        hostname:  Hostname used in the log file name; defaults to ``"unknown"``.
+        log_dir:   Override for the cluster-log directory path.
+        level:     Minimum log level for the file handler (default ``INFO``).
+        algorithm: Algorithm tag written into every log line, e.g. ``"syncps"``.
+        arch:      Architecture tag written into every log line, e.g. ``"smoltorrent"``.
+
+    Returns:
+        None.
+    """
 
     def _project_log_dir() -> Path:
+        """Return the default cluster-log directory path.
+
+        Args:
+            None.
+
+        Returns:
+            Absolute :class:`~pathlib.Path` to ``<project_root>/logging/cluster-logs``.
+        """
         return Path(__file__).resolve().parents[1] / "logging" / "cluster-logs"
 
     def _pick_writable(preferred: Optional[str]) -> Path:
+        """Return the first writable directory from a prioritised candidate list.
+
+        Args:
+            preferred: Caller-supplied path string, or ``None`` to use the default.
+
+        Returns:
+            An existing, writable :class:`~pathlib.Path`.
+
+        Raises:
+            OSError: If no writable candidate can be found or created.
+        """
         default = _project_log_dir()
         for candidate in [
             Path(preferred) if preferred else default,

@@ -323,7 +323,14 @@ def run_worker(worker_rank: int, hostname: str, port: Optional[int] = None) -> N
 
 
 def main() -> None:
-    
+    """Parse command-line arguments and delegate to run_worker.
+
+    Args:
+        None: reads from sys.argv via argparse (rank, hostname, --port).
+
+    Returns:
+        None.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("rank", type=int)
     parser.add_argument("hostname")

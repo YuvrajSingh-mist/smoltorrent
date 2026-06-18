@@ -72,7 +72,15 @@ except ImportError:
 # ── TCP helpers ───────────────────────────────────────────────────────────────
 
 def update_prom_gauges(metrics: dict) -> None:
-    """Push derived network metrics to Prometheus gauges."""
+    """Push derived network metrics to Prometheus gauges.
+
+    Args:
+        metrics: Dict from :meth:`~utils.network_metrics.NetworkMetrics.get_metrics`;
+                 only keys that map to a known Prometheus gauge are written.
+
+    Returns:
+        None.
+    """
     if not HAS_PROM or not metrics:
         return
     if "send_bandwidth_mbps" in metrics and PROM_SEND_BW_MBPS is not None:
@@ -106,6 +114,15 @@ class WorkerMetrics:
 
 
 def init_worker_metrics(rank: int) -> Optional["WorkerMetrics"]:
+    """Create and expose per-rank Prometheus worker metrics on port 9200+rank.
+
+    Args:
+        rank: Integer worker rank; determines the HTTP metrics port (9200 + rank).
+
+    Returns:
+        A populated :class:`WorkerMetrics` dataclass, or ``None`` if
+        ``prometheus_client`` is not installed.
+    """
     if not HAS_PROM:
         logger.warning("[prom] prometheus_client unavailable — worker metrics disabled")
         return None
@@ -140,6 +157,15 @@ class WatcherMetrics:
 
 
 def init_watcher_metrics(port: int = 8001) -> Optional["WatcherMetrics"]:
+    """Create and expose watcher Prometheus metrics on *port*.
+
+    Args:
+        port: HTTP port on which to serve ``/metrics`` (default 8001).
+
+    Returns:
+        A populated :class:`WatcherMetrics` dataclass with ``up`` set to 1,
+        or ``None`` if ``prometheus_client`` is not installed.
+    """
     if not HAS_PROM:
         logger.warning("[prom] prometheus_client unavailable — watcher metrics disabled")
         return None

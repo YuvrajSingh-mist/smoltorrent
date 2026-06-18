@@ -49,6 +49,13 @@ def _write_config(registered: list[dict]) -> None:
     Reads existing config, updates ``num_workers`` and ``devices_config.workers``,
     then writes it back with ``"w"`` (full replace — YAML cannot be appended to).
     Called every time a worker registers, so late-joining workers are recorded.
+
+    Args:
+        registered: Current list of registered worker dicts, each containing
+                    at minimum ``hostname``, ``ip``, ``rank``, and ``port``.
+
+    Returns:
+        None.
     """
     with CONFIG_PATH.open() as f:
         cfg = yaml.safe_load(f)
@@ -62,7 +69,14 @@ def _write_config(registered: list[dict]) -> None:
 
 
 def cmd_start(n: int) -> None:
-    """Advertise this node as master, wait for N workers to join, then launch."""
+    """Advertise this node as master, wait for N workers to join, then launch the cluster.
+
+    Args:
+        n: Number of worker nodes to wait for before launching the cluster.
+
+    Returns:
+        None.
+    """
     from discovery.grove._mdns import MasterAdvertiser, REGISTRATION_PORT
     from discovery.grove._utils import setup_grove_logging
 
@@ -74,6 +88,14 @@ def cmd_start(n: int) -> None:
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            """Handle a worker registration POST request.
+
+            Args:
+                None: reads JSON body from the request stream.
+
+            Returns:
+                None. Sends a 200 JSON response with ``rank`` and ``port``.
+            """
             length = int(self.headers.get("Content-Length", 0))
             body = loads(self.rfile.read(length))
             with lock:
@@ -92,6 +114,15 @@ def cmd_start(n: int) -> None:
             self.wfile.write(dumps({"rank": rank, "port": body["port"]}).encode())
 
         def log_message(self, format: str, *args: object) -> None:
+            """Suppress the default per-request HTTP server log output.
+
+            Args:
+                format: printf-style format string (ignored).
+                *args:  Format arguments (ignored).
+
+            Returns:
+                None.
+            """
             pass
 
     server = HTTPServer(("0.0.0.0", REGISTRATION_PORT), Handler)
@@ -116,7 +147,14 @@ def cmd_start(n: int) -> None:
 
 
 def cmd_join() -> None:
-    """Discover a smoltorrent master via TUI, register, then start worker.py."""
+    """Discover a smoltorrent master via the TUI, register this node, then start worker.py.
+
+    Args:
+        None: reads master selection interactively via JoinApp TUI.
+
+    Returns:
+        None.
+    """
     import httpx
     from discovery.grove._mdns import MasterBrowser
     from discovery.grove._utils import get_local_ip, setup_grove_logging
@@ -166,6 +204,16 @@ def cmd_join() -> None:
 
 
 def main() -> None:
+    """Parse CLI arguments and dispatch to the appropriate sub-command.
+
+    Sub-commands: ``start``, ``join``, ``store``, ``gather``.
+
+    Args:
+        None: reads from sys.argv via argparse.
+
+    Returns:
+        None.
+    """
     parser = argparse.ArgumentParser(description="SmolTorrent")
     sub = parser.add_subparsers(dest="action", required=True)
 

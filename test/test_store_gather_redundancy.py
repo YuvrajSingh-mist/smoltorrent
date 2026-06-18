@@ -39,14 +39,28 @@ def _ckpt_path() -> str:
     return str(candidates[0])
 
 
-def _stream_post(endpoint: str, ckpt_path: str) -> str:
-    """POST to a streaming endpoint, collect and return full body as string."""
+def _store(ckpt_path: str) -> str:
+    """POST /store-shard with an absolute checkpoint path, return full streamed body."""
     with httpx.Client(timeout=None) as client:
-        with client.stream(
-            "POST", f"{API_BASE}/{endpoint}", params={"ckpt_path": ckpt_path}
-        ) as resp:
+        with client.stream("POST", f"{API_BASE}/store-shard", params={"ckpt_path": ckpt_path}) as resp:
             resp.raise_for_status()
             return resp.read().decode()
+
+
+def _gather(shard_key: str) -> str:
+    """POST /gather-shards with a shard_key, return full streamed body."""
+    with httpx.Client(timeout=None) as client:
+        with client.stream("POST", f"{API_BASE}/gather-shards", params={"shard_key": shard_key}) as resp:
+            resp.raise_for_status()
+            return resp.read().decode()
+
+
+def _extract_shard_key(store_body: str) -> str:
+    """Parse the 'Shard key: ...' line emitted at the end of a successful store."""
+    for line in store_body.splitlines():
+        if line.startswith("Shard key: "):
+            return line.removeprefix("Shard key: ").strip()
+    raise ValueError(f"No 'Shard key:' line found in store response:\n{store_body}")
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +76,7 @@ class TestStoreShard:
 
     @pytest.fixture(scope="class")
     def store_body(self, ckpt_path):
-        return _stream_post("store-shard", ckpt_path)
+        return _store(ckpt_path)
 
     def test_store_succeeds(self, store_body):
         assert "ERROR" not in store_body, f"Store failed:\n{store_body}"
@@ -70,8 +84,11 @@ class TestStoreShard:
     def test_store_done_line_present(self, store_body):
         assert "Done:" in store_body, f"No Done line in store output:\n{store_body}"
 
+    def test_store_emits_shard_key(self, store_body):
+        key = _extract_shard_key(store_body)
+        assert key, f"Shard key is empty:\n{store_body}"
+
     def test_store_sends_two_rounds(self, store_body):
-        """With REDUNDANCY=2 every rank should appear twice (round 0 + round 1)."""
         cfg = _config()
         for w in cfg["devices_config"]["workers"]:
             rank = w["rank"]
@@ -81,7 +98,6 @@ class TestStoreShard:
             )
 
     def test_store_reports_correct_total_sends(self, store_body):
-        """Done line should say 'N*2/N*2 sends (2x replicated)'."""
         cfg = _config()
         n = len(cfg["devices_config"]["workers"])
         expected = f"{n * 2}/{n * 2} sends"
@@ -98,27 +114,26 @@ class TestStoreShard:
 
 
 # ---------------------------------------------------------------------------
-# /gather-shards
+# /gather-shards — uses shard_key from store response, no ckpt_path
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.api
 class TestGatherShards:
     @pytest.fixture(scope="class")
-    def ckpt_path(self):
-        return _ckpt_path()
+    def shard_key(self):
+        store_body = _store(_ckpt_path())
+        return _extract_shard_key(store_body)
 
     @pytest.fixture(scope="class")
-    def gather_body(self, ckpt_path):
-        # Ensure shards are stored first
-        _stream_post("store-shard", ckpt_path)
-        return _stream_post("gather-shards", ckpt_path)
+    def gather_body(self, shard_key):
+        return _gather(shard_key)
 
     def test_gather_succeeds(self, gather_body):
         assert "ERROR" not in gather_body, f"Gather failed:\n{gather_body}"
 
     def test_gather_done_line_present(self, gather_body):
-        assert "Done: saved →" in gather_body
+        assert "Done:" in gather_body, f"No Done line in gather output:\n{gather_body}"
 
     def test_gather_all_shards_collected(self, gather_body):
         cfg = _config()
@@ -127,12 +142,10 @@ class TestGatherShards:
                 f"shard {i} not mentioned in gather output"
             )
 
-    def test_merged_file_exists(self, ckpt_path, gather_body):
+    def test_merged_file_exists(self, shard_key, gather_body):
         cfg = _config()
         ckpt_root = Path(cfg["ckpt_root"]).expanduser()
-        ckpt_file = Path(ckpt_path)
-        rel = ckpt_file.parent.relative_to(ckpt_root)
-        merged = ckpt_root / rel / "merged.safetensors"
+        merged = ckpt_root / shard_key / "merged.safetensors"
         assert merged.exists(), f"merged.safetensors not found at {merged}"
 
     def test_gather_no_failed_shards(self, gather_body):
@@ -150,25 +163,20 @@ class TestReplicaFallback:
     """Kill pi4-1's worker, gather — should fall back to pi4-2 for shard 0."""
 
     _PI = "pi4-1"
-    _RANK = 1
-    _REPLICA_RANK = 2
+    _RANK = 3          # minilab-pi4-1 is rank 3 in config
+    _REPLICA_RANK = 4  # shard replica for rank 3 lands on rank 4 (minilab-pi4-2)
 
     @pytest.fixture(scope="class")
-    def ckpt_path(self):
-        return _ckpt_path()
-
-    @pytest.fixture(scope="class", autouse=True)
-    def ensure_stored(self, ckpt_path):
-        """Store shards (both rounds) before any fallback test."""
-        _stream_post("store-shard", ckpt_path)
+    def shard_key(self):
+        store_body = _store(_ckpt_path())
+        return _extract_shard_key(store_body)
 
     @pytest.fixture(scope="class")
-    def fallback_body(self, ckpt_path):
+    def fallback_body(self, shard_key):
         """Kill pi4-1 once, gather once, restore — all three tests share this result."""
         subprocess.run(["ssh", self._PI, "pkill -f 'worker.py'"], capture_output=True)
-        time.sleep(3)  # wait for port to close
-        body = _stream_post("gather-shards", ckpt_path)
-        # Restore pi4-1
+        time.sleep(3)
+        body = _gather(shard_key)
         subprocess.run(
             [
                 "ssh",
@@ -179,25 +187,22 @@ class TestReplicaFallback:
             ],
             capture_output=True,
         )
-        time.sleep(6)  # wait for worker to fully bind + re-advertise
+        time.sleep(6)
         return body
 
     def test_gather_succeeds_with_primary_down(self, fallback_body):
         assert "ERROR" not in fallback_body, (
             f"Gather failed with pi4-1 down:\n{fallback_body}"
         )
-        assert "Done: saved →" in fallback_body
+        assert "Done:" in fallback_body
 
     def test_fallback_message_logged(self, fallback_body):
-        # When the primary is down the gather falls back and logs a ✓ line
-        # mentioning the replica rank (rank 2) once the shard succeeds.
         assert f"rank {self._REPLICA_RANK}" in fallback_body, (
             f"Expected replica rank {self._REPLICA_RANK} in gather output:\n{fallback_body}"
         )
 
-    def test_merged_file_still_written(self, ckpt_path, fallback_body):
+    def test_merged_file_still_written(self, shard_key, fallback_body):
         cfg = _config()
         ckpt_root = Path(cfg["ckpt_root"]).expanduser()
-        rel = Path(ckpt_path).parent.relative_to(ckpt_root)
-        merged = ckpt_root / rel / "merged.safetensors"
+        merged = ckpt_root / shard_key / "merged.safetensors"
         assert merged.exists()

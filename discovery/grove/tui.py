@@ -30,12 +30,29 @@ class LogCapture(io.TextIOBase):
     """
 
     def __init__(self, max_lines: int = 200) -> None:
+        """Initialise an empty ring buffer.
+
+        Args:
+            max_lines: Maximum number of log lines to retain before evicting
+                       the oldest (default 200).
+
+        Returns:
+            None.
+        """
         self.lines: list[str] = []
         self.lock = threading.Lock()
         self.max_lines = max_lines
         self.new_lines: list[str] = []
 
     def write(self, s: str) -> int:
+        """Append non-empty lines from *s* to the ring buffer.
+
+        Args:
+            s: String to write (may contain multiple lines or be empty).
+
+        Returns:
+            Number of characters in *s* (matches the :class:`io.TextIOBase` contract).
+        """
         if not s or s == "\n":
             return len(s) if s else 0
         with self.lock:
@@ -48,6 +65,14 @@ class LogCapture(io.TextIOBase):
         return len(s)
 
     def flush(self) -> None:
+        """No-op flush to satisfy the :class:`io.TextIOBase` interface.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         pass
 
     def drain_new(self) -> list[str]:
@@ -66,7 +91,16 @@ class ClusterRow:
     """Lightweight wrapper that adds computed ``age`` and ``full``
     properties to a raw cluster dict from :class:`MasterBrowser`."""
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict) -> None:
+        """Wrap a raw cluster dict from :class:`MasterBrowser`.
+
+        Args:
+            data: Cluster dict with keys ``name``, ``uid``, ``current``,
+                  ``hostname``, and ``started``.
+
+        Returns:
+            None.
+        """
         self.name = data.get("name", "?")
         self.uid = data.get("uid", "?")
         self.current = int(data.get("current", 0))
@@ -113,7 +147,16 @@ class JoinApp(App):
 
     BINDINGS = [Binding("q", "quit", "Quit", show=False)]
 
-    def __init__(self, browser: Any):
+    def __init__(self, browser: Any) -> None:
+        """Initialise the JoinApp with a live master browser.
+
+        Args:
+            browser: A :class:`~discovery.grove._mdns.MasterBrowser` that
+                     provides a ``get_clusters()`` method.
+
+        Returns:
+            None.
+        """
         super().__init__()
         self.browser = browser
         self.selected_cluster: Optional[dict] = None
@@ -121,6 +164,15 @@ class JoinApp(App):
         log.info("[tui] JoinApp initialised")
 
     def compose(self) -> ComposeResult:
+        """Build the widget tree for the JoinApp screen.
+
+        Args:
+            None.
+
+        Returns:
+            :class:`~textual.app.ComposeResult` yielding the title, cluster
+            table, and hint bar widgets.
+        """
         yield Static("[b]grove[/]  select a cluster", id="title")
         table = DataTable(id="clusters")
         table.cursor_type = "row"
@@ -129,11 +181,27 @@ class JoinApp(App):
         yield Static("  [dim]↑↓ select   enter join   q quit[/]", id="hint")
 
     def on_mount(self) -> None:
+        """Set up a 1-second refresh interval and focus the cluster table on mount.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.set_interval(1.0, self.refresh_table)
         self.refresh_table()
         self.query_one("#clusters", DataTable).focus()
 
     def refresh_table(self) -> None:
+        """Repopulate the cluster table from the latest browser snapshot.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.clusters = self.browser.get_clusters()
         table = self.query_one("#clusters", DataTable)
         cursor = table.cursor_row
@@ -153,6 +221,14 @@ class JoinApp(App):
             table.move_cursor(row=min(cursor, len(self.clusters) - 1))
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Store the selected cluster and exit the app when a row is confirmed.
+
+        Args:
+            event: Textual :class:`~textual.widgets.DataTable.RowSelected` event.
+
+        Returns:
+            None.
+        """
         idx = event.cursor_row
         if idx < len(self.clusters):
             self.selected_cluster = self.clusters[idx]
@@ -164,6 +240,14 @@ class JoinApp(App):
         self.exit()
 
     async def action_quit(self) -> None:
+        """Handle the ``q`` keybinding: exit without selecting a cluster.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         log.info("[tui] JoinApp quit — no cluster selected")
         self.selected_cluster = None
         self.exit()
@@ -209,7 +293,23 @@ class DashboardApp(App):
         log_capture: Optional["LogCapture"] = None,
         done_event: Optional["threading.Event"] = None,
         error_event: Optional["threading.Event"] = None,
-    ):
+    ) -> None:
+        """Initialise the DashboardApp with cluster state and optional log capture.
+
+        Args:
+            get_state:   Zero-arg callable (or callable returning callable) that
+                         returns the current cluster state dict.
+            cluster_name: Human-readable cluster name shown in the header.
+            uid:         Unique cluster identifier shown in the header.
+            my_rank:     This node's rank, or ``None`` for the coordinator view.
+            log_capture: Optional :class:`LogCapture` ring buffer; if provided,
+                         log lines are displayed in the TUI log panel.
+            done_event:  Optional event set when training completes successfully.
+            error_event: Optional event set when training exits with an error.
+
+        Returns:
+            None.
+        """
         super().__init__()
         self.get_state = get_state
         self.cluster_name = cluster_name
@@ -223,6 +323,15 @@ class DashboardApp(App):
         self.start_time = time.monotonic()
 
     def compose(self) -> ComposeResult:
+        """Build the DashboardApp widget tree.
+
+        Args:
+            None.
+
+        Returns:
+            :class:`~textual.app.ComposeResult` yielding the header, node table,
+            stats bar, log panel, and footer widgets.
+        """
         role = f"rank {self.my_rank}" if self.my_rank is not None else "coordinator"
         yield Static(
             f"[b]grove[/]  {self.cluster_name}  [dim cyan]{self.uid}[/]  {role}",
@@ -241,15 +350,39 @@ class DashboardApp(App):
         yield Static("  [dim]q quit   l toggle logs[/]", id="footer")
 
     def on_mount(self) -> None:
+        """Set up a 1-second refresh interval and trigger an initial render on mount.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.set_interval(1.0, self.refresh_dash)
         self.refresh_dash()
 
     def refresh_dash(self) -> None:
+        """Refresh all three dashboard panels: header, node table, and log pane.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.refresh_header()
         self.refresh_table()
         self.refresh_logs()
 
     def refresh_header(self) -> None:
+        """Update the header widget with current elapsed time and training status.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         elapsed = format_elapsed(time.monotonic() - self.start_time)
         role = f"rank {self.my_rank}" if self.my_rank is not None else "coordinator"
         if self.training_done:
@@ -269,6 +402,14 @@ class DashboardApp(App):
             self.training_done = True
 
     def refresh_table(self) -> None:
+        """Repopulate the node table from the latest cluster state snapshot.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         state: Any = self.get_state()
         if not state:
             return
@@ -293,6 +434,15 @@ class DashboardApp(App):
         epoch = state.get("epoch", 0)
 
         def _get(d, rank):
+            """Look up *rank* in *d* trying str, original, and int forms.
+
+            Args:
+                d:    Dict keyed by rank in any of str/int/original forms.
+                rank: Rank value to look up.
+
+            Returns:
+                The matching value, or ``None`` if not found under any key form.
+            """
             return d.get(str(rank), d.get(rank, d.get(int(rank), None)))
 
         for rank in all_ranks:
@@ -366,6 +516,14 @@ class DashboardApp(App):
         self.query_one("#stats", Static).update(Text("".join(parts), style="dim"))
 
     def refresh_logs(self) -> None:
+        """Drain new log lines from the capture buffer and append them to the log panel.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if self.log_capture is None or not self.logs_visible:
             return
         log_widget = self.query_one("#logs", RichLog)
@@ -373,6 +531,14 @@ class DashboardApp(App):
             log_widget.write(Text.from_ansi(line))
 
     def action_toggle_logs(self) -> None:
+        """Toggle the log panel visibility in response to the ``l`` keybinding.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.logs_visible = not self.logs_visible
         log_widget = self.query_one("#logs", RichLog)
         log_widget.display = self.logs_visible
@@ -382,6 +548,14 @@ class DashboardApp(App):
         )
 
     async def action_quit(self) -> None:
+        """Handle the ``q`` keybinding: exit the dashboard.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.exit()
 
 
@@ -407,13 +581,31 @@ class WorkerPickerApp(App):
         Binding("enter", "confirm", "Confirm", show=False, priority=True),
     ]
 
-    def __init__(self, discovered: list[dict]):
+    def __init__(self, discovered: list[dict]) -> None:
+        """Initialise the WorkerPickerApp with a list of discovered worker nodes.
+
+        Args:
+            discovered: List of worker dicts (rank, hostname, ip, port) from mDNS
+                        or AirDrop discovery.
+
+        Returns:
+            None.
+        """
         super().__init__()
         self.smolt_nodes = discovered
         self.selected: set[int] = set()
         self.chosen: list[dict] = []
 
     def compose(self) -> ComposeResult:
+        """Build the WorkerPickerApp widget tree.
+
+        Args:
+            None.
+
+        Returns:
+            :class:`~textual.app.ComposeResult` yielding the title, worker table,
+            and hint bar widgets.
+        """
         yield Static("[b]smoltorrent[/]  select nodes to add to cluster", id="title")
         table = DataTable(id="workers")
         table.cursor_type = "row"
@@ -425,10 +617,26 @@ class WorkerPickerApp(App):
         )
 
     def on_mount(self) -> None:
+        """Populate the worker table and focus it on mount.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.refresh_worker_table()
         self.query_one("#workers", DataTable).focus()
 
     def refresh_worker_table(self) -> None:
+        """Repopulate the worker table, preserving the current cursor position.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         table = self.query_one("#workers", DataTable)
         cursor = table.cursor_row
         table.clear()
@@ -447,6 +655,14 @@ class WorkerPickerApp(App):
             table.move_cursor(row=min(cursor, len(self.smolt_nodes) - 1))
 
     def action_toggle_select(self) -> None:
+        """Toggle the selection state of the row under the cursor.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         idx = self.query_one("#workers", DataTable).cursor_row
         if idx in self.selected:
             self.selected.discard(idx)
@@ -455,6 +671,14 @@ class WorkerPickerApp(App):
         self.refresh_worker_table()
 
     def action_select_all(self) -> None:
+        """Toggle between selecting all workers and clearing the selection.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if len(self.selected) == len(self.smolt_nodes):
             self.selected.clear()
         else:
@@ -462,9 +686,25 @@ class WorkerPickerApp(App):
         self.refresh_worker_table()
 
     def action_confirm(self) -> None:
+        """Store the selected workers in ``chosen`` and exit the app.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.chosen = [self.smolt_nodes[i] for i in sorted(self.selected)]
         self.exit()
 
     async def action_quit(self) -> None:
+        """Handle the ``q`` keybinding: exit without confirming any selection.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.chosen = []
         self.exit()

@@ -472,7 +472,9 @@
     <p>
       <strong>smoltorrent</strong> is an educational project for learning distributed systems concepts hands-on. It shards <code>.safetensors</code> ML model
       checkpoints across a cluster of worker nodes over <strong>raw TCP</strong>, coordinated from a central machine. Each shard
-      is stored on <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. Workers are
+      is stored on <strong>two workers</strong> (replication factor&nbsp;2), so any single node failure loses no data. Transfers use
+      <strong>os.sendfile + mmap</strong> end-to-end — tensor bytes move from disk to socket to disk entirely at the kernel level,
+      so the coordinator's RAM usage stays flat regardless of checkpoint size. Workers are
       discovered automatically via <strong>mDNS</strong> - no hardcoded IPs. On macOS, peer-to-peer <strong>AirDrop / AWDL</strong>
       discovery runs in parallel for router-free Mac-to-Mac networking. A watcher daemon monitors your checkpoint directory and
       pushes new files automatically - no manual intervention needed.
@@ -526,12 +528,14 @@
   <div class="container">
     <h2 class="section-title">Key Features</h2>
     <ul>
+      <li><strong>Zero-copy transfer</strong> - store and gather use <code>os.sendfile</code> + mmap; tensor bytes move coordinator↔Pi entirely at the kernel level. Python never buffers the checkpoint in RAM — master RSS stays flat even on multi-GB files.</li>
       <li><strong>Replication factor 2</strong> - each shard lives on two nodes; single-node failure loses no data, gather falls back to replica automatically.</li>
-      <li><strong>SHA-256 checksums</strong> - every shard has a <code>.checksum</code> sidecar; corruption detected at store and re-verified on gather.</li>
+      <li><strong>Per-shard checksum retry</strong> - gather verifies each shard's SHA-256 inline after transfer; on mismatch it falls through to the next replica immediately. Shards that exhaust all replicas go into a retry queue with exponential backoff — same pattern as store, so both paths behave consistently.</li>
+      <li><strong>SHA-256 checksums</strong> - every shard has a <code>.checksum</code> sidecar; corruption detected at store and re-verified at gather.</li>
       <li><strong>Watcher daemon</strong> - inotify/watchdog triggers on new files; pending loop handles files still being written.</li>
       <li><strong>mDNS discovery</strong> - zero-config worker discovery via Zeroconf on all platforms; AirDrop/AWDL on macOS for Mac-to-Mac.</li>
       <li><strong>Auto-start</strong> - macOS LaunchDaemons bring the cluster up after coordinator reboot; systemd service restarts workers after node reboot.</li>
-      <li><strong>Monitoring</strong> - Prometheus + Grafana + Loki in Docker on the coordinator; no SSH required. Workers expose metrics on <code>9200+rank</code>.</li>
+      <li><strong>Monitoring</strong> - Prometheus + Grafana + Loki in Docker on the coordinator; no SSH required. Workers expose metrics on <code>9200+rank</code>. Alerts fire on Telegram — bandwidth alerts only trigger during active transfers, not during idle cool-down.</li>
       <li><strong>Fully config-driven</strong> - all topology in <a href="./setup.html#clone"><code>configs/config.yaml</code></a>; no IPs hardcoded anywhere.</li>
     </ul>
     <div class="pill-row">
@@ -620,6 +624,11 @@ Replication (factor 2):
   Shard 2  →  Worker 3 (primary)  +  Worker 4 (replica)
   Shard 3  →  Worker 4 (primary)  +  Worker 1 (replica)
 
+Transfer protocol (zero-copy):
+  Store: coordinator reads shard range from checkpoint → os.sendfile → Pi writes to shard_N.safetensors via mmap
+  Gather: Pi serves raw tensor bytes → coordinator writes directly into pre-allocated merged file via mmap
+  Python never holds the checkpoint in RAM on either end — RSS stays flat regardless of file size.
+
 Network: LAN, VPN, or any TCP-reachable topology (~100 Mbps tested over Tailscale)</code></pre>
   </div>
 </section>
@@ -650,8 +659,7 @@ curl http://&lt;master-ip&gt;:8000/discover</code></pre>
     <p style="color: var(--text-sec); margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 0.95rem;">
       <strong>Contributors / code changes</strong> - fill in <code>configs/dev-config.yaml</code> with your SSH aliases and Tailscale IPs, then:
     </p>
-<pre class="language-bash"><code>bash scripts/launch.sh        # rsync code to all workers (skips configs/)
-bash scripts/grove_launch.sh  # restart API + watcher</code></pre>
+<pre class="language-bash"><code>bash scripts/launch.sh              # rsync code to all workers (skips configs/)</code></pre>
 
     <div class="callout-warning">
       <strong>Port conflicts:</strong> If you see <code>OSError: [Errno 98] Address already in use</code>, port 8000 (API) or 8001 (watcher metrics) is still bound from a previous run.

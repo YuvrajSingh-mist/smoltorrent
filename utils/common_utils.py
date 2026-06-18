@@ -106,6 +106,13 @@ def fetch_model_metadata(model_id: str, config: dict) -> None:
     """Download tokenizer and config from HuggingFace Hub into the received_model dir.
 
     Skips all weight files — the merged .safetensors is already there after gather.
+
+    Args:
+        model_id: HuggingFace repo ID, e.g. ``"mlx-community/Qwen2.5-0.5B-Instruct-bf16"``.
+        config:   Loaded YAML config dict; uses ``config["save_path"]`` as the destination.
+
+    Returns:
+        None.
     """
     from huggingface_hub import snapshot_download
 
@@ -127,7 +134,17 @@ IS_MAC = platform.system() == "Darwin"
 
 
 def save_shard(shard: dict, path: str) -> None:
-    """Save shard to disk. Mac uses MLX, Pi uses safetensors.torch (shard is already torch tensors)."""
+    """Save a tensor shard to disk using the platform-appropriate backend.
+
+    Uses MLX on macOS (``mx.save_safetensors``) and safetensors.torch on Linux/Pi.
+
+    Args:
+        shard: Dict mapping tensor names to tensor objects (MLX arrays or torch tensors).
+        path:  Absolute destination file path (``*.safetensors``).
+
+    Returns:
+        None.
+    """
     logger.info("[shard] saving %d tensors → %s platform=%s", len(shard), path, "darwin" if IS_MAC else "linux")
     if IS_MAC:
         import mlx.core as mx
@@ -139,7 +156,15 @@ def save_shard(shard: dict, path: str) -> None:
 
 
 def load_tensors(path: Union[str, Path]) -> dict:
-    """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers)."""
+    """Load a safetensors file using MLX on macOS, torch on Linux (Pi workers).
+
+    Args:
+        path: Path to the ``.safetensors`` file to load.
+
+    Returns:
+        Dict mapping tensor names to tensor objects (MLX arrays on macOS,
+        torch tensors on Linux).
+    """
     logger.info("[tensors] loading %s platform=%s", path, "darwin" if IS_MAC else "linux")
     if IS_MAC:
         import mlx.core as mx
@@ -155,7 +180,23 @@ def connect_with_retry(
     ip: str, port: int, rank: int, retries: int = 3, delay: float = 2.0,
     connect_timeout: float = 5.0,
 ) -> socket.socket:
-    """Open a TCP connection to a worker, retrying on failure with exponential backoff."""
+    """Open a TCP connection to a worker, retrying on failure with exponential backoff.
+
+    Args:
+        ip:              Target worker IP address.
+        port:            Target worker TCP port.
+        rank:            Worker rank (used only for log messages).
+        retries:         Maximum number of connection attempts (default 3).
+        delay:           Base delay in seconds between retries; doubles each attempt
+                         (default 2.0 → 2s, 4s, 8s …).
+        connect_timeout: Per-attempt socket timeout in seconds (default 5.0).
+
+    Returns:
+        A connected, blocking :class:`socket.socket`.
+
+    Raises:
+        ConnectionError: If all *retries* attempts fail.
+    """
     for attempt in range(1, retries + 1):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(connect_timeout)
@@ -179,6 +220,12 @@ def model_id_to_dir_name(model_id: str) -> str:
 
     ``mlx-community/Qwen2.5-0.5B-Instruct-bf16``
     →  ``mlx-community--Qwen2.5-0.5B-Instruct-bf16``
+
+    Args:
+        model_id: HuggingFace repo ID containing a ``/`` separator.
+
+    Returns:
+        Directory-safe name with ``/`` replaced by ``--``.
     """
     return model_id.replace("/", "--")
 
@@ -188,12 +235,30 @@ def dir_name_to_model_id(dir_name: str) -> str:
 
     ``mlx-community--Qwen2.5-0.5B-Instruct-bf16``
     →  ``mlx-community/Qwen2.5-0.5B-Instruct-bf16``
+
+    Args:
+        dir_name: Filesystem-safe name with ``--`` as the namespace separator.
+
+    Returns:
+        HuggingFace repo ID with the first ``--`` replaced back to ``/``.
     """
     return dir_name.replace("--", "/", 1)
 
 
 def gather_shards(model_id: str) -> dict:
-    """Call POST /gather-shards, collect streamed output, return structured result."""
+    """Call POST /gather-shards, collect streamed output, and return a structured result.
+
+    Args:
+        model_id: HuggingFace repo ID (or local dir name) identifying the checkpoint.
+
+    Returns:
+        Dict with keys ``save_path`` (str — path to the merged file) and
+        ``gathered`` (list of confirmation strings, one per shard).
+
+    Raises:
+        httpx.HTTPStatusError: If the server returns an HTTP error or streams an
+            ``ERROR:`` line.
+    """
     logger.info("[gather] requesting shard gather for model_id=%s", model_id)
     cfg = load_config()
     dir_name = model_id_to_dir_name(model_id)
@@ -263,7 +328,7 @@ def save_received_data_shard(
     output_dir: Optional[Union[str, Path]] = None,
     config_path: Optional[str] = None,
 ) -> tuple[str, str, bool, str]:
-    """Save a received shard using config ``save_path`` + metadata.
+    """Save a received shard using the ``save_path`` from config plus optional metadata.
 
     The shard filename keeps the original base name from config ``save_path`` and appends
     stable metadata key-value pairs before the extension, for example:
@@ -272,6 +337,19 @@ def save_received_data_shard(
     If ``metadata`` is provided, it is merged with useful auto-generated metadata
     (hostname, platform/device info, pid, and UTC save time).
     A sidecar JSON with the same stem is also written for audit/debugging.
+
+    Args:
+        shard:       Dict of tensor name → tensor object to save.
+        metadata:    Optional mapping of extra metadata fields (e.g. ``{"rank": 2}``).
+        output_dir:  Override the destination directory (defaults to config ``save_path``
+                     parent).
+        config_path: Path to ``config.yaml`` (defaults to project root).
+
+    Returns:
+        Tuple of ``(shard_path, metadata_path, success, error_message)``.
+        On success, ``shard_path`` and ``metadata_path`` are absolute path strings
+        and ``error_message`` is empty.  On failure, both paths are empty strings
+        and ``error_message`` contains the exception text.
     """
 
     logger.info("[shard] save_received_data_shard rank=%s output_dir=%s config_path=%s", metadata.get("rank") if metadata else None, output_dir, config_path)
@@ -349,10 +427,17 @@ def save_received_data_shard(
 def handle_json_header(ckpt_path: str) -> tuple[dict, int]:
     """Parse the safetensors JSON header without loading tensor data.
 
+    Args:
+        ckpt_path: Absolute path to a ``.safetensors`` checkpoint file.
+
     Returns:
-        (header_dict, data_section_offset) — data_section_offset is the absolute
-        byte position in the file where tensor data begins:
+        Tuple of ``(header_dict, data_section_offset)`` — ``data_section_offset``
+        is the absolute byte position in the file where tensor data begins:
         8 bytes (uint64 header length field) + header_len bytes (JSON).
+
+    Raises:
+        ValueError: If the file is too short, has a zero header length, or the
+            header JSON is truncated.
     """
     logger.debug("[header] parsing safetensors header ckpt_path=%s", ckpt_path)
     with open(ckpt_path, "rb") as f:

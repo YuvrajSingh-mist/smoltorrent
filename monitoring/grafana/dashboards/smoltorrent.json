@@ -8,110 +8,18 @@
     "from": "now-1h",
     "to": "now"
   },
+  "timezone": "browser",
   "panels": [
     {
       "id": 100,
       "title": "Server",
       "type": "row",
+      "collapsed": false,
       "gridPos": {
-        "y": 0,
         "x": 0,
+        "y": 0,
         "w": 24,
         "h": 1
-      },
-      "collapsed": false
-    },
-    {
-      "id": 30,
-      "title": "Operation Wall-Clock Time (seconds)",
-      "description": "End-to-end wall time for each /store-shard and /gather-shards call. p50 = typical run; p95/p99 = slowest outliers. Rising values indicate network congestion or slow workers.",
-      "type": "timeseries",
-      "gridPos": {
-        "y": 7,
-        "x": 0,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
-          "legendFormat": "store p50"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
-          "legendFormat": "store p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
-          "legendFormat": "store p99"
-        },
-        {
-          "expr": "histogram_quantile(0.50, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
-          "legendFormat": "gather p50"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
-          "legendFormat": "gather p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
-          "legendFormat": "gather p99"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "lineWidth": 2,
-            "drawStyle": "line",
-            "fillOpacity": 10
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "store p50"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "blue"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "gather p50"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi"
-        },
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
       }
     },
     {
@@ -120,8 +28,8 @@
       "description": "Hours since last OS boot. Drops to 0 on reboot.",
       "type": "timeseries",
       "gridPos": {
-        "y": 1,
         "x": 0,
+        "y": 1,
         "w": 12,
         "h": 6
       },
@@ -169,8 +77,8 @@
       "description": "Hours since API process last started. Drops to 0 on each restart.",
       "type": "timeseries",
       "gridPos": {
-        "y": 1,
         "x": 12,
+        "y": 1,
         "w": 12,
         "h": 6
       },
@@ -213,154 +121,15 @@
       }
     },
     {
-      "id": 104,
-      "title": "Server Last Boot",
-      "description": "Boot timestamp for the coordinator \u2014 flat line jumps on reboot.",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 13
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "node_boot_time_seconds{job=\"node\",node=\"master\"} * 1000",
-          "legendFormat": "master"
-        }
-      ],
-      "options": {
-        "tooltip": {
-          "mode": "single"
-        },
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "dateTimeAsLocal",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          },
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "spanNulls": true,
-            "drawStyle": "line"
-          },
-          "noValue": "N/A"
-        }
-      }
-    },
-    {
-      "id": 1,
-      "title": "Bandwidth (Mbps)",
-      "description": "Real-time transfer bandwidth derived from byte counters. Drops to 0 when idle (unlike stale gauges).",
-      "type": "timeseries",
-      "gridPos": {
-        "y": 21,
-        "x": 0,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "rate(smoltorrent_bytes_sent_total[1m]) * 8 / 1024 / 1024",
-          "legendFormat": "send Mbps"
-        },
-        {
-          "expr": "rate(smoltorrent_bytes_recv_total[1m]) * 8 / 1024 / 1024",
-          "legendFormat": "recv Mbps"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "custom": {
-            "lineWidth": 2
-          }
-        }
-      }
-    },
-    {
-      "id": 2,
-      "title": "Transfer Duration Percentiles (seconds)",
-      "description": "p50 / p90 / p95 / p99 send and recv duration. Rising tail = slow worker or network issue.",
-      "type": "timeseries",
-      "gridPos": {
-        "y": 7,
-        "x": 12,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
-          "legendFormat": "send p50"
-        },
-        {
-          "expr": "histogram_quantile(0.90, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
-          "legendFormat": "send p90"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
-          "legendFormat": "send p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(smoltorrent_send_duration_seconds_bucket[5m]))",
-          "legendFormat": "send p99"
-        },
-        {
-          "expr": "histogram_quantile(0.50, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
-          "legendFormat": "recv p50"
-        },
-        {
-          "expr": "histogram_quantile(0.90, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
-          "legendFormat": "recv p90"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
-          "legendFormat": "recv p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(smoltorrent_recv_duration_seconds_bucket[5m]))",
-          "legendFormat": "recv p99"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "lineWidth": 2
-          }
-        }
-      }
-    },
-    {
       "id": 103,
       "title": "Server Health",
       "description": "API up = Prometheus can scrape port 8000; Watcher up = port 8001 reachable. Both must be 1 for the cluster to be fully operational.",
       "type": "stat",
       "gridPos": {
-        "y": 21,
-        "x": 12,
+        "x": 0,
+        "y": 7,
         "w": 12,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "prometheus",
@@ -429,14 +198,73 @@
       }
     },
     {
-      "id": 3,
-      "title": "Transfer Errors by Worker",
-      "description": "Error rate per worker rank. A rank that keeps erroring = flaky Pi or dead port.",
+      "id": 104,
+      "title": "Server Last Boot",
+      "description": "Boot timestamp for the coordinator \u2014 flat line jumps on reboot.",
       "type": "timeseries",
       "gridPos": {
-        "y": 29,
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "node_boot_time_seconds{job=\"node\",node=\"master\"} * 1000",
+          "legendFormat": "master"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true,
+            "drawStyle": "line"
+          },
+          "noValue": "N/A"
+        }
+      }
+    },
+    {
+      "id": 110,
+      "title": "Store",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
         "x": 0,
-        "w": 8,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 301,
+      "title": "Store Bandwidth (Mbps)",
+      "description": "Bytes/s flowing from coordinator \u2192 Pi workers during /store-shard. Idle = 0.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
         "h": 7
       },
       "datasource": {
@@ -445,28 +273,206 @@
       },
       "targets": [
         {
-          "expr": "rate(smoltorrent_transfer_errors_total[5m])",
-          "legendFormat": "rank {{rank}}"
+          "expr": "rate(smoltorrent_bytes_sent_total{job='smoltorrent-api'}[1m]) * 8 / 1024 / 1024",
+          "legendFormat": "send Mbps",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
         }
       ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "custom": {
-            "lineWidth": 2
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
           }
         }
       }
     },
     {
-      "id": 4,
-      "title": "Operations",
-      "description": "Cumulative store and gather operations (counter \u2014 never resets).",
+      "id": 302,
+      "title": "Store Wall-Clock Time (s)",
+      "description": "End-to-end duration of each /store-shard call. p50 = typical; p95/p99 = outliers.",
       "type": "timeseries",
       "gridPos": {
-        "y": 29,
-        "x": 8,
-        "w": 8,
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(smoltorrent_store_wall_seconds_bucket[10m]))",
+          "legendFormat": "p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 303,
+      "title": "Per-Pi Bytes Received \u2014 store (MB)",
+      "description": "Cumulative bytes each Pi worker received from the coordinator. All lines should rise together; a flat line means that Pi missed its shard.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "worker_bytes_recv_total{job='worker-metrics'} / 1024 / 1024",
+          "legendFormat": "{{node}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 304,
+      "title": "Per-Pi Store Duration (s)",
+      "description": "Time each Pi took to write its shard to disk. p50/p95 per node \u2014 rising gap means one Pi is slower (hot SD card, network jitter).",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(worker_store_duration_seconds_bucket{job='worker-metrics'}[5m]))",
+          "legendFormat": "{{node}} p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(worker_store_duration_seconds_bucket{job='worker-metrics'}[5m]))",
+          "legendFormat": "{{node}} p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 305,
+      "title": "Store Operations",
+      "description": "Cumulative completed /store-shard calls at the coordinator.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
         "h": 7
       },
       "datasource": {
@@ -476,23 +482,13 @@
       "targets": [
         {
           "expr": "smoltorrent_store_operations_total",
-          "legendFormat": "stores"
-        },
-        {
-          "expr": "smoltorrent_gather_operations_total",
-          "legendFormat": "gathers"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "drawStyle": "line",
-            "fillOpacity": 10
+          "legendFormat": "store ops",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
           }
         }
-      },
+      ],
       "options": {
         "tooltip": {
           "mode": "multi"
@@ -501,17 +497,28 @@
           "displayMode": "list",
           "placement": "bottom"
         }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
       }
     },
     {
-      "id": 5,
-      "title": "Avg Latency (ms)",
-      "description": "Average TCP transfer latency derived from duration histograms. Accurate per-interval, not a frozen last-value.",
+      "id": 306,
+      "title": "Store Errors",
+      "description": "Rate of transfer errors per worker rank during store. Any non-zero line means at least one shard failed to reach its target Pi.",
       "type": "timeseries",
       "gridPos": {
-        "y": 29,
-        "x": 16,
-        "w": 8,
+        "x": 12,
+        "y": 27,
+        "w": 12,
         "h": 7
       },
       "datasource": {
@@ -520,89 +527,357 @@
       },
       "targets": [
         {
-          "expr": "rate(smoltorrent_send_duration_seconds_sum[5m]) / rate(smoltorrent_send_duration_seconds_count[5m]) * 1000",
-          "legendFormat": "send avg ms"
-        },
-        {
-          "expr": "rate(smoltorrent_recv_duration_seconds_sum[5m]) / rate(smoltorrent_recv_duration_seconds_count[5m]) * 1000",
-          "legendFormat": "recv avg ms"
+          "expr": "rate(smoltorrent_transfer_errors_total[5m])",
+          "legendFormat": "rank {{rank}} errors",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
         }
       ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 115,
+      "title": "Gather",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 311,
+      "title": "Gather Bandwidth (Mbps)",
+      "description": "Bytes/s arriving at the coordinator from Pi workers during /gather-shards. Idle = 0.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(smoltorrent_bytes_recv_total{job='smoltorrent-api'}[1m]) * 8 / 1024 / 1024",
+          "legendFormat": "recv Mbps",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 312,
+      "title": "Gather Wall-Clock Time (s)",
+      "description": "End-to-end duration of each /gather-shards call. Includes parallel fetch + merge.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 35,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(smoltorrent_gather_wall_seconds_bucket[10m]))",
+          "legendFormat": "p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 313,
+      "title": "Per-Pi Bytes Sent \u2014 gather (MB)",
+      "description": "Cumulative bytes each Pi pushed back to the coordinator. A flat line means that Pi didn't send its shard (replica fallback fired).",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "worker_bytes_sent_total{job='worker-metrics'} / 1024 / 1024",
+          "legendFormat": "{{node}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 314,
+      "title": "Per-Pi Gather Duration (s)",
+      "description": "Time each Pi took to sendfile its shard back. The straggler here sets your gather wall-clock floor.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(worker_send_duration_seconds_bucket{job='worker-metrics'}[5m]))",
+          "legendFormat": "{{node}} p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(worker_send_duration_seconds_bucket{job='worker-metrics'}[5m]))",
+          "legendFormat": "{{node}} p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 315,
+      "title": "Gather Operations",
+      "description": "Cumulative completed /gather-shards calls at the coordinator.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smoltorrent_gather_operations_total",
+          "legendFormat": "gather ops",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": 316,
+      "title": "Gather Avg Latency (ms)",
+      "description": "Average per-shard receive latency at the coordinator side during gather.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 49,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(smoltorrent_recv_duration_seconds_sum[5m]) / rate(smoltorrent_recv_duration_seconds_count[5m]) * 1000",
+          "legendFormat": "avg recv ms",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
           "custom": {
-            "lineWidth": 2
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "drawStyle": "line"
           }
         }
       }
     },
     {
-      "id": 7,
-      "title": "Buffer Size (KB)",
-      "description": "Average and max TCP message buffer size. Sudden spike = unusually large checkpoint.",
-      "type": "timeseries",
+      "id": 120,
+      "title": "System Health",
+      "type": "row",
+      "collapsed": false,
       "gridPos": {
-        "y": 36,
         "x": 0,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "smoltorrent_avg_buffer_size_kb",
-          "legendFormat": "avg buf KB"
-        },
-        {
-          "expr": "smoltorrent_max_buffer_size_kb",
-          "legendFormat": "max buf KB"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "kbytes",
-          "custom": {
-            "lineWidth": 2
-          }
-        }
-      }
-    },
-    {
-      "id": 8,
-      "title": "Bytes Transferred",
-      "description": "Cumulative bytes sent and received over TCP.",
-      "type": "timeseries",
-      "gridPos": {
-        "y": 36,
-        "x": 12,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "smoltorrent_bytes_sent_total / 1024 / 1024",
-          "legendFormat": "sent MB"
-        },
-        {
-          "expr": "smoltorrent_bytes_recv_total / 1024 / 1024",
-          "legendFormat": "recv MB"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "decmbytes",
-          "custom": {
-            "lineWidth": 2
-          }
-        }
+        "y": 56,
+        "w": 24,
+        "h": 1
       }
     },
     {
@@ -611,10 +886,10 @@
       "description": "Overall CPU utilisation across all cores (100% = 1 core fully busy).",
       "type": "timeseries",
       "gridPos": {
-        "y": 43,
         "x": 0,
+        "y": 57,
         "w": 8,
-        "h": 6
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -643,10 +918,10 @@
       "description": "RAM used per node. macOS: active+wired. Linux Pi: MemTotal-MemAvailable.",
       "type": "timeseries",
       "gridPos": {
-        "y": 43,
         "x": 8,
+        "y": 57,
         "w": 8,
-        "h": 6
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -685,10 +960,10 @@
       "description": "Available bytes on the root APFS volume.",
       "type": "timeseries",
       "gridPos": {
-        "y": 43,
         "x": 16,
+        "y": 57,
         "w": 8,
-        "h": 6
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -719,10 +994,10 @@
       "description": "Disk read/write throughput. master=disk0 (NVMe), Pi workers=mmcblk0 (SD card).",
       "type": "timeseries",
       "gridPos": {
-        "y": 49,
         "x": 0,
+        "y": 64,
         "w": 8,
-        "h": 6
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -761,10 +1036,10 @@
       "description": "1 / 5 / 15 minute load average.",
       "type": "timeseries",
       "gridPos": {
-        "y": 49,
         "x": 8,
+        "y": 64,
         "w": 8,
-        "h": 6
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -799,10 +1074,10 @@
       "description": "Swap usage per node. macOS: swap_used + compressed. Linux Pi: SwapTotal - SwapFree.",
       "type": "timeseries",
       "gridPos": {
-        "y": 49,
         "x": 16,
+        "y": 64,
         "w": 8,
-        "h": 6
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -828,15 +1103,27 @@
       }
     },
     {
-      "id": 6,
-      "title": "Cluster Logs",
-      "description": "All logs from master (API, watcher) and Pi workers in one stream.",
+      "id": 130,
+      "title": "Logs",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 200,
+      "title": "Watcher Logs",
+      "description": "Logs from the watcher daemon (watch.py). Filtered to syncps-server-*.log.",
       "type": "logs",
       "gridPos": {
-        "y": 55,
         "x": 0,
-        "w": 24,
-        "h": 10
+        "y": 72,
+        "w": 12,
+        "h": 12
       },
       "datasource": {
         "type": "loki",
@@ -844,17 +1131,44 @@
       },
       "targets": [
         {
-          "expr": "{job=\"smoltorrent\"}",
+          "expr": "{job=\"smoltorrent\", filename=~\".*/syncps-server.*\"}",
           "legendFormat": ""
         }
       ],
       "options": {
         "showTime": true,
-        "showLabels": true,
+        "showLabels": false,
+        "wrapLogMessage": false,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 201,
+      "title": "API Logs",
+      "description": "Logs from the FastAPI server process (api.py). Filtered to api-server-*.log.",
+      "type": "logs",
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"smoltorrent\", filename=~\".*/api-server.*\"}",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
         "wrapLogMessage": false,
         "sortOrder": "Descending"
       }
     }
-  ],
-  "timezone": "browser"
+  ]
 }

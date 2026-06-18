@@ -228,8 +228,13 @@ groups:
             model:
               # Fires when store (coordinator→Pi) send rate drops below 5 Mbps while active.
               # WiFi baseline ~9 Mbps; 5 Mbps = ~55% of baseline — clear degradation.
-              # [5m] window smooths bursts; [1m] was too noisy for large-file transfers.
-              expr: (rate(smoltorrent_bytes_sent_total[5m]) * 8 / 1024 / 1024 > 0) < 5
+              # {job="smoltorrent-api"} scopes to coordinator-side counters only — prevents
+              # gather traffic (job=worker-metrics bytes_sent) from triggering this store alert.
+              # increase([1m]) > 0 = bytes sent in the last minute (drops within ~1m of transfer end).
+              # rate([5m]) < 5 = smoothed bandwidth check. Separating the activity guard from
+              # the bandwidth measurement prevents false fires during the post-transfer cool-down
+              # tail where rate([5m]) stays non-zero for up to 5m after the last byte.
+              expr: (increase(smoltorrent_bytes_sent_total{job="smoltorrent-api"}[1m]) > 0) and (rate(smoltorrent_bytes_sent_total{job="smoltorrent-api"}[5m]) * 8 / 1024 / 1024 < 5)
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true
@@ -251,9 +256,12 @@ groups:
             relativeTimeRange: { from: 300, to: 0 }
             model:
               # Fires when gather (Pi→coordinator) recv rate drops below 5 Mbps while active.
+              # {job="smoltorrent-api"} scopes to coordinator-side counters only — prevents
+              # store traffic (job=worker-metrics bytes_recv) from triggering this gather alert.
               # Mirrors transfer-bandwidth-low but covers the receive path so both store and
-              # gather slowdowns are caught independently.
-              expr: (rate(smoltorrent_bytes_recv_total[5m]) * 8 / 1024 / 1024 > 0) < 5
+              # gather slowdowns are caught independently. Same increase([1m]) activity guard
+              # to suppress post-transfer false fires.
+              expr: (increase(smoltorrent_bytes_recv_total{job="smoltorrent-api"}[1m]) > 0) and (rate(smoltorrent_bytes_recv_total{job="smoltorrent-api"}[5m]) * 8 / 1024 / 1024 < 5)
               intervalMs: 1000
               maxDataPoints: 43200
               instant: true

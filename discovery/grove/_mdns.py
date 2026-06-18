@@ -68,10 +68,26 @@ class WorkerAdvertiser:
         self.zc.close()
         log.info("[mdns] worker advertisement removed")
 
-    def __enter__(self):
+    def __enter__(self) -> "WorkerAdvertiser":
+        """Return self to support use as a context manager.
+
+        Args:
+            None.
+
+        Returns:
+            This :class:`WorkerAdvertiser` instance.
+        """
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *_) -> None:
+        """Unregister the mDNS service on context manager exit.
+
+        Args:
+            *_: Exception info (ignored).
+
+        Returns:
+            None.
+        """
         self.close()
 
 
@@ -98,6 +114,16 @@ def WorkerBrowser(timeout: float = 10.0) -> list[dict]:
 
     class Listener(ServiceListener):
         def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+            """Record a newly discovered worker service.
+
+            Args:
+                zc:    Active :class:`~zeroconf.Zeroconf` instance.
+                type_: Service type string.
+                name:  Full service name.
+
+            Returns:
+                None.
+            """
             info = zc.get_service_info(type_, name)
             if info and info.addresses:
                 ip = socket.inet_ntoa(info.addresses[0])
@@ -122,9 +148,29 @@ def WorkerBrowser(timeout: float = 10.0) -> list[dict]:
                     log.info("[mdns] found worker: rank=%d host=%s ip=%s port=%d", rank, props.get("hostname", ""), ip, info.port)
 
         def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+            """No-op: worker removals are not tracked during one-shot discovery.
+
+            Args:
+                zc:    Active :class:`~zeroconf.Zeroconf` instance.
+                type_: Service type string.
+                name:  Full service name.
+
+            Returns:
+                None.
+            """
             pass
 
         def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+            """Re-process an updated service announcement as if it were new.
+
+            Args:
+                zc:    Active :class:`~zeroconf.Zeroconf` instance.
+                type_: Service type string.
+                name:  Full service name.
+
+            Returns:
+                None.
+            """
             self.add_service(zc, type_, name)
 
     zc = Zeroconf()
@@ -184,11 +230,26 @@ class MasterAdvertiser:
         # )
 
     def update_current(self, count: int) -> None:
-        """Update the ``current`` worker count in the live mDNS TXT record."""
+        """Update the ``current`` worker count in the live mDNS TXT record.
+
+        Args:
+            count: Number of workers that have registered so far.
+
+        Returns:
+            None.
+        """
         self.info.properties[b"current"] = str(count).encode()
         self.zc.update_service(self.info)
 
     def close(self) -> None:
+        """Unregister the master mDNS service and release the Zeroconf handle.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.zc.unregister_service(self.info)
         self.zc.close()
         log.info("[mdns] master advertisement removed")
@@ -201,6 +262,14 @@ class MasterBrowser(ServiceListener):
     """
 
     def __init__(self) -> None:
+        """Start browsing for smoltorrent master mDNS advertisements.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.masters: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.zc = Zeroconf()
@@ -208,6 +277,16 @@ class MasterBrowser(ServiceListener):
         log.info("[mdns] MasterBrowser started — listening for %s", MASTER_SERVICE_TYPE)
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        """Record a newly discovered master service in the internal registry.
+
+        Args:
+            zc:    Active :class:`~zeroconf.Zeroconf` instance.
+            type_: Service type string.
+            name:  Full service name (used as the registry key).
+
+        Returns:
+            None.
+        """
         info = zc.get_service_info(type_, name)
         if not info or not info.addresses:
             return
@@ -232,9 +311,29 @@ class MasterBrowser(ServiceListener):
         log.info("[mdns] MasterBrowser found master: %s (%s)", hostname, socket.inet_ntoa(info.addresses[0]))
 
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        """Re-process an updated master service announcement as if it were new.
+
+        Args:
+            zc:    Active :class:`~zeroconf.Zeroconf` instance.
+            type_: Service type string.
+            name:  Full service name.
+
+        Returns:
+            None.
+        """
         self.add_service(zc, type_, name)
 
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        """Remove a departed master from the internal registry.
+
+        Args:
+            zc:    Active :class:`~zeroconf.Zeroconf` instance (unused).
+            type_: Service type string (unused).
+            name:  Full service name used as the registry key.
+
+        Returns:
+            None.
+        """
         with self.lock:
             self.masters.pop(name, None)
         log.info("[mdns] MasterBrowser lost master: %s", name)

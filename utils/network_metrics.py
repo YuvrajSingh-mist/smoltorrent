@@ -47,22 +47,56 @@ class NetworkMetrics:
         self.buffer_sizes = []
         self.last_log_time = time.time()
 
-    def record_send(self, num_bytes: int, duration: float):
-        """Record a send operation."""
+    def record_send(self, num_bytes: int, duration: float) -> None:
+        """Record a completed send operation.
+
+        Args:
+            num_bytes: Number of bytes sent.
+            duration:  Wall-clock time the send took, in seconds.
+
+        Returns:
+            None.
+        """
         self.send_bytes.append(num_bytes)
         self.send_times.append(duration)
 
-    def record_recv(self, num_bytes: int, duration: float):
-        """Record a receive operation."""
+    def record_recv(self, num_bytes: int, duration: float) -> None:
+        """Record a completed receive operation.
+
+        Args:
+            num_bytes: Number of bytes received.
+            duration:  Wall-clock time the receive took, in seconds.
+
+        Returns:
+            None.
+        """
         self.recv_bytes.append(num_bytes)
         self.recv_times.append(duration)
 
-    def record_buffer_size(self, size: int):
-        """Record current buffer size."""
+    def record_buffer_size(self, size: int) -> None:
+        """Record the byte count of a single send or receive buffer.
+
+        Args:
+            size: Buffer size in bytes.
+
+        Returns:
+            None.
+        """
         self.buffer_sizes.append(size)
 
     def get_metrics(self, reset: bool = True) -> dict:
-        """Get aggregated metrics and optionally reset counters."""
+        """Compute and return aggregated network metrics, optionally resetting the accumulators.
+
+        Args:
+            reset: If ``True`` (default), clears all recorded samples after computing
+                   the result so the next call starts fresh.
+
+        Returns:
+            Dict with zero or more of the following keys (omitted if no data available):
+            ``send_bandwidth_mbps``, ``avg_send_latency_ms``, ``total_send_mb``,
+            ``recv_bandwidth_mbps``, ``avg_recv_latency_ms``, ``total_recv_mb``,
+            ``avg_buffer_size_kb``, ``max_buffer_size_kb``.
+        """
         metrics = {}
 
         if self.send_bytes:

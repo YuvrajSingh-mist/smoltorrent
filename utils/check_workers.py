@@ -102,7 +102,14 @@ def ping_worker(
 
 
 def main() -> None:
-    """CLI entry-point: ping every configured worker and print a status table. Exits 1 if any are dead."""
+    """Ping every configured worker and print a status table, then exit.
+
+    Args:
+        None: reads worker list from ``configs/config.yaml``.
+
+    Returns:
+        None.  Exits with code 1 if any worker is unreachable, 0 otherwise.
+    """
     config_path = Path(__file__).parents[1] / "configs" / "config.yaml"
     with config_path.open() as f:
         config = yaml.safe_load(f)

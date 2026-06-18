@@ -62,6 +62,15 @@ _JSON_PATH = Path(__file__).resolve().parents[1] / "shard_map.json"  # legacy �
 # ---------------------------------------------------------------------------
 
 def _connect() -> sqlite3.Connection:
+    """Open a raw SQLite connection to the shard-map DB with WAL mode enabled.
+
+    Args:
+        None: uses the module-level ``_DB_PATH`` constant.
+
+    Returns:
+        An open :class:`sqlite3.Connection` with ``row_factory`` set to
+        :class:`sqlite3.Row`.
+    """
     conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -69,7 +78,41 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _parse_shard_key(shard_key: str) -> tuple[str, str, int | None]:
+    """Split shard_key into (model_name, variant, step).
+
+    Format: model/variant/step_N[/subpath]
+    e.g. 'Qwen2.5-0.5B/base/step_850/adapters' → ('Qwen2.5-0.5B', 'base', 850)
+    Returns step=None if no 'step_N' segment found.
+    """
+    parts = shard_key.split("/")
+    model_name = parts[0] if len(parts) >= 1 else shard_key
+    variant    = parts[1] if len(parts) >= 2 else ""
+    step: int | None = None
+    for part in parts[2:]:
+        if part.startswith("step_"):
+            try:
+                step = int(part[5:])
+                break
+            except ValueError:
+                pass
+    return model_name, variant, step
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create tables and run incremental column migrations on *conn*.
+
+    Idempotent — safe to call on every startup.  Applies ``ALTER TABLE``
+    migrations one at a time, silently swallowing ``OperationalError`` when
+    a column already exists.  Also backfills ``model_name``/``variant``/``step``
+    for rows written before those columns were added.
+
+    Args:
+        conn: Open SQLite connection to the shard-map DB.
+
+    Returns:
+        None.
+    """
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS shards (
             shard_key    TEXT    NOT NULL,
@@ -91,18 +134,24 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             stored_at            TEXT    DEFAULT '',
             shard_ranges_json    TEXT    DEFAULT '',
             total_tensor_bytes   INTEGER DEFAULT 0,
-            original_checksum    TEXT    DEFAULT ''
+            original_checksum    TEXT    DEFAULT '',
+            model_name           TEXT    DEFAULT '',
+            variant              TEXT    DEFAULT '',
+            step                 INTEGER DEFAULT -1
         );
     """)
-    # Column + index migrations for DBs created before these fields existed.
-    # Index must come after the column ALTER so it runs on an up-to-date schema.
     migrations = [
         "ALTER TABLE shards ADD COLUMN shard_index INTEGER DEFAULT -1",
         "ALTER TABLE shards ADD COLUMN checksum TEXT DEFAULT ''",
         "ALTER TABLE shard_headers ADD COLUMN shard_ranges_json TEXT DEFAULT ''",
         "ALTER TABLE shard_headers ADD COLUMN total_tensor_bytes INTEGER DEFAULT 0",
         "ALTER TABLE shard_headers ADD COLUMN original_checksum TEXT DEFAULT ''",
+        "ALTER TABLE shard_headers ADD COLUMN model_name TEXT DEFAULT ''",
+        "ALTER TABLE shard_headers ADD COLUMN variant TEXT DEFAULT ''",
+        "ALTER TABLE shard_headers ADD COLUMN step INTEGER DEFAULT -1",
         "CREATE INDEX IF NOT EXISTS idx_shards_shard_index ON shards (shard_key, shard_index)",
+        "CREATE INDEX IF NOT EXISTS idx_headers_model ON shard_headers (model_name)",
+        "CREATE INDEX IF NOT EXISTS idx_headers_model_step ON shard_headers (model_name, step)",
     ]
     for sql in migrations:
         try:
@@ -111,10 +160,31 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass  # column/index already exists
 
+    # Backfill model_name/variant/step for rows written before this migration.
+    rows = conn.execute(
+        "SELECT shard_key FROM shard_headers WHERE model_name = ''"
+    ).fetchall()
+    if rows:
+        for row in rows:
+            mn, va, st = _parse_shard_key(row["shard_key"])
+            conn.execute(
+                "UPDATE shard_headers SET model_name=?, variant=?, step=? WHERE shard_key=?",
+                (mn, va, st if st is not None else -1, row["shard_key"]),
+            )
+        conn.commit()
+        logger.info("[tracker] backfilled model_name/variant/step for %d rows", len(rows))
+
 
 
 def _db() -> sqlite3.Connection:
-    """Open connection, ensure schema, run one-time JSON migration if needed."""
+    """Open a ready-to-use DB connection: connect, ensure schema, and return.
+
+    Args:
+        None.
+
+    Returns:
+        An open :class:`sqlite3.Connection` with all tables and migrations applied.
+    """
     conn = _connect()
     _ensure_schema(conn)
     return conn
@@ -177,7 +247,15 @@ def add_shard(
 
 
 def get_ranks(shard_key: str) -> list[int]:
-    """Return the list of worker ranks that hold *shard_key*."""
+    """Return the list of worker ranks that hold *shard_key*.
+
+    Args:
+        shard_key: Unique checkpoint identifier, e.g. ``"Qwen2.5-0.5B/step_1000"``.
+
+    Returns:
+        Sorted list of integer ranks that have at least one shard file recorded
+        for this key.  Empty list if the key is unknown.
+    """
     conn = _db()
     rows = conn.execute(
         "SELECT DISTINCT rank FROM shards WHERE shard_key=? ORDER BY rank", (shard_key,)
@@ -234,9 +312,16 @@ def get_replica_map(shard_key: str) -> dict[int, list[dict]]:
 
 
 def get_shard_info(shard_key: str) -> dict | None:
-    """Return the full metadata dict for *shard_key*, or None if not tracked.
+    """Return the full placement metadata dict for *shard_key*, or None if not tracked.
 
-    Returns the same structure as the old JSON map for backward compatibility.
+    Returns the same structure as the old JSON shard_map for backward compatibility.
+
+    Args:
+        shard_key: Unique checkpoint identifier.
+
+    Returns:
+        Dict with keys ``ranks``, ``hosts``, ``stored_at``, ``size_bytes``,
+        ``shard_files``, and ``source_path``, or ``None`` if the key is unknown.
     """
     conn = _db()
     rows = conn.execute(
@@ -272,7 +357,15 @@ def get_shard_info(shard_key: str) -> dict | None:
 
 
 def list_shards_for_rank(rank: int) -> list[str]:
-    """Return every shard key that *rank* holds."""
+    """Return every shard key that *rank* holds.
+
+    Args:
+        rank: Integer worker rank to query.
+
+    Returns:
+        List of distinct shard key strings stored for this rank.  Empty list
+        if the rank has no recorded shards.
+    """
     conn = _db()
     rows = conn.execute(
         "SELECT DISTINCT shard_key FROM shards WHERE rank=?", (rank,)
@@ -313,13 +406,16 @@ def add_shard_header(
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ranges_json = json.dumps(shard_ranges) if shard_ranges else ""
+    model_name, variant, step = _parse_shard_key(shard_key)
+    step_val = step if step is not None else -1
     conn = _db()
     with conn:
         conn.execute(
             """INSERT INTO shard_headers
                    (shard_key, header_json, data_section_offset, num_workers, stored_at,
-                    shard_ranges_json, total_tensor_bytes, original_checksum)
-               VALUES (?,?,?,?,?,?,?,?)
+                    shard_ranges_json, total_tensor_bytes, original_checksum,
+                    model_name, variant, step)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(shard_key) DO UPDATE SET
                    header_json=excluded.header_json,
                    data_section_offset=excluded.data_section_offset,
@@ -327,9 +423,13 @@ def add_shard_header(
                    stored_at=excluded.stored_at,
                    shard_ranges_json=CASE WHEN excluded.shard_ranges_json != '' THEN excluded.shard_ranges_json ELSE shard_ranges_json END,
                    total_tensor_bytes=CASE WHEN excluded.total_tensor_bytes > 0 THEN excluded.total_tensor_bytes ELSE total_tensor_bytes END,
-                   original_checksum=CASE WHEN excluded.original_checksum != '' THEN excluded.original_checksum ELSE original_checksum END""",
+                   original_checksum=CASE WHEN excluded.original_checksum != '' THEN excluded.original_checksum ELSE original_checksum END,
+                   model_name=excluded.model_name,
+                   variant=excluded.variant,
+                   step=excluded.step""",
             (shard_key, header_json, data_section_offset, num_workers, now,
-             ranges_json, total_tensor_bytes, original_checksum),
+             ranges_json, total_tensor_bytes, original_checksum,
+             model_name, variant, step_val),
         )
     conn.close()
     logger.info(
@@ -376,4 +476,102 @@ def get_shard_header(shard_key: str) -> dict | None:
         "shard_ranges":        shard_ranges,
         "total_tensor_bytes":  row["total_tensor_bytes"],
         "original_checksum":   row["original_checksum"],
+    }
+
+
+def list_all_shard_headers(
+    model: str | None = None,
+    variant: str | None = None,
+    step_min: int | None = None,
+    step_max: int | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+    page: int = 1,
+) -> dict:
+    """Return a paginated, filtered list of stored checkpoints.
+
+    Args:
+        model:    Filter by model_name (exact match).
+        variant:  Filter by variant (exact match).
+        step_min: Filter by step >= step_min.
+        step_max: Filter by step <= step_max.
+        since:    Filter by stored_at >= since (ISO date string, e.g. '2026-06-01').
+        until:    Filter by stored_at <= until (ISO date string).
+        limit:    Page size (default 50, max 200).
+        page:     1-based page number.
+
+    Returns::
+
+        {
+            "models":  [{ shard_key, model_name, variant, step, num_workers, total_mb,
+                          original_checksum, stored_at }, ...],
+            "total":   int,   # total matching rows (for pagination UI)
+            "page":    int,
+            "limit":   int,
+            "pages":   int,   # total pages
+        }
+    """
+    limit = min(max(1, limit), 200)
+    page  = max(1, page)
+    offset = (page - 1) * limit
+
+    conditions: list[str] = []
+    params: list = []
+
+    if model is not None:
+        conditions.append("model_name = ?")
+        params.append(model)
+    if variant is not None:
+        conditions.append("variant = ?")
+        params.append(variant)
+    if step_min is not None:
+        conditions.append("step >= ?")
+        params.append(step_min)
+    if step_max is not None:
+        conditions.append("step <= ?")
+        params.append(step_max)
+    if since is not None:
+        conditions.append("stored_at >= ?")
+        params.append(since)
+    if until is not None:
+        conditions.append("stored_at <= ?")
+        params.append(until)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    conn = _db()
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM shard_headers {where}", params
+    ).fetchone()[0]
+
+    rows = conn.execute(
+        f"""SELECT shard_key, model_name, variant, step, num_workers,
+                   total_tensor_bytes, original_checksum, stored_at
+            FROM shard_headers {where}
+            ORDER BY stored_at DESC
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    ).fetchall()
+    conn.close()
+
+    import math
+    return {
+        "models": [
+            {
+                "shard_key":         r["shard_key"],
+                "model_name":        r["model_name"],
+                "variant":           r["variant"],
+                "step":              r["step"] if r["step"] >= 0 else None,
+                "num_workers":       r["num_workers"],
+                "total_mb":          round(r["total_tensor_bytes"] / 1024**2, 1),
+                "original_checksum": r["original_checksum"],
+                "stored_at":         r["stored_at"],
+            }
+            for r in rows
+        ],
+        "total": total,
+        "page":  page,
+        "limit": limit,
+        "pages": math.ceil(total / limit) if total else 1,
     }

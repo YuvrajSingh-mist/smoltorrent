@@ -116,7 +116,17 @@ def receive_message(sock: socket.socket) -> Optional[Any]:
 # ---------------------------------------------------------------------------
 
 def _recv_length(sock: socket.socket) -> int:
-    """Read the 4-byte big-endian length header from sock. Returns 0 on clean close."""
+    """Read the 4-byte big-endian length header from *sock*.
+
+    Args:
+        sock: Connected blocking socket to read from.
+
+    Returns:
+        Unpacked integer byte count, or ``0`` on a clean peer close.
+
+    Raises:
+        ConnectionError: If the peer closes mid-header.
+    """
     hdr = bytearray(4)
     n = sock.recv_into(hdr, 4)
     if not n:
@@ -124,11 +134,10 @@ def _recv_length(sock: socket.socket) -> int:
     if n < 4:
         received = n
         while received < 4:
-            
             try:
                 n = sock.recv_into(memoryview(hdr)[received:], 4 - received)
-                # if not n:
-                #     raise ConnectionError("Socket closed while reading length header")
+                if not n:
+                    raise ConnectionError("Socket closed while reading length header")
                 received += n
             except Exception as e:
                 logger.error("[net/recv_length] error receiving length header: %s", e)
@@ -138,15 +147,26 @@ def _recv_length(sock: socket.socket) -> int:
 
 
 def _recv_into(sock: socket.socket, view: memoryview, start: int, length: int) -> int:
-    """Recv *length* bytes from sock directly into view[start:start+length]. Returns bytes written."""
+    """Receive *length* bytes from *sock* directly into ``view[start:start+length]``.
+
+    Args:
+        sock:   Connected blocking socket to read from.
+        view:   Writable memoryview backed by a pre-allocated buffer or mmap.
+        start:  Byte offset in *view* at which to begin writing.
+        length: Exact number of bytes to receive.
+
+    Returns:
+        Number of bytes written (always equals *length* on success).
+
+    Raises:
+        ConnectionError: If the peer closes the connection before *length* bytes arrive.
+    """
     received = 0
     while received < length:
-        
         try:
-            
             n = sock.recv_into(view[start + received:], min(65536, length - received))
-            # if not n:
-            #     raise ConnectionError("Socket closed during data transfer")
+            if not n:
+                raise ConnectionError("Socket closed during data transfer")
             received += n
         except Exception as e:
             logger.error("[net/recv_into] error receiving data: %s", e)

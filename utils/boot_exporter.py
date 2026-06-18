@@ -13,6 +13,17 @@ boot_time = Gauge(
 
 
 def get_boot_time_ms() -> float:
+    """Return the Unix timestamp of the last OS boot in milliseconds.
+
+    Uses ``sysctl kern.boottime`` on macOS and ``/proc/stat btime`` on Linux.
+
+    Args:
+        None.
+
+    Returns:
+        Boot time as a float in milliseconds since the Unix epoch, or ``0.0``
+        if the boot time cannot be determined.
+    """
     if platform.system() == "Darwin":
         out = subprocess.check_output(["sysctl", "-n", "kern.boottime"], text=True)
         m = re.search(r"sec\s*=\s*(\d+)", out)

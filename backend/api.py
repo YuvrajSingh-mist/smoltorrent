@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """FastAPI server that orchestrates shard distribution across workers.
 
 Exposes two endpoints:
@@ -9,6 +11,7 @@ import json
 import logging
 import mmap
 import os
+import tempfile
 import struct
 import sys
 import threading
@@ -48,7 +51,11 @@ from utils.worker_ops import (
     send_shard_to_worker,
 )
 from discovery import discover_workers
-from utils.shard_tracker import add_shard_header, get_ranks, get_shard_header, get_replica_map
+from utils.shard_tracker import add_shard_header, get_ranks, get_shard_header, get_replica_map, list_all_shard_headers
+from utils.observability import setup_api
+
+import socket as _socket
+setup_api(hostname=_socket.gethostname())
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +71,14 @@ REDUNDANCY = 2  # replicas per shard (1 = no redundancy, 2 = one primary + one r
 
 
 def _init_error_labels() -> None:
+    """Pre-initialise Prometheus transfer-error label combinations at import time.
+
+    Args:
+        None: reads worker list from configs/config.yaml via load_config().
+
+    Returns:
+        None.
+    """
     cfg = load_config()
     for w in cfg["devices_config"]["workers"]:
         api_xfer_errors.labels(rank=str(w["rank"]))
@@ -76,6 +91,14 @@ except Exception:
 
 
 def _log(msg: str) -> str:
+    """Log *msg* at INFO and return it as a streaming-response line.
+
+    Args:
+        msg: Human-readable status message to log and stream to the client.
+
+    Returns:
+        The message string with a trailing newline appended.
+    """
     logger.info("[api] %s", msg)
     return msg + "\n"
 
@@ -84,9 +107,25 @@ def _log(msg: str) -> str:
 def store_shard(
     ckpt_path: str = Query(..., description="Absolute path to the checkpoint .safetensors file on master"),
 ):
-    """Load a checkpoint, shard it, push each shard to its ranked worker, stream log lines."""
+    """Load a checkpoint, shard it, push each shard to its ranked worker, stream log lines.
+
+    Args:
+        ckpt_path: Absolute path to the checkpoint .safetensors file on the master node.
+
+    Returns:
+        StreamingResponse of ``text/plain`` lines — each line is a status message.
+        Lines beginning with ``ERROR:`` indicate a fatal failure.
+    """
 
     def _generate():
+        """Generator that performs the shard store and yields streaming log lines.
+
+        Args:
+            None: captures ``ckpt_path`` from the enclosing scope.
+
+        Returns:
+            Generator of ``str`` log lines for :class:`~fastapi.responses.StreamingResponse`.
+        """
         config = load_config()
         workers = config["devices_config"]["workers"]
         num_workers = len(workers)
@@ -207,22 +246,108 @@ def store_shard(
         else:
             api_store_ops.inc()
             yield _log(f"Done: {len(succeeded)}/{total_expected} sends ({REDUNDANCY}x replicated) → {rel_path}")
+            yield _log(f"Shard key: {rel_path}")
 
     return StreamingResponse(_generate(), media_type="text/plain")
 
 
+@app.get("/models")
+def list_models(
+    model:    str | None = Query(None, description="Filter by model name"),
+    variant:  str | None = Query(None, description="Filter by variant"),
+    step_min: int | None = Query(None, description="Filter by step >= step_min"),
+    step_max: int | None = Query(None, description="Filter by step <= step_max"),
+    since:    str | None = Query(None, description="Filter by stored_at >= since (ISO date, e.g. 2026-06-01)"),
+    until:    str | None = Query(None, description="Filter by stored_at <= until (ISO date)"),
+    limit:    int        = Query(50,   description="Page size (max 200)"),
+    page:     int        = Query(1,    description="1-based page number"),
+):
+    """List stored checkpoints with optional filtering and pagination.
+
+    Args:
+        model:    Filter by model_name (exact match).
+        variant:  Filter by variant (exact match).
+        step_min: Return only checkpoints with step >= step_min.
+        step_max: Return only checkpoints with step <= step_max.
+        since:    Return only checkpoints stored on or after this ISO date.
+        until:    Return only checkpoints stored on or before this ISO date.
+        limit:    Maximum results per page (default 50, capped at 200).
+        page:     1-based page number (default 1).
+
+    Returns:
+        Dict with keys ``models`` (list of checkpoint summaries), ``total``,
+        ``page``, ``limit``, and ``pages``.
+    """
+    return list_all_shard_headers(
+        model=model, variant=variant,
+        step_min=step_min, step_max=step_max,
+        since=since, until=until,
+        limit=limit, page=page,
+    )
+
+
+@app.get("/models/{model_name}")
+def list_model_history(
+    model_name: str,
+    variant:  str | None = Query(None),
+    step_min: int | None = Query(None),
+    step_max: int | None = Query(None),
+    since:    str | None = Query(None),
+    until:    str | None = Query(None),
+    limit:    int        = Query(50),
+    page:     int        = Query(1),
+):
+    """List all stored checkpoints for a specific model, newest first.
+
+    Args:
+        model_name: Model name to filter by (path parameter).
+        variant:    Optional variant filter (exact match).
+        step_min:   Return only checkpoints with step >= step_min.
+        step_max:   Return only checkpoints with step <= step_max.
+        since:      Return only checkpoints stored on or after this ISO date.
+        until:      Return only checkpoints stored on or before this ISO date.
+        limit:      Maximum results per page (default 50, capped at 200).
+        page:       1-based page number (default 1).
+
+    Returns:
+        Dict with keys ``models``, ``total``, ``page``, ``limit``, and ``pages``.
+    """
+    return list_all_shard_headers(
+        model=model_name, variant=variant,
+        step_min=step_min, step_max=step_max,
+        since=since, until=until,
+        limit=limit, page=page,
+    )
+
+
 @app.post("/gather-shards")
 def gather_shards(
-    ckpt_path: str = Query(..., description="Absolute path to the checkpoint file (same path used for store)"),
+    shard_key: str = Query(..., description="Shard key returned by /store-shard, e.g. 'Qwen2.5-0.5B/base/step_0'"),
 ):
     """Stream tensor bytes from workers directly into a pre-allocated merged safetensors file.
 
     No tensors are loaded into Python memory on the coordinator.  Each worker sends only
     its raw tensor data bytes (stripped of its local safetensors header); the coordinator
     writes them at the correct byte offset of the merged file using receive_into_fd_offset.
+
+    Args:
+        shard_key: Relative checkpoint path returned by ``/store-shard``,
+                   e.g. ``"Qwen2.5-0.5B/base/step_0"``.
+
+    Returns:
+        StreamingResponse of ``text/plain`` lines — each line is a status message.
+        Lines beginning with ``ERROR:`` indicate a fatal failure.
     """
 
     def _generate():
+        """Generator that performs the shard gather and yields streaming log lines.
+
+        Args:
+            None: captures ``shard_key`` from the enclosing scope.
+
+        Returns:
+            Generator of ``str`` log lines for :class:`~fastapi.responses.StreamingResponse`.
+        """
         config = load_config()
         workers = config["devices_config"]["workers"]
         num_workers = len(workers)
@@ -231,18 +356,11 @@ def gather_shards(
         dead = heartbeat_workers(workers)
         if dead:
             names = ", ".join(f"rank {d['rank']} ({d['host']})" for d in dead)
-            yield f"ERROR: {len(dead)} worker(s) unreachable: {names}\n"
-            return
-        yield _log("Heartbeat: all workers alive")
+            yield _log(f"Warning: {len(dead)} worker(s) unreachable: {names} — attempting replica fallback")
+        else:
+            yield _log("Heartbeat: all workers alive")
 
-        ckpt_root = Path(config["ckpt_root"]).expanduser()
-        ckpt_file = Path(ckpt_path).expanduser()
-
-        try:
-            rel_path = str(ckpt_file.parent.relative_to(ckpt_root))
-        except ValueError:
-            yield f"ERROR: {ckpt_file} is not under ckpt_root {ckpt_root}\n"
-            return
+        rel_path = shard_key
 
         # Retrieve stored header — required for zero-copy streaming merge.
         stored = get_shard_header(rel_path)
@@ -284,14 +402,18 @@ def gather_shards(
         gather_start = time.monotonic()
 
         # Pre-allocate merged file: [uint64 hdr_len][JSON header][tensor bytes...]
+        
         save_path = Path(config["ckpt_root"]).expanduser() / rel_path / "merged.safetensors"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         header_json_bytes = stored["header_json"].encode()
         merged_header_size = 8 + len(header_json_bytes)
         total_file_size = merged_header_size + total_tensor_bytes
 
+        temp_save_file = tempfile.NamedTemporaryFile(dir=save_path.parent, prefix="gather_", suffix=".tmp", delete=False)
+        temp_save_path = Path(temp_save_file.name)
+        
         yield _log(f"Pre-allocating merged file ({total_file_size / 1024**2:.1f} MB) → {save_path}")
-        with open(save_path, "wb") as mf:
+        with open(temp_save_path, "wb") as mf:
             mf.write(struct.pack("<Q", len(header_json_bytes)))
             mf.write(header_json_bytes)
             _fallocate = getattr(os, "posix_fallocate", None)
@@ -316,10 +438,24 @@ def gather_shards(
 
         threading.Thread(target=run_retry_worker, args=(gather_queue, gathered, dead_letter, lock), daemon=True).start()
 
-        with open(save_path, "r+b") as mf:
+            
+        with open(temp_save_path, "r+b") as mf:
             with mmap.mmap(mf.fileno(), length=total_file_size, access=mmap.ACCESS_WRITE) as merged_mm:
 
                 def _stream_one(shard_index: int) -> tuple[bool, str, dict]:
+                    """Fetch shard *shard_index* from its best available replica into the merged mmap.
+
+                    Tries replicas in primary-first order; falls through on failure or checksum
+                    mismatch.  Thread-safe when called concurrently with non-overlapping shard
+                    indices.
+
+                    Args:
+                        shard_index: Zero-based index of the shard to retrieve.
+
+                    Returns:
+                        Tuple of ``(ok, error_msg, result_dict)``.  On success ``result_dict``
+                        contains ``shard_index``, ``rank``, ``host``, and ``checksum``.
+                    """
                     write_offset = merged_header_size + (shard_ranges[shard_index]["file_offset"] - data_section_offset)
                     data_length = shard_ranges[shard_index]["length"]
 
@@ -350,7 +486,7 @@ def gather_shards(
                             if not stored_checksum:
                                 logger.warning("[api] shard %d: rank %d (%s) has no stored checksum — skipping integrity check", shard_index, rank, host)
                                 break
-                            actual = compute_checksum(str(save_path), offset=write_offset, length=data_length)
+                            actual = compute_checksum(temp_save_path, offset=write_offset, length=data_length)
                             if actual == stored_checksum:
                                 break
                             # Checksum mismatch — this replica's on-disk shard is corrupt.
@@ -376,29 +512,36 @@ def gather_shards(
                             cs = f" [{stored_checksum[:16]}…]" if stored_checksum else " [no checksum]"
                             yield _log(f"  ✓ shard {shard_index} — rank {rank} ({host}){cs}")
                         else:
-                            primary = worker_by_rank.get(
-                                (replica_map.get(shard_index) or [{}])[0].get("rank", -1)
-                            ) or workers[shard_index % num_workers]
-                            yield _log(f"  ↻ shard {shard_index} (rank {rank}) all replicas failed — queuing retry: {err}")
-                            gather_queue.put({
-                                "fn": lambda _shard_index=shard_index: _stream_one(_shard_index),
-                                "worker": primary,
-                                "attempt": 1,
-                            })
+                            # _stream_one already exhausted every replica — retrying is pointless.
+                            # Record as permanently failed immediately.
+                            n_replicas = len(replica_map.get(shard_index) or [])
+                            yield _log(
+                                f"  ✗ shard {shard_index} — all {n_replicas} replica(s) exhausted: {err}"
+                            )
+                            with lock:
+                                dead_letter.append({
+                                    "rank": rank, "host": host,
+                                    "error": err, "shard_index": shard_index,
+                                })
 
-                # Must join before mmap closes — retry fn accesses merged_mm via closure.
+                # Signal the retry worker there is nothing queued so join() returns.
                 gather_queue.join()
                 merged_mm.flush()
-
+                
+        os.replace(temp_save_path, save_path)
+        temp_save_file.close()
         failed = list(dead_letter)
-
-        for f in failed:
-            api_xfer_errors.labels(rank=str(f["rank"])).inc()
-            yield _log(f"  ✗ rank {f['rank']} ({f.get('host')}) permanently failed: {f.get('error')}")
 
         if failed:
             save_path.unlink(missing_ok=True)
-            yield f"ERROR: {len(failed)}/{stored_num_workers} shards failed — merged file deleted\n"
+            details = "; ".join(
+                f"shard {f['shard_index']} (rank {f['rank']} / {f.get('host', '?')}): {f.get('error', '?')}"
+                for f in failed
+            )
+            for f in failed:
+                api_xfer_errors.labels(rank=str(f["rank"])).inc()
+            yield f"ERROR: {len(failed)}/{stored_num_workers} shard(s) permanently failed — merged file deleted\n"
+            yield f"ERROR: details — {details}\n"
             return
 
         # Final end-to-end check: merged tensor section must match the original file.
@@ -431,8 +574,7 @@ def gather_shards(
             fetch_model_metadata(model_id, config)
         except Exception as e:
             logger.error("[api] fetch_model_metadata failed for %s: %s", model_id, e, exc_info=True)
-            yield f"ERROR: metadata fetch failed for {model_id}: {e}\n"
-            return
+            yield f"Warning: metadata fetch failed for {model_id}: {e}\n"
         yield _log(f"Model directory ready for inference → {save_path.parent}")
 
     return StreamingResponse(_generate(), media_type="text/plain")
@@ -440,7 +582,15 @@ def gather_shards(
 
 @app.get("/discover")
 def discover(timeout: float = Query(10.0, description="How long to scan for workers (seconds)")):
-    """Scan the local network for smoltorrent worker nodes via mDNS."""
+    """Scan the local network for smoltorrent worker nodes via mDNS.
+
+    Args:
+        timeout: How long to listen for mDNS announcements in seconds (default 10.0).
+
+    Returns:
+        Dict with key ``workers`` — a list of discovered worker dicts, each containing
+        ``ip``, ``port``, ``rank``, and ``hostname``.
+    """
     workers = discover_workers(timeout=timeout)
     logger.info("[api] Discovery found %d worker(s): %s", len(workers), workers)
     return {"workers": workers}

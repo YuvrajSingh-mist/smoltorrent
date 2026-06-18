@@ -29,9 +29,16 @@ logger = logging.getLogger(__name__)
 
 
 def setup_worker(rank: int, hostname: str, log_dir: Optional[str] = None) -> "Optional[WorkerMetrics]":
-    """Init worker metrics server and structured file logging.
+    """Initialise worker metrics server and structured file logging.
 
-    Returns a WorkerMetrics instance (or None if prometheus_client is unavailable).
+    Args:
+        rank:     Integer rank of this worker (used to choose the Prometheus port).
+        hostname: Human-readable hostname for log file naming and context labels.
+        log_dir:  Optional override for the cluster-log directory.
+
+    Returns:
+        A :class:`~utils.prometheus_utils.WorkerMetrics` instance, or ``None``
+        if ``prometheus_client`` is not installed on this node.
     """
     setup_logging()
     setup_cluster_logging(
@@ -50,10 +57,51 @@ def setup_worker(rank: int, hostname: str, log_dir: Optional[str] = None) -> "Op
     return init_worker_metrics(rank)
 
 
-def setup_watcher(hostname: Optional[str] = None, log_dir: Optional[str] = None) -> "Optional[WatcherMetrics]":
-    """Init watcher metrics server and structured file logging.
+def setup_api(hostname: Optional[str] = None, log_dir: Optional[str] = None) -> None:
+    """Initialise structured file logging for the FastAPI process.
 
-    Returns a WatcherMetrics instance (or None if prometheus_client is unavailable).
+    Writes to ``api-server-<hostname>.log`` in the cluster-log directory so
+    Loki can scrape API logs separately from the watcher.
+
+    Args:
+        hostname: Hostname used in the log file name (defaults to empty string).
+        log_dir:  Optional override for the cluster-log directory.
+
+    Returns:
+        None.
+    """
+    setup_logging()
+    setup_cluster_logging(
+        logger=logging.getLogger("backend"),
+        component="server",
+        hostname=hostname,
+        log_dir=log_dir,
+        algorithm="api",
+        arch="smoltorrent",
+    )
+    # Also capture uvicorn.error and fastapi loggers (skip uvicorn.access —
+    # it uses a specialized AccessFormatter that breaks with a plain FileHandler)
+    for name in ("uvicorn", "uvicorn.error", "fastapi"):
+        setup_cluster_logging(
+            logger=logging.getLogger(name),
+            component="server",
+            hostname=hostname,
+            log_dir=log_dir,
+            algorithm="api",
+            arch="smoltorrent",
+        )
+
+
+def setup_watcher(hostname: Optional[str] = None, log_dir: Optional[str] = None) -> "Optional[WatcherMetrics]":
+    """Initialise watcher metrics server and structured file logging.
+
+    Args:
+        hostname: Hostname used in the log file name (defaults to empty string).
+        log_dir:  Optional override for the cluster-log directory.
+
+    Returns:
+        A :class:`~utils.prometheus_utils.WatcherMetrics` instance, or ``None``
+        if ``prometheus_client`` is not installed.
     """
     setup_logging()
     setup_cluster_logging(

@@ -45,32 +45,34 @@ done
 # ── API / Watcher restart (no rsync needed) ────────────────────────────────────
 
 start_api() {
-    info "Restarting API..."
-    pkill -f "uvicorn backend.api" 2>/dev/null || true
+    info "Restarting API in tmux..."
+    tmux kill-session -t grove_api 2>/dev/null || true
+    lsof -ti :8000 | xargs kill -9 2>/dev/null || true
     sleep 1
-    cd "$PROJECT_DIR"
-    uv run uvicorn backend.api:app --host 0.0.0.0 --port 8000 &
-    sleep 2
-    if curl -s http://localhost:8000/ >/dev/null 2>&1 || \
-       curl -s http://localhost:8000/metrics/ >/dev/null 2>&1; then
-        ok "API up on :8000"
+    tmux set-option -g remain-on-exit on 2>/dev/null || true
+    tmux new -d -s grove_api \
+        "bash -lc 'cd \"$PROJECT_DIR\" && uv run uvicorn backend.api:app --host 0.0.0.0 --port 8000 2>&1 | tee logging/cluster-logs/grove_api.log; echo \"[grove_api] uvicorn exited (code \$?)\"; while sleep 3600; do :; done'"
+    sleep 3
+    if curl -sf http://localhost:8000/metrics/ >/dev/null 2>&1; then
+        ok "API up on :8000  → tmux attach -t grove_api"
     else
-        err "API may have failed to start — check logs"
+        err "API may have failed to start — tmux attach -t grove_api"
     fi
 }
 
 start_watcher() {
-    info "Restarting watcher..."
-    pkill -f "watcher/watch.py" 2>/dev/null || true
+    info "Restarting watcher in tmux..."
+    tmux kill-session -t grove_watcher 2>/dev/null || true
+    lsof -ti :8001 | xargs kill -9 2>/dev/null || true
     sleep 1
-    cd "$PROJECT_DIR"
-    uv run python watcher/watch.py > /tmp/smoltorrent-watcher.log 2>&1 &
+    tmux set-option -g remain-on-exit on 2>/dev/null || true
+    tmux new -d -s grove_watcher \
+        "bash -lc 'cd \"$PROJECT_DIR\" && uv run python watcher/watch.py 2>&1 | tee logging/cluster-logs/grove_watcher.log; echo \"[grove_watcher] watcher exited (code \$?)\"; while sleep 3600; do :; done'"
     sleep 2
     if pgrep -f "watcher/watch.py" >/dev/null; then
-        ok "Watcher up (metrics on :8001) — logs: /tmp/smoltorrent-watcher.log"
+        ok "Watcher up (metrics on :8001)  → tmux attach -t grove_watcher"
     else
-        err "Watcher failed to start:"
-        tail -10 /tmp/smoltorrent-watcher.log >&2
+        err "Watcher failed to start — tmux attach -t grove_watcher"
     fi
 }
 

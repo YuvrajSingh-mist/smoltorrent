@@ -14,15 +14,15 @@ devices_config:
     ip: 192.168.1.7
     rank: 1
     port: 5001
-  - host: minilab-pi4-2
-    ip: 192.168.1.5
-    rank: 2
-    port: 5002
   - host: minilab-pi4-4
     ip: 192.168.1.6
-    rank: 3
-    port: 5003
+    rank: 2
+    port: 5002
   - host: minilab-pi4-3
     ip: 192.168.1.3
+    rank: 3
+    port: 5003
+  - host: minilab-pi4-2
+    ip: 192.168.1.5
     rank: 4
     port: 5004

@@ -10,5 +10,13 @@ os.chdir(ROOT)
 
 
 def main() -> None:
+    """Entry-point wrapper: set up sys.path and cwd, then call main.main().
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     from main import main as entry
     entry()
