@@ -61,7 +61,7 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 | `networking/send_receive.py` | Both | Zero-copy TCP framing shared by master and workers |
 | `networking/ssh_manager.py` | Server | Writes and updates the smoltorrent-managed block in `~/.ssh/config` |
 | `discovery/__init__.py` | Server | Public API: `advertise_worker()`, `discover_workers()` |
-| `discovery/grove/_mdns.py` | Both | zeroconf mDNS advertiser (`WorkerAdvertiser`) and scanner (`discover_mdns_workers`) |
+| `discovery/grove/_mdns.py` | Both | zeroconf mDNS advertiser (`WorkerAdvertiser`) and scanner (`WorkerBrowser`) |
 | `discovery/grove/tui.py` | Server | Textual TUI — `WorkerPickerApp` for interactive node selection |
 | `discovery/grove/transport/p2p.py` | Server (macOS) | AirDrop/AWDL peer discovery via Swift helper |
 | `utils/common_utils.py` | Both | Tensor ops: chunk, serialize, deserialize, merge |
@@ -111,7 +111,7 @@ Training writes checkpoint
   → API loads tensors, splits into N chunks, serializes each once (MLX not thread-safe)
   → builds N×REDUNDANCY jobs: shard i → workers[(i+round) % N] for round in 0,1
   → all 2N sends fire simultaneously in one ThreadPoolExecutor
-  → each Pi writes shard.safetensors + shard.checksum to disk
+  → each Pi writes shard_0.safetensors + shard_0.checksum to disk
   → failed sends → retry queue (daemon thread, exponential backoff, 6 retries max)
   → API streams "Done: 2N/2N sends (2x replicated)" → watcher crosschecks
 ```
@@ -176,7 +176,7 @@ node_exporter and boot_exporter run on all 5 nodes. On the Server, both are regi
 | `watcher/watch.py` | Master only. Separated from API so it can be restarted independently. |
 | `networking/send_receive.py` | Shared by both master and workers — one place for TCP framing. |
 | `networking/ssh_manager.py` | Master only. Manages the fenced block in `~/.ssh/config` written by `discover`. |
-| `discovery/grove/_mdns.py` | zeroconf logic isolated in grove — keeps discovery transport details out of the public API. |
+| `discovery/grove/_mdns.py` | zeroconf mDNS advertiser (`WorkerAdvertiser`) and scanner (`WorkerBrowser`) — keeps discovery transport details out of the public API. |
 | `discovery/grove/tui.py` | Textual TUI copied from smolcluster grove; `WorkerPickerApp` appended for smoltorrent node picking. |
 | `discovery/grove/transport/p2p.py` | AirDrop/AWDL via Swift helper — macOS-only, loaded lazily. |
 | `utils/common_utils.py` | Shared tensor ops, platform-branched on `_IS_MAC`. |

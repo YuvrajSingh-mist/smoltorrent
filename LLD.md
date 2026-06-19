@@ -33,28 +33,40 @@ Health check. Called before operations and by `launch.sh` to verify workers are 
 
 ### `store_shard`
 ```
-master → worker:  ("store_shard", rank, shard_bytes, checksum, rel_path)
+master → worker:  ("store_shard", rank, checksum, rel_path[, shard_filename])
+master → worker:  tensor_meta dict          (second send_message call — rebased header)
+master → worker:  <raw tensor bytes>        (serve_file / receive_file, length-prefixed)
 worker → master:  ("store_shard_done", rank, shard_path)
                or ("store_shard_failed", rank, error_msg)
 ```
+`shard_filename` defaults to `shard_0.safetensors` if omitted. The master sends the command tuple first, then immediately sends the rebased safetensors JSON header as a second `send_message`, then streams the raw tensor bytes via `serve_file`. The worker calls `receive_file(..., st_header=tensor_meta)` which writes `[uint64 hdr_len][JSON header][tensor bytes]` — a valid safetensors file — directly to disk using mmap.
+
 Worker:
-1. Verifies `SHA-256(shard_bytes) == checksum` — rejects on mismatch
-2. Deserializes `shard_bytes` via `shard_from_bytes` → torch tensors
-3. Writes `shards/worker_{rank}/{rel_path}/shard.safetensors`
-4. Computes SHA-256 of the written file, writes `shard.checksum` sidecar
+1. Receives command tuple, then `tensor_meta` dict (two separate `receive_message` calls)
+2. Calls `receive_file(conn, shard_path, st_header=tensor_meta)` → mmap-writes a complete safetensors file
+3. Verifies `SHA-256(tensor_bytes_section) == checksum` — rejects on mismatch, deletes the file
+4. Writes `shard_0.checksum` sidecar (SHA-256 of the tensor data section only)
 5. Replies done or failed
 
-Why the sidecar: `store_shard` verifies the bytes in transit. The sidecar is for the startup `checksum_sync` sweep — it lets the worker detect disk corruption between runs without the master resending the original bytes.
+Why the sidecar: the in-transit checksum verifies delivery. The sidecar lets `checksum_sync` detect disk corruption between runs without the master resending anything. The checksum covers only the tensor data section (after the safetensors header) so the same hash can be computed from either the raw bytes or the on-disk file given the header offset.
 
 ---
 
 ### `send_shard`
 ```
-master → worker:  ("send_shard", rank, rel_path)
-worker → master:  shard_bytes  (raw safetensors bytes)
-               or None         (shard not found)
+master → worker:  ("send_shard", rank, rel_path[, shard_filename])
+worker → master:  ("send_shard_ok",      rank, rel_path)   — then serve_file streams the file
+               or ("send_shard_missing", rank, rel_path)   — shard not on disk
 ```
-Worker reads `shards/worker_{rank}/{rel_path}/shard.safetensors` and sends the raw bytes. The master deserializes with `shard_from_bytes` (→ MLX on Server, torch on Pi).
+`shard_filename` defaults to `shard_0.safetensors`. Worker sends the ack tuple first so the master knows immediately whether the shard exists before any data is transferred. Then the worker calls `serve_file(conn, shard_path)` which sends a 4-byte length header followed by the raw file bytes via `os.sendfile` — zero copies through the kernel. The master receives with `receive_file` and deserializes with `shard_from_bytes` (→ MLX on Server, torch on Pi).
+
+### `send_shard_range`
+```
+master → worker:  ("send_shard_range", rank, rel_path[, shard_filename])
+worker → master:  ("send_shard_range_ok",      rank, data_length)   — then serve_file streams tensor bytes only
+               or ("send_shard_range_missing", rank, rel_path)
+```
+Sends only the raw tensor data bytes of the shard file — no safetensors header framing. The worker reads the local header to find `local_data_offset`, then calls `serve_file(conn, shard_path, local_data_offset, data_length)`. Used by the streaming-merge gather path so the coordinator can write each shard's tensor bytes directly into the correct offset of a pre-allocated merged file without loading tensors into RAM.
 
 ---
 
@@ -63,7 +75,7 @@ Worker reads `shards/worker_{rank}/{rel_path}/shard.safetensors` and sends the r
 master → worker:  ("sync", rank, extensions)
 worker → master:  [rel_path, rel_path, ...]
 ```
-Worker globs `shards/worker_{rank}/` for all `shard.safetensors` files and returns their parent dirs relative to the worker root. The `extensions` parameter is passed for protocol compatibility but ignored — shards are always stored as `shard.safetensors` regardless of the source checkpoint extension.
+Worker globs `shards/worker_{rank}/` for all `shard_*.safetensors` files and returns their parent dirs relative to the worker root. The `extensions` parameter is passed for protocol compatibility but ignored — shards are always stored as `shard_0.safetensors` (round 0 primary) or `shard_1.safetensors` (round 1 replica) regardless of the source checkpoint extension.
 
 The master calls this against all workers in parallel and takes the **intersection** — only paths present on every worker. This is the "what we already have" baseline before deciding what to transfer.
 
@@ -77,7 +89,7 @@ worker → master:  ("checksum_sync_result", "ok",           rel_path)
                or ("checksum_sync_result", "shard_missing", rel_path)
 ```
 Worker:
-1. If `shard.checksum` doesn't exist → bootstrap it by hashing the shard now, reply `"ok"`
+1. If `shard_0.checksum` doesn't exist → bootstrap it by hashing the shard now, reply `"ok"`
 2. Otherwise: hash the shard, compare to stored checksum → reply `"ok"` or `"mismatch"`
 
 Called only on the **startup** trigger. All paths passed to `checksum_sync` are from the intersection (all workers confirmed having them via `sync`), so `"shard_missing"` is a defensive response only.
@@ -89,7 +101,7 @@ Called only on the **startup** trigger. All paths passed to `checksum_sync` are 
 master → worker:  ("all_shards_present", rank, [rel_path, ...])
 worker → master:  [missing_rel_path, ...]   (empty list = all present)
 ```
-Worker checks whether `shards/worker_{rank}/{rel_path}/shard.safetensors` exists for each path in the list, returns the missing ones.
+Worker checks whether `shards/worker_{rank}/{rel_path}/shard_*.safetensors` matches any file for each path in the list, returns the missing ones.
 
 Called after every transfer batch (crosscheck phase). Unlike `sync` which returns an intersection, this queries each worker individually — so it can report *which* worker is missing *which* paths, not just whether everyone has everything.
 
@@ -172,7 +184,7 @@ Properties use `bytes` keys — zeroconf's DNS-SD TXT record format requires it.
 
 The master discovers with `ServiceBrowser` + `time.sleep(timeout)`, collecting `ServiceStateChange.Added` events.
 
-`_get_local_ip()` uses a UDP connect to `8.8.8.8:80` (no packet sent) to determine the active LAN interface IP — avoids returning `127.0.0.1`.
+`get_local_ip()` uses a UDP connect to `8.8.8.8:80` (no packet sent) to determine the active LAN interface IP — avoids returning `127.0.0.1`.
 
 ### AirDrop/AWDL (`discovery/grove/transport/p2p.py`)
 
@@ -310,7 +322,7 @@ ThreadPoolExecutor(max_workers=n_workers):
         ← shard_bytes
         if failed: immediately try workers[(i+1) % N]  ← replica fallback
         shard_from_bytes(shard_bytes)
-        save to SHARDS_ROOT/worker_{rank}/{rel_path}/shard.safetensors  ← on arrival
+        save to SHARDS_ROOT/worker_{rank}/{rel_path}/shard_0.safetensors  ← on arrival
         shards_by_index[i] = shard
 
 gather_queue.join()
@@ -404,12 +416,14 @@ The intersection tells the master what it can skip. If a path is in the intersec
 ```
 Pi:
 ~/Desktop/smoltorrent/shards/worker_{rank}/{rel_path}/
-    shard.safetensors
-    shard.checksum          ← SHA-256 of shard.safetensors
+    shard_0.safetensors     ← round 0 (primary)
+    shard_0.checksum        ← SHA-256 of tensor data section only
+    shard_1.safetensors     ← round 1 (replica, only if REDUNDANCY=2)
+    shard_1.checksum
 
 Server (local cache after gather):
 ~/smoltorrent/shards/worker_{rank}/{rel_path}/
-    shard.safetensors
+    shard_0.safetensors
 
 Server (merged output):
 ~/smolcluster/checkpoints/{rel_path}/
@@ -419,7 +433,7 @@ Server (merged output):
 
 `rel_path` = `ckpt_file.parent.relative_to(ckpt_root)`, e.g. `Qwen2.5/run1/latest`. It's the same on both Server and Pi — the master uses it as the storage key, and the worker uses it as the directory name under its `shards/worker_{rank}/` root.
 
-With REDUNDANCY=2, `shard.safetensors` for shard `i` lives on `worker_{i}` (round 0) **and** `worker_{(i+1) % N}` (round 1). The replica is indistinguishable on disk from the primary — same filename, same content.
+With REDUNDANCY=2, shard `i` lives on `worker_{i}` as `shard_0.safetensors` (round 0) **and** on `worker_{(i+1) % N}` as `shard_1.safetensors` (round 1). Both are complete safetensors files with the same tensor content — the filename encodes the round, not the shard index.
 
 ---
 
