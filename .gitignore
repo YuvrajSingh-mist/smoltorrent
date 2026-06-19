@@ -22,3 +22,7 @@ shard_map.tmp
 
 # Secrets
 monitoring/.env
+
+# Local-only docs
+BLOG.md
+DESIGN_DOC.md
