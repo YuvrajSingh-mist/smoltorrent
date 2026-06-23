@@ -13,7 +13,7 @@ smoltorrent does not have versioned releases. Security fixes are applied to the 
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report security issues privately by email to **rajceo2031@gmail.com** with the subject line `[smoltorrent] Security Vulnerability`.
+Use GitHub's [Private Vulnerability Reporting](https://github.com/YuvrajSingh-mist/smoltorrent/security/advisories/new) to report issues confidentially. Only you and the maintainer can see the report until it is resolved.
 
 Include as much of the following as you can:
 
