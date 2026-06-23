@@ -4,7 +4,11 @@ Distributed ML checkpoint sharding across a Raspberry Pi cluster, coordinated fr
 
 *This is an educational project built to learn distributed systems concepts hands-on.*
 
-**[→ Full documentation & setup guide](https://yuvrajsingh-mist.github.io/smoltorrent/)** · **[→ How it was built](https://www.smolhub.com/posts/smoltorrent/)**
+| | |
+|---|---|
+| Full documentation & setup guide | [smoltorrent docs](https://yuvrajsingh-mist.github.io/smoltorrent/) |
+| How it was built | [smolhub.com/posts/smoltorrent](https://www.smolhub.com/posts/smoltorrent/) |
+| Beginner's guide to mDNS, Zeroconf & AWDL | [smolhub.com/posts/beginners-guide-to-mdns](https://www.smolhub.com/posts/beginners-guide-to-mdns/) |
 
 ```
 Master (Mac mini / Apple Silicon)
