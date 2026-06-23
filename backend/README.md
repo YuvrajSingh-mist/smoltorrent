@@ -31,8 +31,6 @@ Round 0 = primary (shard i → workers[i]). Round 1 = replica (shard i → worke
 
 On partial failure: failed ranks emit `↻ rank N (host) failed — queuing retry: <reason>`. Retried with exponential backoff (`2^attempt` seconds, up to `MAX_RETRIES=6`). Permanently failed shards emit `✗ rank N permanently failed` and the final line is `ERROR: N/M sends failed`.
 
----
-
 ### `POST /gather-shards`
 
 Connects to all workers in parallel via TCP, pulls each shard simultaneously (falling back to the replica worker if the primary is unreachable), saves each shard on arrival, then merges all shards into one `.safetensors` file written as `merged.safetensors` next to the original checkpoint.
@@ -53,8 +51,6 @@ Done: saved → ~/smolcluster/checkpoints/Qwen2.5-0.5B/gaming/latest/merged.safe
 
 Each shard is saved to disk as it arrives — a mid-gather failure doesn't lose already-received shards. On partial failure: `ERROR: N/M shards failed — skipping merge`.
 
----
-
 ## Wire format
 
 Shards travel as raw `safetensors` bytes over TCP.
@@ -67,8 +63,6 @@ Shards travel as raw `safetensors` bytes over TCP.
 Safetensors is the only format that carries shape + dtype + tensor name cleanly across frameworks with no framework-specific code embedded in the bytes.
 
 **Important:** on gather, the master receives shard bytes and deserializes to MLX arrays (Server). Saving must use `_save_shard()` (which calls `mx.save_safetensors`) — using `safetensors.torch.save_file()` directly will crash because it expects torch tensors, not MLX arrays.
-
----
 
 ## Shard storage layout
 
@@ -92,8 +86,6 @@ Merged output:
 ~/smolcluster/checkpoints/{model}/{experiment}/{run}/latest/
   merged.safetensors
 ```
-
----
 
 ## Running standalone
 

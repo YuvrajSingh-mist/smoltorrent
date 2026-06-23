@@ -1,7 +1,5 @@
 # SmolTorrent — High-Level Design
 
----
-
 ## What the system does
 
 SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi workers and reassembles them on demand. The Server is the master — it holds the original checkpoints, runs the API and watcher, and coordinates all operations. The Pis are dumb storage workers — they receive shards, hold them on disk, and serve them back on request. Every shard is replicated to a second worker (replication factor 2), so a single worker failure does not lose data.
@@ -27,8 +25,6 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
     worker metrics   (port 920{rank})
 ```
 
----
-
 ## Why this topology
 
 - **Master orchestrates, workers store** — the Server has MLX for tensor ops; Pis run pure torch. Keeping orchestration on the Server avoids cross-framework complexity on workers.
@@ -36,8 +32,6 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 - **Safetensors as wire format** — the only format that carries shape + dtype + tensor name across both MLX (Server) and torch (Pi) without importing the other framework.
 - **Replication factor 2** — every shard is stored on two workers (round 0 + round 1). Gather falls back to the replica automatically if the primary is unreachable.
 - **Zero-config discovery** — workers advertise over mDNS on startup; the master discovers them without any static IP configuration.
-
----
 
 ## Four user-facing operations
 
@@ -48,8 +42,6 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 | **Store** | `grove store --ckpt-path <path>` or watcher auto-detect | Split checkpoint → serialize shards once → push all N×REDUNDANCY sends in parallel |
 | **Gather** | `grove gather --ckpt-path <path>` | Pull all shards in parallel (replica fallback per shard) → merge → `merged.safetensors` |
 | **Watch** | `watcher/watch.py` daemon (always running) | Auto-detect new checkpoints, store them, crosscheck all workers |
-
----
 
 ## Components and their roles
 
@@ -70,8 +62,6 @@ SmolTorrent distributes ML checkpoint files across a cluster of Raspberry Pi wor
 | `scripts/grove_launch.sh` | Server (grove flow) | Start API + watcher in tmux only; workers already up via `grove join` |
 | `scripts/install_worker_service.sh` | Server (run once) | Install systemd auto-restart service on each Pi |
 | `utils/boot_exporter.py` | All nodes | Prometheus exporter on port 9101 — exposes `smoltorrent_boot_time_ms` |
-
----
 
 ## Discover flow (high level)
 
@@ -99,8 +89,6 @@ grove join                                    // each worker (TUI)
   → bash scripts/launch.sh
       rsyncs code to all Pis, installs deps, starts API + watcher + workers in tmux
 ```
-
----
 
 ## Store flow (high level)
 
@@ -141,16 +129,12 @@ On each trigger (new file or startup):
 3. **transfer** — push files missing from the intersection via `/store-shard`
 4. **crosscheck** — ask each worker individually what's missing → re-transfer any gaps
 
----
-
 ## Auto-start
 
 | Node | Mechanism | Effect |
 |---|---|---|
 | Server | `/Library/LaunchDaemons/` plist + `launchctl bootstrap system` | Runs `smoltorrent_startup.sh` at boot → waits for Tailscale → `launch.sh` |
 | Each Pi | `systemd` template unit `smoltorrent-worker@{rank}.service` | Starts `worker.py` at boot, restarts on crash |
-
----
 
 ## Observability
 
@@ -164,8 +148,6 @@ Prometheus + Grafana + Loki run in Docker on the Server. Three metric sources fe
 | boot_exporter | `<node>:9101/metrics` | `smoltorrent_boot_time_ms` — OS boot timestamp (macOS + Linux) |
 
 node_exporter and boot_exporter run on all 5 nodes. On the Server, both are registered as LaunchDaemons by `bash scripts/launch.sh --daemons`. On Pis, both are deployed as systemd units by `launch.sh` via SSH. See [monitoring/README.md](monitoring/README.md) for setup and the full metrics reference.
-
----
 
 ## Why each file lives where it does
 

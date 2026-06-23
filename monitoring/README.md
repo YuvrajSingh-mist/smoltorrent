@@ -2,8 +2,6 @@
 
 Prometheus + Grafana + Loki in Docker on the Server. All logs from master (API, watcher) and all 4 Pi workers stream into one Grafana view.
 
----
-
 ## Quick start
 
 ```bash
@@ -26,8 +24,6 @@ Three dashboards inside the **SmolTorrent** folder:
 
 Data is persisted in Docker volumes (`prometheus-data`, `loki-data`, `grafana-data`) — dashboards and history survive restarts.
 
----
-
 ## All commands
 
 | Command | What it does |
@@ -37,8 +33,6 @@ Data is persisted in Docker volumes (`prometheus-data`, `loki-data`, `grafana-da
 | `bash scripts/launch_monitoring.sh --daemons` | Register LaunchDaemon — stack auto-starts on every Server boot |
 | `bash scripts/launch_monitoring.sh --install-pi-promtail` | Install Promtail on all 4 Pi workers via SSH |
 | `bash scripts/launch_monitoring.sh --install-pi-promtail --workers 1,3` | Specific ranks only |
-
----
 
 ## Preflight checks
 
@@ -56,8 +50,6 @@ The script checks all of the following before doing anything. Failures print cle
 | Prometheus / Loki / Promtail sub-configs present | — |
 | Log dir exists and is writable | creates it |
 | SSH key exists (only for `--install-pi-promtail`) | — |
-
----
 
 ## Auto-start on boot (macOS)
 
@@ -86,8 +78,6 @@ sudo rm /usr/local/bin/smoltorrent_monitoring_startup.sh
 
 > **macOS 26 Tahoe note**: `LaunchAgents` and `launchctl load` are broken in Tahoe. This uses `/Library/LaunchDaemons` + `launchctl bootstrap system`, which is the only approach that works. The plist sets `UserName` so it runs as your user, not root.
 
----
-
 ## Pi worker logs
 
 Pi workers write logs to `~/Desktop/smoltorrent/logging/cluster-logs/` on each Pi. Install Promtail once to ship them to Loki:
@@ -102,8 +92,6 @@ bash scripts/launch_monitoring.sh --install-pi-promtail --workers 1,3
 
 This SSHes into each Pi, downloads Promtail v2.9.10 (last version with standalone arm64 binary), installs it as a systemd service (`smoltorrent-promtail`), and starts it. Promtail auto-restarts on Pi reboot via systemd. After that, Pi logs appear in Grafana automatically.
 
----
-
 ## Viewing logs in Grafana
 
 Grafana → **Explore** → select **Loki** → run a query:
@@ -117,8 +105,6 @@ Grafana → **Explore** → select **Loki** → run a query:
 | `{job="smoltorrent"} \|= "rank 3"` | Lines mentioning rank 3 |
 
 The **Cluster Logs** panel on the dashboard already runs `{job="smoltorrent"}`.
-
----
 
 ## What's in the dashboards
 
@@ -175,8 +161,6 @@ The **Cluster Logs** panel on the dashboard already runs `{job="smoltorrent"}`.
 | **API CPU %** | CPU consumed by the FastAPI process |
 | **Open File Descriptors** | Rising without bound = FD leak |
 
----
-
 ## Metrics reference
 
 ### Boot exporter (`http://<node>:9101/metrics`)
@@ -186,8 +170,6 @@ Runs on all 5 nodes. Source: `utils/boot_exporter.py`.
 | Metric | Type | Description |
 |---|---|---|
 | `smoltorrent_boot_time_ms` | Gauge | Unix timestamp of last OS boot in milliseconds |
-
----
 
 ### Master API (`http://localhost:8000/metrics/`)
 
@@ -242,8 +224,6 @@ sudo systemctl enable --now prometheus-node-exporter
 
 Verify: `curl http://<node>:9100/metrics | grep node_boot`
 
----
-
 ### Boot time metric (`http://<node>:9101/metrics`)
 
 `utils/boot_exporter.py` — a tiny cross-platform Prometheus exporter that reads the OS boot timestamp directly (`sysctl kern.boottime` on macOS, `/proc/stat` on Linux) and exposes it as `smoltorrent_boot_time_ms`. This powers the **Server Last Boot** and **API Process Last Start** panels.
@@ -296,8 +276,6 @@ systemctl is-active smoltorrent-boot-exporter   # → active
 curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms
 ```
 
----
-
 ## Alerts (Telegram)
 
 12 alert rules are provisioned automatically and fire to your Telegram account via a bot.
@@ -344,8 +322,6 @@ Alerts fire after their `for` window to suppress single-scrape blips. Re-alerts 
 5. **Test delivery** — Grafana UI → Alerting → Contact points → telegram → **Test**. You should get a Telegram message instantly.
 
 Alert rules and contact points are provisioned from `monitoring/grafana/provisioning/alerting/` and load automatically on every Grafana start — no UI clicks needed beyond the `.env` file.
-
----
 
 ## Log sources
 
