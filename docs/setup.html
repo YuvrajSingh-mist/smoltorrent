@@ -460,8 +460,8 @@
         <a href="#bootstrap"><span class="step-num">4</span>Bootstrap all nodes</a>
         <a href="#launch"><span class="step-num">5</span>Launch cluster</a>
 
-        <div class="sidebar-group">No-SSH alternative</div>
-        <a href="#grove-quickstart" class="grove-link"><span class="step-num">⚡</span>grove start / join</a>
+        <div class="sidebar-group">Standalone (no SSH)</div>
+        <a href="#grove-quickstart" class="grove-link"><span class="step-num">⚡</span>Standalone bootstrap</a>
 
         <div class="sidebar-group">Optional</div>
         <a href="#pi-autostart"><span class="step-num">6</span>Pi auto-start</a>
@@ -674,11 +674,17 @@ grove --help   <span style="color:var(--text-ter)"># should print grove CLI usag
           <span>Once bootstrap completes, every node is fully ready. You can go straight to <code>grove start</code> / <code>grove join</code> (no-SSH path below), or proceed to step 5 to launch via SSH.</span>
         </div>
 
+        <div class="callout tip">
+          <span class="icon">💡</span>
+          <span><strong>Don't want to set up SSH aliases or <code>config.yaml</code>?</strong> Run <code>bootstrap.sh --standalone</code> independently on the master and on each worker node — no SSH or topology config needed. See the <a href="#grove-quickstart">standalone bootstrap section below</a>.</span>
+        </div>
+
         <h3 class="sub-title">Useful flags</h3>
         <table class="req-table">
           <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
           <tbody>
-            <tr><td><code>--workers 1,3</code></td><td>Bootstrap only the specified worker ranks</td></tr>
+            <tr><td><code>--standalone</code></td><td>Install deps on this machine only — no SSH, no <code>config.yaml</code>, no aliases needed. Run on each node independently.</td></tr>
+            <tr><td><code>--workers 1,3</code></td><td>Bootstrap only the specified worker ranks (cluster mode only)</td></tr>
             <tr><td><code>--dry-run</code></td><td>Print what would run without executing anything</td></tr>
           </tbody>
         </table>
@@ -755,30 +761,32 @@ tail -f logging/cluster-logs/*.log</pre>
       <!-- Grove: no-SSH alternative -->
       <div class="section-divider">
         <hr>
-        <span>No-SSH alternative</span>
+        <span>Standalone (no SSH needed)</span>
         <hr>
       </div>
 
       <section class="grove-section step-section" id="grove-quickstart">
-        <div class="grove-tag">No SSH required</div>
+        <div class="grove-tag">No SSH · No config.yaml · No aliases</div>
         <div class="step-header">
           <div class="step-badge grove">⚡</div>
-          <h2 class="step-title">grove start / join</h2>
+          <h2 class="step-title">Standalone bootstrap + grove start / join</h2>
         </div>
 
-        <p class="desc">Once bootstrap has run on every node (step 4), you can skip <code>launch.sh</code> entirely and use grove instead. No SSH config, no manual <code>config.yaml</code> editing - workers discover the master over mDNS and self-register, and the master writes <code>config.yaml</code> automatically. Good for testing and same-network setups.</p>
+        <p class="desc">Don't want to wire up SSH aliases or fill in a topology file? Run <code>bootstrap.sh --standalone</code> on each machine independently — it installs everything locally. Then use <code>grove start</code> / <code>grove join</code>: workers discover the master over mDNS and self-register, and <code>config.yaml</code> is written automatically. No SSH config, no manual topology editing required.</p>
 
         <div class="callout warn">
           <span class="icon">⚠️</span>
-          <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS multicast to reach them. For production runs over complex networks, use the SSH setup above.</span>
+          <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS multicast to reach them. For production runs over complex networks, use the SSH cluster setup (steps 1–5) above.</span>
         </div>
 
         <div class="grove-sub-step">
-          <h3><span class="who">Master</span> Install once</h3>
+          <h3><span class="who">Master</span> Bootstrap this machine</h3>
           <div class="code-block">
-            <pre>brew install uv   <span style="color:var(--text-ter)"># if not already installed</span>
-git clone https://github.com/YuvrajSingh-mist/smoltorrent
-cd smoltorrent && uv sync
+            <pre>brew install uv   <span style="color:var(--text-ter)"># macOS — if not already installed</span>
+git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
+cd ~/smoltorrent
+
+bash scripts/bootstrap.sh --standalone
 
 <span style="color:var(--text-ter)"># Add grove to your PATH (one time)</span>
 echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
@@ -788,38 +796,37 @@ source ~/.zshrc</pre>
         </div>
 
         <div class="grove-sub-step">
-          <h3><span class="who">Each worker</span> Install once (Pi or any Linux/macOS)</h3>
+          <h3><span class="who">Each worker</span> Bootstrap this machine (Pi or any Linux/macOS)</h3>
           <div class="code-block">
-            <pre><span style="color:var(--text-ter)"># Install uv first if not present</span>
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env   <span style="color:var(--text-ter)"># or open a new shell</span>
+            <pre>git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
+cd ~/smoltorrent
 
-git clone https://github.com/YuvrajSingh-mist/smoltorrent
-cd smoltorrent && uv pip install -e .</pre>
+bash scripts/bootstrap.sh --standalone
+
+<span style="color:var(--text-ter)"># Add grove to PATH</span>
+echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc</pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service — everything the worker needs, locally.</p>
         </div>
 
         <div class="grove-sub-step">
           <h3><span class="who">Master</span> Advertise and wait for workers</h3>
           <div class="code-block">
-            <pre><span style="color:var(--text-ter)"># Run from inside the smoltorrent directory</span>
-cd smoltorrent
-grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your worker count</span></pre>
+            <pre>grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your total worker count</span></pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">The master advertises itself over mDNS and opens a registration server on port 5999. It will wait until all <code>N</code> workers have joined before launching.</p>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">Advertises over mDNS and waits until all <code>N</code> workers have joined before starting the cluster.</p>
         </div>
 
         <div class="grove-sub-step">
           <h3><span class="who">Each worker</span> Find the master and join</h3>
           <div class="code-block">
-            <pre><span style="color:var(--text-ter)"># Run from inside the smoltorrent directory on the worker</span>
-cd smoltorrent
-grove join</pre>
+            <pre>grove join</pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">A TUI lists all smoltorrent masters found on the network. Select yours and press Enter. The worker registers, receives its rank, and starts the TCP listener immediately - no manual config needed.</p>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">A TUI lists all smoltorrent masters on the network. Select yours and press Enter — the worker registers, receives its rank, and starts the TCP listener immediately.</p>
         </div>
 
         <div class="callout tip" style="margin-top:1.2rem;">
@@ -827,16 +834,21 @@ grove join</pre>
           <div>
             <strong>Once all N workers have joined:</strong>
             <ul style="margin: 0.4rem 0 0 1.1rem; font-size:0.92rem; line-height:2;">
-              <li>Master writes <a href="#clone"><code>configs/config.yaml</code></a> with each worker's IP, rank, and port.</li>
+              <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
               <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
-              <li>Cluster is ready - drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
+              <li>Cluster is ready — drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
             </ul>
           </div>
         </div>
 
         <div class="callout info">
           <span class="icon">ℹ️</span>
-          <span>Set <code>ckpt_root</code> in <a href="#clone"><code>configs/config.yaml</code></a> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
+          <span>Set <code>ckpt_root</code> in <code>configs/config.yaml</code> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
+        </div>
+
+        <div class="callout tip" style="margin-top:1rem;">
+          <span class="icon">🔧</span>
+          <span><strong>Developer / cluster mode:</strong> Once you have <code>configs/config.yaml</code> and <code>~/.ssh/config</code> aliases set up for every node, a single <code>bash scripts/bootstrap.sh</code> from the master rsyncs the code and installs everything on all nodes automatically — no need to touch each machine individually.</span>
         </div>
       </section>
 

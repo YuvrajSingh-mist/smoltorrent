@@ -21,113 +21,21 @@ Master (Mac mini / Apple Silicon)
   └── Workers × N      algorithms/SyncPS/worker.py  ← TCP listener + mDNS advertiser on each Pi
 ```
 
-## Before you start: things to change for your cluster
-
-Three files contain values specific to this setup that you must replace:
-
-**1. `configs/config.yaml`** - the single source of truth for your cluster topology.
-Edit every IP, hostname, and port to match your workers:
-```yaml
-devices_config:
-  master:
-  - host: localhost
-    ip: <your-mac-tailscale-ip>   # run: tailscale ip -4
-    rank: 0
-    port: 5000
-  workers:
-  - host: <ssh-alias-for-worker-1>   # must match Host in ~/.ssh/config
-    ip: <worker-1-tailscale-ip>
-    rank: 1
-    port: 5001
-  # ... one entry per worker
-```
-
-**2. `scripts/smoltorrent_startup.sh`** - two lines at the top:
-```bash
-SMOLTORRENT_DIR="/Users/yuvrajsingh1/smoltorrent"   # ← change to where you cloned the repo
-TAILSCALE_PROBE="100.68.124.90"                      # ← change to your first worker's Tailscale IP
-```
-
-**3. `monitoring/prometheus/prometheus.yml`** - every worker IP is hardcoded there.
-Run `bash scripts/launch_monitoring.sh` instead of editing by hand - it regenerates the file from `configs/config.yaml`.
-
-Everything else (SSH key path, usernames, ports) is read from `configs/config.yaml` at runtime.
-
 ## Setup
 
-### 1. Clone on the server (macOS)
+Full setup guide (standalone bootstrap, SSH cluster mode, auto-start, monitoring) → **[yuvrajsingh-mist.github.io/smoltorrent/setup.html](https://yuvrajsingh-mist.github.io/smoltorrent/setup.html)**
+
+Once setup is done, bring the cluster up:
 
 ```bash
-brew install yq uv
-git clone https://github.com/YuvrajSingh-mist/smoltorrent
-cd smoltorrent && uv sync
-```
-
-### 2. Configure `configs/config.yaml`
-
-Set `ckpt_root` and add one entry per worker. The `host` value must match your SSH alias in `~/.ssh/config` exactly.
-
-> **macOS TCC restriction**: LaunchDaemons (running as root) cannot access `~/Desktop`, `~/Documents`, or `~/Downloads` — macOS Transparency Consent and Control blocks them silently. Use `~/smolcluster/checkpoints` or any path under your home directory that is NOT in a TCC-protected folder. Same goes for where you clone the repo — keep it at `~/smoltorrent/`, not on the Desktop.
-
-```yaml
-ckpt_root: ~/smolcluster/checkpoints
-devices_config:
-  master:
-    - host: localhost
-      ip: <server-ip>
-      rank: 0
-      port: 5000
-  workers:
-    - host: pi4-1        # must match Host alias in ~/.ssh/config
-      ip: <pi-ip>
-      rank: 1
-      port: 5001
-    # ... one entry per worker
-```
-
-Add SSH aliases to `~/.ssh/config` (one per Pi):
-
-```
-Host pi4-1
-    HostName <pi-ip>
-    User <pi-user>
-    IdentityFile ~/.ssh/<your-key>
-    IdentitiesOnly yes
-```
-
-### 3. Bootstrap all nodes (run once)
-
-Rsyncs code to every Pi and installs all dependencies (uv, tmux, node_exporter, venv, zeroconf, boot_exporter service):
-
-```bash
-bash scripts/bootstrap.sh
-```
-
-After this completes, every node has everything it needs.
-
-### 4. Launch the cluster
-
-Add the `grove` command to your shell once:
-
-```bash
-# macOS (zsh)
-echo 'export PATH="<path-to-smoltorrent>/.venv/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-
-# Linux / Pi (bash)
-echo 'export PATH="<path-to-smoltorrent>/.venv/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-On the coordinator:
-```bash
+# On the master
 grove start -n 4
-```
 
-On each worker:
-```bash
+# On each worker
 grove join
 ```
 
-Workers find the master via mDNS TUI, register, and start automatically. Once all N workers join, the API + watcher start on the coordinator.
+Workers find the master via mDNS, register, and start automatically. Once all N workers have joined, the API + watcher start on the coordinator.
 
 **If you have code changes to push to workers first** (contributor workflow):
 

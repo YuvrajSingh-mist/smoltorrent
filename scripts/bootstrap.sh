@@ -1,12 +1,22 @@
 #!/bin/bash
-# One-time cluster setup: rsync code to all Pi workers and install all dependencies
-# (uv, tmux, node_exporter, Python venv, zeroconf, boot_exporter service) on every node.
-# On macOS also registers smoltorrent, node_exporter, and boot_exporter as LaunchDaemons.
+# One-time setup script — two modes:
 #
-# Run this once before your first launch, or after adding a new worker.
-# After it completes you can go straight to grove or launch.sh — no further setup needed.
+# STANDALONE (no SSH or config.yaml needed):
+#   Run this independently on the master and on each worker node.
+#   Installs all dependencies (uv, tmux, node_exporter, Python venv, zeroconf,
+#   boot_exporter) on whichever machine it runs on. No SSH aliases required.
 #
-# Usage: bootstrap.sh [--workers <rank,...>] [--dry-run]
+#     bash scripts/bootstrap.sh --standalone        # on master
+#     bash scripts/bootstrap.sh --standalone        # on each worker
+#
+#   Then on master: grove start -n <N>   |   on each worker: grove join
+#
+# CLUSTER (dev / one-shot from master):
+#   Once you have configs/config.yaml and ~/.ssh/config set up with SSH aliases
+#   for every node, run once from the master — it rsyncs the code and installs
+#   everything on all nodes automatically. No need to touch each machine.
+#
+#     bash scripts/bootstrap.sh                     # from master only
 #
 #   --workers 1,3   bootstrap only the specified worker ranks (default: all)
 #   --dry-run       print what would run without executing anything
@@ -18,6 +28,7 @@ CONFIG_FILE="$PROJECT_DIR/configs/config.yaml"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/Desktop/smoltorrent}"
 DRY_RUN=false
 WORKER_RANKS=""
+STANDALONE=false
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RESET="\033[0m"; C_BOLD="\033[1m"
@@ -33,6 +44,7 @@ err()  { echo -e "${C_RED}${1}${C_RESET}"; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --standalone) STANDALONE=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --workers)
             shift
@@ -40,39 +52,10 @@ while [[ $# -gt 0 ]]; do
             WORKER_RANKS="$1"; shift ;;
         *)
             err "Unknown option: $1"
-            warn "Usage: $0 [--workers <rank,...>] [--dry-run]"
+            warn "Usage: $0 [--standalone] [--workers <rank,...>] [--dry-run]"
             exit 1 ;;
     esac
 done
-
-# ── Preflight ──────────────────────────────────────────────────────────────────
-
-if ! command -v yq >/dev/null 2>&1; then
-    err "yq is required to parse $CONFIG_FILE  (brew install yq)"
-    exit 1
-fi
-
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    err "Config file not found: $CONFIG_FILE"
-    err "Edit configs/config.yaml with your cluster topology before running bootstrap."
-    exit 1
-fi
-
-MASTER_HOST="$(yq '.devices_config.master[0].host // .devices_config.master.host' "$CONFIG_FILE")"
-if [[ -z "$MASTER_HOST" || "$MASTER_HOST" == "null" ]]; then
-    err "Could not read master host from $CONFIG_FILE"
-    exit 1
-fi
-
-WORKER_ENTRIES=()
-while IFS= read -r entry; do
-    [[ -n "$entry" && "$entry" != "null" ]] && WORKER_ENTRIES+=("$entry")
-done < <(yq '.devices_config.workers[] | (.device // .host) + ":" + (.rank | tostring)' "$CONFIG_FILE")
-
-if [[ ${#WORKER_ENTRIES[@]} -eq 0 ]]; then
-    err "No workers found in $CONFIG_FILE"
-    exit 1
-fi
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -371,6 +354,50 @@ echo "boot_exporter service registered on $(hostname) (port 9101)"
 EOF
 }
 
+# ── Standalone mode ───────────────────────────────────────────────────────────
+# Install deps on this machine only — no SSH, no config.yaml, no aliases needed.
+# Run independently on the master and on each worker node.
+
+if [[ "$STANDALONE" == "true" ]]; then
+    info "Standalone mode — bootstrapping $(hostname) only"
+    ensure_local_dependencies || { err "Bootstrap failed on $(hostname)"; exit 127; }
+    ok ""
+    ok "Bootstrap complete on $(hostname)."
+    info ""
+    info "Next: on the master run   grove start -n <total-nodes>"
+    info "      on each worker run  grove join"
+    exit 0
+fi
+
+# ── Preflight (cluster mode only) ─────────────────────────────────────────────
+
+if ! command -v yq >/dev/null 2>&1; then
+    err "yq is required to parse $CONFIG_FILE  (brew install yq)"
+    exit 1
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    err "Config file not found: $CONFIG_FILE"
+    err "Edit configs/config.yaml with your cluster topology before running bootstrap."
+    exit 1
+fi
+
+MASTER_HOST="$(yq '.devices_config.master[0].host // .devices_config.master.host' "$CONFIG_FILE")"
+if [[ -z "$MASTER_HOST" || "$MASTER_HOST" == "null" ]]; then
+    err "Could not read master host from $CONFIG_FILE"
+    exit 1
+fi
+
+WORKER_ENTRIES=()
+while IFS= read -r entry; do
+    [[ -n "$entry" && "$entry" != "null" ]] && WORKER_ENTRIES+=("$entry")
+done < <(yq '.devices_config.workers[] | (.device // .host) + ":" + (.rank | tostring)' "$CONFIG_FILE")
+
+if [[ ${#WORKER_ENTRIES[@]} -eq 0 ]]; then
+    err "No workers found in $CONFIG_FILE"
+    exit 1
+fi
+
 # ── Build unique host list ─────────────────────────────────────────────────────
 
 ALL_HOSTS=("$MASTER_HOST")
@@ -438,7 +465,10 @@ done
 ok ""
 ok "Bootstrap complete. All nodes have deps installed."
 info ""
-info "Next steps — pick one:"
-info "  grove (no-SSH):   grove start -n ${#WORKER_ENTRIES[@]}   (master)"
-info "                    grove join                               (each worker)"
-info "  SSH-based:        bash scripts/launch.sh"
+info "Next steps:"
+info "  grove start -n ${#WORKER_ENTRIES[@]}   (on master)"
+info "  grove join                               (on each worker)"
+info "  bash scripts/launch.sh                  (SSH-based, starts all nodes from master)"
+info ""
+info "Tip: once configs/config.yaml and ~/.ssh/config aliases are set up,"
+info "     'bash scripts/bootstrap.sh' from the master handles every node in one shot."
