@@ -583,7 +583,7 @@ grove --help   <span style="color:var(--text-ter)"># should print grove CLI usag
         <p class="desc">Create your checkpoint root directory (the watcher monitors this folder):</p>
         <div class="callout warn">
           <span class="icon">!</span>
-          <span><strong>Disclaimer — macOS TCC restriction:</strong> LaunchDaemons (running as root) cannot access <code>~/Desktop</code>, <code>~/Documents</code>, or <code>~/Downloads</code> — macOS silently blocks them. Keep <code>ckpt_root</code> under <code>~/smolcluster/</code> (or any subfolder of your home directory that is NOT TCC-protected). Same for the repo itself — clone to <code>~/smoltorrent/</code>, not the Desktop.</span>
+          <span><strong>Disclaimer - macOS TCC restriction:</strong> LaunchDaemons (running as root) cannot access <code>~/Desktop</code>, <code>~/Documents</code>, or <code>~/Downloads</code> - macOS silently blocks them. Keep <code>ckpt_root</code> under <code>~/smolcluster/</code> (or any subfolder of your home directory that is NOT TCC-protected). Same for the repo itself - clone to <code>~/smoltorrent/</code>, not the Desktop.</span>
         </div>
         <div class="code-block">
           <pre>mkdir -p ~/smolcluster/checkpoints</pre>
@@ -676,14 +676,14 @@ grove --help   <span style="color:var(--text-ter)"># should print grove CLI usag
 
         <div class="callout tip">
           <span class="icon">💡</span>
-          <span><strong>Don't want to set up SSH aliases or <code>config.yaml</code>?</strong> Run <code>bootstrap.sh --standalone</code> independently on the master and on each worker node — no SSH or topology config needed. See the <a href="#grove-quickstart">standalone bootstrap section below</a>.</span>
+          <span><strong>Don't want to set up SSH aliases or <code>config.yaml</code>?</strong> Run <code>bootstrap.sh --standalone</code> independently on the master and on each worker node - no SSH or topology config needed. See the <a href="#grove-quickstart">standalone bootstrap section below</a>.</span>
         </div>
 
         <h3 class="sub-title">Useful flags</h3>
         <table class="req-table">
           <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
           <tbody>
-            <tr><td><code>--standalone</code></td><td>Install deps on this machine only — no SSH, no <code>config.yaml</code>, no aliases needed. Run on each node independently.</td></tr>
+            <tr><td><code>--standalone</code></td><td>Install deps on this machine only - no SSH, no <code>config.yaml</code>, no aliases needed. Run on each node independently.</td></tr>
             <tr><td><code>--workers 1,3</code></td><td>Bootstrap only the specified worker ranks (cluster mode only)</td></tr>
             <tr><td><code>--dry-run</code></td><td>Print what would run without executing anything</td></tr>
           </tbody>
@@ -772,7 +772,7 @@ tail -f logging/cluster-logs/*.log</pre>
           <h2 class="step-title">Standalone bootstrap + grove start / join</h2>
         </div>
 
-        <p class="desc">Don't want to wire up SSH aliases or fill in a topology file? Run <code>bootstrap.sh --standalone</code> on each machine independently — it installs everything locally. Then use <code>grove start</code> / <code>grove join</code>: workers discover the master over mDNS and self-register, and <code>config.yaml</code> is written automatically. No SSH config, no manual topology editing required.</p>
+        <p class="desc">Don't want to wire up SSH aliases or fill in a topology file? Run <code>bootstrap.sh --standalone</code> on each machine independently - it installs everything locally. Then use <code>grove start</code> / <code>grove join</code>: workers discover the master over mDNS and self-register, and <code>config.yaml</code> is written automatically. No SSH config, no manual topology editing required.</p>
 
         <div class="callout warn">
           <span class="icon">⚠️</span>
@@ -782,7 +782,7 @@ tail -f logging/cluster-logs/*.log</pre>
         <div class="grove-sub-step">
           <h3><span class="who">Master</span> Bootstrap this machine</h3>
           <div class="code-block">
-            <pre>brew install uv   <span style="color:var(--text-ter)"># macOS — if not already installed</span>
+            <pre>brew install uv   <span style="color:var(--text-ter)"># macOS - if not already installed</span>
 git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
 cd ~/smoltorrent
 
@@ -808,7 +808,7 @@ echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc</pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service — everything the worker needs, locally.</p>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service - everything the worker needs, locally.</p>
         </div>
 
         <div class="grove-sub-step">
@@ -826,7 +826,7 @@ source ~/.bashrc</pre>
             <pre>grove join</pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">A TUI lists all smoltorrent masters on the network. Select yours and press Enter — the worker registers, receives its rank, and starts the TCP listener immediately.</p>
+          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">A TUI lists all smoltorrent masters on the network. Select yours and press Enter - the worker registers, receives its rank, and starts the TCP listener immediately.</p>
         </div>
 
         <div class="callout tip" style="margin-top:1.2rem;">
@@ -836,7 +836,7 @@ source ~/.bashrc</pre>
             <ul style="margin: 0.4rem 0 0 1.1rem; font-size:0.92rem; line-height:2;">
               <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
               <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
-              <li>Cluster is ready — drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
+              <li>Cluster is ready - drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
             </ul>
           </div>
         </div>
@@ -848,7 +848,7 @@ source ~/.bashrc</pre>
 
         <div class="callout tip" style="margin-top:1rem;">
           <span class="icon">🔧</span>
-          <span><strong>Developer / cluster mode:</strong> Once you have <code>configs/config.yaml</code> and <code>~/.ssh/config</code> aliases set up for every node, a single <code>bash scripts/bootstrap.sh</code> from the master rsyncs the code and installs everything on all nodes automatically — no need to touch each machine individually.</span>
+          <span><strong>Developer / cluster mode:</strong> Once you have <code>configs/config.yaml</code> and <code>~/.ssh/config</code> aliases set up for every node, a single <code>bash scripts/bootstrap.sh</code> from the master rsyncs the code and installs everything on all nodes automatically - no need to touch each machine individually.</span>
         </div>
       </section>
 

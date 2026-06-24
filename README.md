@@ -39,7 +39,7 @@ Workers find the master via mDNS, register, and start automatically. Once all N 
 
 **If you have code changes to push to workers first** (contributor workflow):
 
-`launch.sh` uses `configs/dev-config.yaml` — fill in your SSH aliases and Tailscale IPs there before running.
+`launch.sh` uses `configs/dev-config.yaml` - fill in your SSH aliases and Tailscale IPs there before running.
 
 ```bash
 bash scripts/launch.sh        # rsync code to all workers (skips configs/)
@@ -159,7 +159,7 @@ All monitoring runs in Docker on the master node - no SSH needed.
 bash scripts/launch_monitoring.sh
 ```
 
-This is the canonical way to start monitoring — it regenerates `monitoring/prometheus/prometheus.yml` from `configs/config.yaml` (worker IPs, ports) before bringing containers up. Run it whenever the cluster topology changes.
+This is the canonical way to start monitoring - it regenerates `monitoring/prometheus/prometheus.yml` from `configs/config.yaml` (worker IPs, ports) before bringing containers up. Run it whenever the cluster topology changes.
 
 **Start / stop individual containers:**
 

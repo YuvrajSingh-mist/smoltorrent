@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-time setup script — two modes:
+# One-time setup script - two modes:
 #
 # STANDALONE (no SSH or config.yaml needed):
 #   Run this independently on the master and on each worker node.
@@ -13,7 +13,7 @@
 #
 # CLUSTER (dev / one-shot from master):
 #   Once you have configs/config.yaml and ~/.ssh/config set up with SSH aliases
-#   for every node, run once from the master — it rsyncs the code and installs
+#   for every node, run once from the master - it rsyncs the code and installs
 #   everything on all nodes automatically. No need to touch each machine.
 #
 #     bash scripts/bootstrap.sh                     # from master only
@@ -89,7 +89,7 @@ ensure_local_dependencies() {
     local os; os="$(uname -s)"
 
     if ! command -v tmux >/dev/null 2>&1; then
-        warn "tmux not found — installing..."
+        warn "tmux not found - installing..."
         if [[ "$os" == "Darwin" ]]; then
             command -v brew >/dev/null 2>&1 || { err "Homebrew required to install tmux"; return 1; }
             brew install tmux
@@ -101,7 +101,7 @@ ensure_local_dependencies() {
     fi
 
     if ! command -v node_exporter >/dev/null 2>&1; then
-        warn "node_exporter not found — installing..."
+        warn "node_exporter not found - installing..."
         if [[ "$os" == "Darwin" ]]; then
             command -v brew >/dev/null 2>&1 || { err "Homebrew required to install node_exporter"; return 1; }
             brew install node_exporter
@@ -186,7 +186,7 @@ PLIST
     sudo launchctl bootout system/"$PLIST_LABEL" 2>/dev/null || true
     sudo launchctl bootstrap system "$PLIST_DST"
     sudo launchctl enable system/"$PLIST_LABEL"
-    ok "smoltorrent LaunchDaemon registered — auto-starts on next boot."
+    ok "smoltorrent LaunchDaemon registered - auto-starts on next boot."
     info "Logs: tail -f /tmp/smoltorrent-startup.log"
 
     local NODE_EXP_PLIST="/Library/LaunchDaemons/com.node-exporter.plist"
@@ -220,7 +220,7 @@ PLIST
         sudo launchctl bootout system/"$NODE_EXP_LABEL" 2>/dev/null || true
         sudo launchctl bootstrap system "$NODE_EXP_PLIST"
         sudo launchctl enable system/"$NODE_EXP_LABEL"
-        ok "node_exporter LaunchDaemon registered — metrics on port 9100 survive reboots."
+        ok "node_exporter LaunchDaemon registered - metrics on port 9100 survive reboots."
         info "Verify: curl http://localhost:9100/metrics | grep node_boot_time_seconds"
     fi
 
@@ -261,7 +261,7 @@ PLIST
     sudo launchctl bootout system/"$BOOT_EXP_LABEL" 2>/dev/null || true
     sudo launchctl bootstrap system "$BOOT_EXP_PLIST"
     sudo launchctl enable system/"$BOOT_EXP_LABEL"
-    ok "boot_exporter LaunchDaemon registered — boot time metric on port 9101 survives reboots."
+    ok "boot_exporter LaunchDaemon registered - boot time metric on port 9101 survives reboots."
     info "Verify: curl http://localhost:9101/metrics | grep smoltorrent_boot_time_ms"
 }
 
@@ -355,11 +355,11 @@ EOF
 }
 
 # ── Standalone mode ───────────────────────────────────────────────────────────
-# Install deps on this machine only — no SSH, no config.yaml, no aliases needed.
+# Install deps on this machine only - no SSH, no config.yaml, no aliases needed.
 # Run independently on the master and on each worker node.
 
 if [[ "$STANDALONE" == "true" ]]; then
-    info "Standalone mode — bootstrapping $(hostname) only"
+    info "Standalone mode - bootstrapping $(hostname) only"
     ensure_local_dependencies || { err "Bootstrap failed on $(hostname)"; exit 127; }
     ok ""
     ok "Bootstrap complete on $(hostname)."
@@ -425,7 +425,7 @@ info "${C_BOLD}Workers :${C_RESET} ${WORKER_ENTRIES[*]}"
 info "Syncing code to remote hosts..."
 for host in "${UNIQUE_HOSTS[@]}"; do
     if is_local_host "$host"; then
-        warn "  $host is local — skipping rsync"
+        warn "  $host is local - skipping rsync"
         continue
     fi
     if [[ "$DRY_RUN" == "true" ]]; then
