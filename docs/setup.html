@@ -453,15 +453,15 @@
     <aside class="sidebar">
       <div class="sidebar-title">Setup Guide</div>
       <nav>
-        <div class="sidebar-group">SSH Setup</div>
+        <div class="sidebar-group">Quick start</div>
+        <a href="#grove-quickstart"><span class="step-num">⚡</span>Standalone setup</a>
+
+        <div class="sidebar-group">SSH / Dev mode</div>
         <a href="#prereqs-server"><span class="step-num">1</span>Server prerequisites</a>
         <a href="#prereqs-pi"><span class="step-num">2</span>Pi prerequisites</a>
         <a href="#clone"><span class="step-num">3</span>Clone, configure &amp; port map</a>
         <a href="#bootstrap"><span class="step-num">4</span>Bootstrap all nodes</a>
         <a href="#launch"><span class="step-num">5</span>Launch cluster</a>
-
-        <div class="sidebar-group">Standalone (no SSH)</div>
-        <a href="#grove-quickstart" class="grove-link"><span class="step-num">⚡</span>Standalone bootstrap</a>
 
         <div class="sidebar-group">Optional</div>
         <a href="#pi-autostart"><span class="step-num">6</span>Pi auto-start</a>
@@ -474,6 +474,97 @@
 
     <!-- ── Main ── -->
     <main>
+
+      <!-- Standalone quick start -->
+      <section class="step-section" id="grove-quickstart">
+        <div class="step-header">
+          <div class="step-badge">⚡</div>
+          <h2 class="step-title">Standalone setup</h2>
+        </div>
+
+        <p class="desc">No SSH config, no topology file. Run <code>bootstrap.sh --standalone</code> on each machine independently - it handles all dependencies locally. Then <code>grove start</code> / <code>grove join</code> to bring the cluster up.</p>
+
+        <div class="callout warn">
+          <span class="icon">⚠️</span>
+          <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS discovery to work. For production runs or complex networks, use the SSH cluster setup below.</span>
+        </div>
+
+        <h3 class="sub-title">Master (macOS)</h3>
+        <div class="code-block">
+          <pre><span style="color:var(--text-ter)"># Install Homebrew if not present</span>
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+<span style="color:var(--text-ter)"># Install uv (Python package manager)</span>
+brew install uv
+
+git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
+cd ~/smoltorrent
+
+bash scripts/bootstrap.sh --standalone
+
+<span style="color:var(--text-ter)"># Add grove to your PATH (one time)</span>
+echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+
+        <h3 class="sub-title">Each worker (Pi or any Linux/macOS)</h3>
+        <div class="code-block">
+          <pre><span style="color:var(--text-ter)"># Make sure git and curl are present</span>
+sudo apt update && sudo apt install -y git curl
+
+git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
+cd ~/smoltorrent
+
+bash scripts/bootstrap.sh --standalone
+
+<span style="color:var(--text-ter)"># Add grove to PATH</span>
+echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+        <p class="desc">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service on whichever machine it runs on.</p>
+
+        <h3 class="sub-title">Start the cluster</h3>
+        <div class="code-block">
+          <pre><span style="color:var(--text-ter)"># On the master</span>
+grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your total worker count</span>
+
+<span style="color:var(--text-ter)"># On each worker</span>
+grove join</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+        <p class="desc">A TUI on each worker lists smoltorrent masters found on the network. Select yours and press Enter - the worker registers, receives its rank, and starts automatically.</p>
+
+        <div class="callout tip" style="margin-top:1.2rem;">
+          <span class="icon">✅</span>
+          <div>
+            <strong>Once all N workers have joined:</strong>
+            <ul style="margin: 0.4rem 0 0 1.1rem; font-size:0.92rem; line-height:2;">
+              <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
+              <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
+              <li>Cluster is ready - drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">ℹ️</span>
+          <span>Set <code>ckpt_root</code> in <code>configs/config.yaml</code> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
+        </div>
+
+        <div class="callout tip" style="margin-top:1rem;">
+          <span class="icon">🔧</span>
+          <span><strong>Developer / cluster mode:</strong> Once you have <code>configs/config.yaml</code> and <code>~/.ssh/config</code> aliases set up for every node, a single <code>bash scripts/bootstrap.sh</code> from the master rsyncs the code and installs everything on all nodes automatically.</span>
+        </div>
+      </section>
+
+      <!-- SSH / Dev mode divider -->
+      <div class="section-divider">
+        <hr>
+        <span>SSH / Dev mode</span>
+        <hr>
+      </div>
 
       <!-- Step 1: Server prerequisites -->
       <section class="step-section" id="prereqs-server">
@@ -755,82 +846,6 @@ ssh -t pi4-1 tmux attach -t syncps_worker_1
 <span style="color:var(--text-ter)"># All logs tailed locally</span>
 tail -f logging/cluster-logs/*.log</pre>
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        </div>
-      </section>
-
-      <!-- Grove: no-SSH alternative -->
-      <section class="step-section" id="grove-quickstart">
-        <div class="step-header">
-          <div class="step-badge">⚡</div>
-          <h2 class="step-title">Standalone bootstrap + grove start / join</h2>
-        </div>
-
-        <p class="desc">Don't want to wire up SSH aliases or fill in a topology file? Run <code>bootstrap.sh --standalone</code> on each machine independently - it installs everything locally. Then use <code>grove start</code> / <code>grove join</code>: workers discover the master over mDNS and self-register, and <code>config.yaml</code> is written automatically. No SSH config, no manual topology editing required.</p>
-
-        <div class="callout warn">
-          <span class="icon">⚠️</span>
-          <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS multicast to reach them. For production runs over complex networks, use the SSH cluster setup (steps 1–5) above.</span>
-        </div>
-
-        <h3 class="sub-title">On the master</h3>
-        <div class="code-block">
-          <pre>brew install uv   <span style="color:var(--text-ter)"># macOS - if not already installed</span>
-git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
-cd ~/smoltorrent
-
-bash scripts/bootstrap.sh --standalone
-
-<span style="color:var(--text-ter)"># Add grove to your PATH (one time)</span>
-echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc</pre>
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        </div>
-
-        <h3 class="sub-title">On each worker (Pi or any Linux/macOS)</h3>
-        <div class="code-block">
-          <pre>git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
-cd ~/smoltorrent
-
-bash scripts/bootstrap.sh --standalone
-
-<span style="color:var(--text-ter)"># Add grove to PATH</span>
-echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc</pre>
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        </div>
-        <p class="desc">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service on whichever machine it runs on.</p>
-
-        <h3 class="sub-title">Start the cluster</h3>
-        <div class="code-block">
-          <pre><span style="color:var(--text-ter)"># On the master</span>
-grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your total worker count</span>
-
-<span style="color:var(--text-ter)"># On each worker</span>
-grove join</pre>
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        </div>
-        <p class="desc">A TUI on each worker lists smoltorrent masters found on the network. Select yours and press Enter - the worker registers, receives its rank, and starts automatically.</p>
-
-        <div class="callout tip" style="margin-top:1.2rem;">
-          <span class="icon">✅</span>
-          <div>
-            <strong>Once all N workers have joined:</strong>
-            <ul style="margin: 0.4rem 0 0 1.1rem; font-size:0.92rem; line-height:2;">
-              <li>Master writes <code>configs/config.yaml</code> with each worker's IP, rank, and port.</li>
-              <li>Master starts the FastAPI server (<code>syncps_api</code>) and watcher daemon (<code>syncps_watcher</code>) in tmux.</li>
-              <li>Cluster is ready - drop a <code>.safetensors</code> file into <code>ckpt_root</code> and the watcher shards it automatically.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="callout info">
-          <span class="icon">ℹ️</span>
-          <span>Set <code>ckpt_root</code> in <code>configs/config.yaml</code> after the first join to point at your checkpoint directory. Everything else is managed automatically.</span>
-        </div>
-
-        <div class="callout tip" style="margin-top:1rem;">
-          <span class="icon">🔧</span>
-          <span><strong>Developer / cluster mode:</strong> Once you have <code>configs/config.yaml</code> and <code>~/.ssh/config</code> aliases set up for every node, a single <code>bash scripts/bootstrap.sh</code> from the master rsyncs the code and installs everything on all nodes automatically - no need to touch each machine individually.</span>
         </div>
       </section>
 
