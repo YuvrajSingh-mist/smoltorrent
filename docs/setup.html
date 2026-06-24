@@ -759,16 +759,9 @@ tail -f logging/cluster-logs/*.log</pre>
       </section>
 
       <!-- Grove: no-SSH alternative -->
-      <div class="section-divider">
-        <hr>
-        <span>Standalone (no SSH needed)</span>
-        <hr>
-      </div>
-
-      <section class="grove-section step-section" id="grove-quickstart">
-        <div class="grove-tag">No SSH · No config.yaml · No aliases</div>
+      <section class="step-section" id="grove-quickstart">
         <div class="step-header">
-          <div class="step-badge grove">⚡</div>
+          <div class="step-badge">⚡</div>
           <h2 class="step-title">Standalone bootstrap + grove start / join</h2>
         </div>
 
@@ -779,10 +772,9 @@ tail -f logging/cluster-logs/*.log</pre>
           <span>All nodes must be on the <strong>same LAN or VPN</strong> for mDNS multicast to reach them. For production runs over complex networks, use the SSH cluster setup (steps 1–5) above.</span>
         </div>
 
-        <div class="grove-sub-step">
-          <h3><span class="who">Master</span> Bootstrap this machine</h3>
-          <div class="code-block">
-            <pre>brew install uv   <span style="color:var(--text-ter)"># macOS - if not already installed</span>
+        <h3 class="sub-title">On the master</h3>
+        <div class="code-block">
+          <pre>brew install uv   <span style="color:var(--text-ter)"># macOS - if not already installed</span>
 git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
 cd ~/smoltorrent
 
@@ -791,14 +783,12 @@ bash scripts/bootstrap.sh --standalone
 <span style="color:var(--text-ter)"># Add grove to your PATH (one time)</span>
 echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc</pre>
-            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          </div>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
 
-        <div class="grove-sub-step">
-          <h3><span class="who">Each worker</span> Bootstrap this machine (Pi or any Linux/macOS)</h3>
-          <div class="code-block">
-            <pre>git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
+        <h3 class="sub-title">On each worker (Pi or any Linux/macOS)</h3>
+        <div class="code-block">
+          <pre>git clone https://github.com/YuvrajSingh-mist/smoltorrent ~/smoltorrent
 cd ~/smoltorrent
 
 bash scripts/bootstrap.sh --standalone
@@ -806,28 +796,20 @@ bash scripts/bootstrap.sh --standalone
 <span style="color:var(--text-ter)"># Add grove to PATH</span>
 echo 'export PATH="$HOME/smoltorrent/.venv/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc</pre>
-            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service - everything the worker needs, locally.</p>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
+        <p class="desc">Installs <code>uv</code>, <code>tmux</code>, <code>node_exporter</code>, the Python venv, <code>zeroconf</code>, and the <code>boot_exporter</code> service on whichever machine it runs on.</p>
 
-        <div class="grove-sub-step">
-          <h3><span class="who">Master</span> Advertise and wait for workers</h3>
-          <div class="code-block">
-            <pre>grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your total worker count</span></pre>
-            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">Advertises over mDNS and waits until all <code>N</code> workers have joined before starting the cluster.</p>
-        </div>
+        <h3 class="sub-title">Start the cluster</h3>
+        <div class="code-block">
+          <pre><span style="color:var(--text-ter)"># On the master</span>
+grove start -n 4   <span style="color:var(--text-ter)"># replace 4 with your total worker count</span>
 
-        <div class="grove-sub-step">
-          <h3><span class="who">Each worker</span> Find the master and join</h3>
-          <div class="code-block">
-            <pre>grove join</pre>
-            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          </div>
-          <p style="font-size:0.9rem; color:var(--text-sec); margin-top:0.4rem;">A TUI lists all smoltorrent masters on the network. Select yours and press Enter - the worker registers, receives its rank, and starts the TCP listener immediately.</p>
+<span style="color:var(--text-ter)"># On each worker</span>
+grove join</pre>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         </div>
+        <p class="desc">A TUI on each worker lists smoltorrent masters found on the network. Select yours and press Enter - the worker registers, receives its rank, and starts automatically.</p>
 
         <div class="callout tip" style="margin-top:1.2rem;">
           <span class="icon">✅</span>
