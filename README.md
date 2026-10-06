@@ -226,3 +226,14 @@ Pi logs appear in Grafana → Explore → Loki:
 ## Citation
 
 If you use smoltorrent in academic work, please cite it via [CITATION.cff](CITATION.cff) (GitHub's "Cite this repository" button). Each GitHub release is archived on Zenodo, which mints a DOI for the exact version.
+
+```bibtex
+@software{singh2026smoltorrent,
+  title     = {smoltorrent: A Distributed Storage System for ML Checkpoints using Raspberry Pis},
+  author    = {Singh, Yuvraj},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23196818},
+  url       = {https://github.com/YuvrajSingh-mist/smoltorrent}
+}
+```
