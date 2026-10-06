@@ -220,4 +220,9 @@ Pi logs appear in Grafana → Explore → Loki:
 
 ## License
 
-See [LICENSE](LICENSE).
+- **Code** (smoltorrent source, scripts, configs): [Apache License 2.0](LICENSE). Keep the copyright notice and [NOTICE](NOTICE) when you redistribute.
+- **Docs, diagrams and published artifacts**: [CC BY 4.0](LICENSE-DATASET) - free to reuse with attribution to Yuvraj Singh (name + link; indicate changes).
+
+## Citation
+
+If you use smoltorrent in academic work, please cite it via [CITATION.cff](CITATION.cff) (GitHub's "Cite this repository" button). Each GitHub release is archived on Zenodo, which mints a DOI for the exact version.

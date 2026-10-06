@@ -1,0 +1,40 @@
+{
+  "title": "smoltorrent: A Distributed Storage System for ML Checkpoints using Raspberry Pis",
+  "description": "<p><strong>smoltorrent</strong> shards, replicates and reassembles ML checkpoints across a Raspberry Pi cluster over raw TCP.</p>\n<p>The smoltorrent source code, scripts and configuration are licensed under Apache-2.0. Smoltorrent documentation, diagrams and published configuration artifacts are licensed under CC BY 4.0.</p>",
+  "creators": [
+    {
+      "name": "Singh, Yuvraj"
+    }
+  ],
+  "license": "apache-2.0",
+  "upload_type": "software",
+  "access_right": "open",
+  "language": "eng",
+  "keywords": [
+    "distributed storage",
+    "checkpoint sharding",
+    "raspberry pi",
+    "mDNS",
+    "AWDL",
+    "safetensors",
+    "Prometheus"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/YuvrajSingh-mist/smoltorrent",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://yuvrajsingh.io/posts/smoltorrent/",
+      "relation": "isDocumentedBy",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://yuvrajsingh.io/posts/beginners-guide-to-mdns/",
+      "relation": "isDocumentedBy",
+      "scheme": "url"
+    }
+  ],
+  "notes": "Code is licensed under Apache-2.0. Smoltorrent documentation, diagrams and published configuration artifacts are additionally licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)."
+}
